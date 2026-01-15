@@ -1,9 +1,27 @@
 provider "aws" {
-  region = "us-east-1"
+  region =var.region
+}
+
+variable "region" {
+}
+
+variable "vpc_cidr" {
+}
+
+variable "public_subnet1_cidr" {
+}
+
+variable "public_subnet2_cidr" {
+}
+
+variable "private_subnet1_cidr" {
+}
+
+variable "private_subnet2_cidr" {
 }
 
 resource "aws_vpc" "main" {
-  cidr_block = "10.0.0.0/16"
+  cidr_block = var.vpc_cidr
     tags = {
         Name = "demo_vpc"
     }
@@ -21,18 +39,16 @@ resource "aws_internet_gateway" "igw" {
 }
 resource "aws_subnet" "public_subnet1" {
   vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.1.0/24"
+  cidr_block        = var.public_subnet1_cidr
   availability_zone = "us-east-1a"
-  map_public_ip_on_launch = true
     tags = {
         Name = "public_subnet1"
     }
 }
 resource "aws_subnet" "public_subnet2" {
   vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.2.0/24"
+  cidr_block        = var.public_subnet2_cidr
   availability_zone = "us-east-1b"
-  map_public_ip_on_launch = true
     tags = {
         Name = "public_subnet2"
     }       
@@ -40,7 +56,7 @@ resource "aws_subnet" "public_subnet2" {
 
 resource "aws_subnet" "private_subnet1" {
   vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.3.0/24"
+  cidr_block        = var.private_subnet1_cidr
   availability_zone = "us-east-1a"
     tags = {
         Name = "private_subnet1"
@@ -49,7 +65,7 @@ resource "aws_subnet" "private_subnet1" {
 
 resource "aws_subnet" "private_subnet2" {
   vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.4.0/24"
+  cidr_block        = var.private_subnet2_cidr
   availability_zone = "us-east-1b"
     tags = {
         Name = "private_subnet2"
@@ -166,14 +182,7 @@ resource "aws_instance" "web_server" {
   tags = {
     Name = "WebServer1"
   }
-  user_data = <<-EOF
-              #!/bin/bash
-              apt-get update
-              apt-get install -y apache2
-              systemctl start apache2
-              systemctl enable apache2
-              echo "Hello from Web Server 1" > /var/www/html/index.html
-              EOF
+  user_data = file("test.sh")
 }
 
 resource "aws_instance" "web_server2" {
@@ -185,14 +194,7 @@ resource "aws_instance" "web_server2" {
   tags = {
     Name = "WebServer2"
   }
-  user_data = <<-EOF
-              #!/bin/bash
-              apt-get update
-              apt-get install -y apache2
-              systemctl start apache2
-              systemctl enable apache2
-              echo "Hello from Web Server 2" > /var/www/html/index.html
-              EOF
+  user_data = file("test2.sh")
 }
 
 resource "aws_lb_target_group" "app_tg" {
