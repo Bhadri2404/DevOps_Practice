@@ -1,0 +1,12 @@
+locals {
+  app_name = "myapp"
+  env      = "dev"
+}
+
+resource "aws_s3_bucket" "bucket1" {
+  bucket = "${local.app_name}-${local.env}-bucket"
+}
+
+resource "aws_s3_bucket" "bucket2" {
+  bucket = "${local.app_name}-${local.env}-logs"
+}
