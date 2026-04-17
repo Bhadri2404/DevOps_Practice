@@ -1,1156 +1,1353 @@
-# 🐍 Python for DevOps — Complete Notes with Simple Production Programs
-### From Basics to Advanced | Every Concept from the Transcript Covered
+# 🐍 Python for DevOps — Complete Notes (Beginner to Advanced)
 
 ---
 
-## 📋 Table of Contents
-
-1. [Python Basics](#1-python-basics)
-2. [Control Flow](#2-control-flow)
-3. [Data Structures](#3-data-structures)
-4. [Functions](#4-functions)
-5. [Modules & Packages](#5-modules--packages)
-6. [File Handling](#6-file-handling)
-7. [Exception Handling](#7-exception-handling)
-8. [OOP Concepts](#8-oop-concepts)
-9. [Advanced Topics](#9-advanced-topics)
-10. [Simple Production Programs for Every Module](#10-simple-production-programs-for-every-module)
-
----
-
-## 1. Python Basics
-
-### 🔹 What is Python?
-
-Python is a **high-level, interpreted, object-oriented programming language**.
-
-Used in DevOps for:
-- **Automation** — removing manual repetitive tasks
-- **Scripting** — writing deployment and monitoring tools
-- **CI/CD** — Jenkins, GitHub Actions helper scripts
-- **Cloud operations** — AWS, Azure automation
-- **Infrastructure management** — working with APIs, configs
-
-> **Why Python in DevOps?**
-> - Easy English-like syntax
-> - Rich library ecosystem (`boto3`, `paramiko`, `requests`)
-> - Runs on Linux, Windows, macOS without recompilation
+## 📌 Table of Contents
+1. [What is Python & Why DevOps Engineers Use It](#1-what-is-python--why-devops-engineers-use-it)
+2. [Python Setup & Installation](#2-python-setup--installation)
+3. [Python Basics](#3-python-basics)
+4. [Control Flow](#4-control-flow)
+5. [Data Structures](#5-data-structures)
+6. [Functions](#6-functions)
+7. [Modules & Packages](#7-modules--packages)
+8. [File Handling](#8-file-handling)
+9. [Exception Handling](#9-exception-handling)
+10. [Object-Oriented Programming (OOP)](#10-object-oriented-programming-oop)
+11. [Advanced Topics](#11-advanced-topics)
 
 ---
 
-### 🔹 Python Setup
+## 1. What is Python & Why DevOps Engineers Use It
 
-**Linux (Ubuntu/Debian):**
+### 📖 What is Python?
+Python is a **high-level, interpreted, object-oriented programming language** with a very clean, English-like syntax. It is one of the most popular programming languages in the world today.
+
+### ✅ Why Python in DevOps?
+| Use Case | Example |
+|---|---|
+| Automation | Auto-restart crashed services, auto-cleanup logs |
+| Infrastructure Management | Automate EC2 start/stop via Boto3 |
+| CI/CD Pipelines | Trigger builds, check status via API |
+| Cloud Operations | S3 uploads, Lambda invocations |
+| Monitoring & Alerting | Check CPU/memory and send alerts |
+| Log Analysis | Parse logs, count errors, rotate files |
+| API Integration | Call GitHub API, Jenkins API |
+| Configuration Management | Read/write YAML, JSON config files |
+
+### 💡 Why Python is Popular in DevOps
+- **Rich library ecosystem** — Boto3 (AWS), Paramiko (SSH), Requests (HTTP)
+- **Easy syntax** — Code reads almost like English
+- **Cross-platform** — Works on Linux, Windows, macOS
+- **Huge community** — Solutions available for almost every problem
+- **AI/ML Integration** — Used heavily in modern cloud-native tooling
+
+---
+
+## 2. Python Setup & Installation
+
+### 🖥️ On Linux (Ubuntu/Debian)
 ```bash
+# Install Python 3
 sudo apt install python3
-python3 --version         # Output: Python 3.12.3
+
+# Verify installation
+python3 --version
+
+# Output example:
+# Python 3.12.3
 ```
 
-**Windows:** Download from [python.org](https://python.org)
+### 🖥️ On Windows
+- Download from: [https://www.python.org/downloads/](https://www.python.org/downloads/)
+- During install, check **"Add Python to PATH"**
+- Verify: open Command Prompt → `python --version`
 
-**Run a script:**
+### ▶️ Running a Python Script
 ```bash
+# Method 1: Using Python interpreter
 python3 script.py
+
+# Method 2: Using shebang line (Linux only)
+#!/usr/bin/env python3
+# Make executable:
+chmod +x script.py
+./script.py
 ```
+
+### 💡 Production Best Practice
+> Always use **Python 3** — Python 2 is end-of-life. In production, use **virtual environments** (`venv`) to isolate dependencies per project.
 
 ---
 
-### 🔹 Python Indentation — Most Important Rule
+## 3. Python Basics
 
-Python uses **spaces/tabs** to define code blocks. **No curly braces `{}`.**
+### 3.1 Indentation
+Python uses **indentation (spaces/tabs)** to define code blocks — NOT curly braces like Java or C.
 
 ```python
-# ✅ CORRECT — 4 spaces indent
+# ✅ Correct indentation
 if True:
     print("Hello Python")
 
-# ❌ WRONG — will give IndentationError
+# ❌ Wrong — will throw IndentationError
 if True:
 print("Hello Python")
 ```
 
-> **Common Mistake 🔴:** Mixing tabs and spaces causes `IndentationError`. Always use **4 spaces**.
+> **🎯 Interview Tip:** Python uses indentation to define scope. 4 spaces is the standard (PEP 8). Never mix tabs and spaces.
+
+> **⚠️ Common Mistake:** Mixing tabs and spaces causes `TabError`. Always use spaces.
 
 ---
 
-### 🔹 Variables & Data Types
+### 3.2 Variables & Data Types
 
-Variables are **containers** that store data.
+**Variables** are containers (memory locations) for storing data values.
 
 ```python
-# DevOps variable examples
-server_name   = "web-prod-01"   # str   → text
-port          = 22               # int   → whole number
-cpu_usage     = 85.5             # float → decimal number
-is_running    = True             # bool  → True or False
+# Variables — no need to declare type explicitly
+name    = "Dh"          # str  — text/string
+age     = 25            # int  — whole number
+salary  = 80000.50      # float — decimal number
+is_devops = True        # bool — True/False
 ```
 
-**All Python Data Types:**
+#### Python Data Types Summary
+| Type | Example | Notes |
+|---|---|---|
+| `int` | `10` | Whole numbers |
+| `float` | `3.14` | Decimal numbers |
+| `str` | `"hello"` | Text — in quotes |
+| `bool` | `True / False` | Must be capitalized |
+| `list` | `[1, 2, 3]` | Ordered, mutable — square brackets |
+| `tuple` | `(1, 2, 3)` | Ordered, **immutable** — round brackets |
+| `set` | `{1, 2, 3}` | Unordered, **unique** — curly braces |
+| `dict` | `{"key": "value"}` | Key-value pairs — curly braces |
 
-| Type     | Example                        | Notes                        |
-|----------|--------------------------------|------------------------------|
-| `int`    | `port = 22`                    | Whole numbers                |
-| `float`  | `cpu = 85.5`                   | Decimal numbers              |
-| `str`    | `host = "10.0.0.1"`            | Text                         |
-| `bool`   | `active = True`                | True or False only           |
-| `list`   | `["web01", "db01"]`            | Ordered, Mutable             |
-| `tuple`  | `("admin", "pass")`            | Ordered, Immutable           |
-| `set`    | `{"web01", "db01"}`            | Unordered, Unique values     |
-| `dict`   | `{"name": "web01"}`            | Key-value pairs              |
+#### 🔑 Key Differences to Remember (Very Common Interview Question)
+| Property | List | Tuple | Set |
+|---|---|---|---|
+| Bracket | `[ ]` | `( )` | `{ }` |
+| Ordered | ✅ Yes | ✅ Yes | ❌ No |
+| Mutable | ✅ Yes | ❌ No | ✅ Yes |
+| Duplicates Allowed | ✅ Yes | ✅ Yes | ❌ No |
 
-> **Interview Tip 🎯 — Most Asked:**
-> - **List** → Ordered + Mutable (can change) → written in `[ ]`
-> - **Tuple** → Ordered + Immutable (cannot change) → written in `( )`
-> - **Set** → Unordered + Unique (no duplicates) → written in `{ }`
-> - **Dictionary** → Key-value pairs → written in `{ key: value }`
+> **🎯 Interview Tip:** "Use a tuple when data should NOT change — like server credentials or config constants."
 
 ---
 
-### 🔹 Input and Output
+### 3.3 Input & Output
 
 ```python
 # Taking input from user
-server_name = input("Enter the server name: ")
+name = input("Enter your name: ")
 
-# Printing output — always use f-string formatting
-print(f"Connecting to {server_name}, please wait...")
+# Printing output — f-string formatting (recommended)
+print(f"Hello {name}, welcome to DevOps!")
 ```
 
-**String Formatting — f-strings (Python 3.6+):**
+#### DevOps Example — Server Connection Script
 ```python
-tool    = "Ansible"
-region  = "us-east-1"
-
-# ❌ Wrong — variable not expanded
-print("Tool is tool in region")
-
-# ✅ Correct — use f before the string
-print(f"Tool is {tool} in {region}")
-# Output: Tool is Ansible in us-east-1
+server = input("Enter server name: ")
+print(f"Connecting to {server}... please wait.")
 ```
 
-> **Common Mistake 🔴:** Forgetting the `f` before the string — variable name prints literally.
+```bash
+# Run it
+python3 server_info.py
+# Enter server name: prod-server-01
+# Output: Connecting to prod-server-01... please wait.
+```
+
+> **⚠️ Common Mistake:** Forgetting the `f` prefix in f-strings. `print("Hello {name}")` will literally print `{name}` — not the variable value.
 
 ---
 
-### 🔹 Type Conversion (Type Casting)
+### 3.4 Type Conversion (Type Casting)
 
-**Two types:**
+Two types:
 
-**1. Implicit** — Python converts automatically:
+#### Implicit Type Conversion (Automatic)
+Python automatically converts types to avoid data loss.
+
 ```python
-a = 10       # int
-b = 5.5      # float
-c = a + b    # Python auto-converts int → float
-print(c)           # 15.5
-print(type(c))     # <class 'float'>
+a = 10      # int
+b = 5.5     # float
+
+c = a + b
+print(c)       # 15.5  (float)
+print(type(c)) # <class 'float'>
+# Python automatically promoted int to float
 ```
 
-**2. Explicit** — You manually convert using built-in functions:
+#### Explicit Type Conversion (Manual)
+You manually convert using built-in functions.
+
 ```python
-# String → Integer
+# String to Integer
 port_str = "8080"
 port_int = int(port_str)
-print(type(port_int))    # <class 'int'>
+print(type(port_int))  # <class 'int'>
 
-# Integer → String
-code = 200
-msg  = "Status: " + str(code)
-print(msg)               # Status: 200
+# Integer to String
+exit_code = 0
+exit_str = str(exit_code)
+print("Exit code: " + exit_str)  # Works now (can't concat int + str directly)
 
-# Integer → Float
-age     = 25
-age_flt = float(age)
-print(age_flt)           # 25.0
+# String to Float
+cpu_usage = float("87.5")
+print(cpu_usage)  # 87.5
 
-# Integer → Boolean
-print(bool(1))    # True
-print(bool(0))    # False
-
-# List → Tuple
-servers      = ["web01", "db01"]
+# List to Tuple (immutable snapshot of data)
+servers = ["web01", "db01", "cache01"]
 server_tuple = tuple(servers)
-print(server_tuple)    # ('web01', 'db01')
+print(server_tuple)  # ('web01', 'db01', 'cache01')
+```
 
-# List → Set (removes duplicates)
-ips     = ["10.0.0.1", "10.0.0.2", "10.0.0.1"]
-unique  = set(ips)
-print(unique)          # {'10.0.0.1', '10.0.0.2'}
+> **💼 DevOps Use Case:** API responses often return numbers as strings. You must cast them to `int` or `float` before doing math (e.g., calculating CPU %).
+
+---
+
+### 3.5 Comments
+
+```python
+# This is a single-line comment — use # symbol
+
+"""
+This is a
+multi-line comment
+using triple double-quotes
+"""
+
+'''
+This also works
+as a multi-line comment
+'''
 ```
 
 ---
 
-### 🔹 Operators
+### 3.6 Operators
 
+#### Arithmetic Operators
 ```python
 a, b = 10, 3
 
-# ── Arithmetic Operators ──
-print(a + b)    # 13  — addition
-print(a - b)    # 7   — subtraction
-print(a * b)    # 30  — multiplication
-print(a / b)    # 3.33 — division (always float)
-print(a // b)   # 3   — floor division
-print(a % b)    # 1   — modulus (remainder)
-print(a ** b)   # 1000 — exponentiation
+print(a + b)   # 13 — Addition
+print(a - b)   # 7  — Subtraction
+print(a * b)   # 30 — Multiplication
+print(a / b)   # 3.333... — Division (always float)
+print(a // b)  # 3  — Floor Division (integer result)
+print(a % b)   # 1  — Modulus (remainder)
+print(a ** b)  # 1000 — Exponent (10^3)
+```
 
-# ── Comparison Operators ──
-print(a == b)   # False — equal to
-print(a != b)   # True  — not equal
-print(a > b)    # True  — greater than
-print(a < b)    # False — less than
-print(a >= b)   # True  — greater than or equal
-print(a <= b)   # False — less than or equal
+#### Comparison Operators
+```python
+print(10 == 10)  # True
+print(10 != 5)   # True
+print(10 > 5)    # True
+print(10 < 5)    # False
+print(10 >= 10)  # True
+print(10 <= 9)   # False
+```
 
-# ── Logical Operators ──
+#### Logical Operators
+```python
 x = True
 y = False
 
-print(x and y)   # False — both must be True
-print(x or y)    # True  — at least one must be True
-print(not x)     # False — negates the value
-```
-
-**DevOps Example — Logical Operators:**
-```python
-cpu_usage    = 90
-memory_usage = 85
-
-# Alert when BOTH are high
-if cpu_usage > 80 and memory_usage > 80:
-    print("CRITICAL: Scale up the server!")
-
-# Alert when EITHER is high
-if cpu_usage > 80 or memory_usage > 80:
-    print("WARNING: Resource usage is high!")
+print(x and y)  # False — both must be True
+print(x or y)   # True  — at least one must be True
+print(not x)    # False — negates the value
 ```
 
 ---
 
-### 🔹 String Operations
+### 3.7 String Operations
 
 ```python
 message = "Python for DevOps"
 
-print(message.upper())              # PYTHON FOR DEVOPS
-print(message.lower())              # python for devops
-print(message.split(" "))           # ['Python', 'for', 'DevOps']
+# String methods
+print(message.upper())           # PYTHON FOR DEVOPS
+print(message.lower())           # python for devops
 print(message.replace("DevOps", "AWS"))  # Python for AWS
-print(message.strip())              # removes extra spaces
-print(len(message))                 # 17 — length
-print("DevOps" in message)          # True — check substring
-print(message.startswith("Python")) # True
+print(message.split(" "))        # ['Python', 'for', 'DevOps']
+print(message.strip())           # removes leading/trailing spaces
+print(len(message))              # 17 — length
+
+# String formatting
+tool = "Ansible"
+print(f"{tool} is a configuration management tool.")
 ```
+
+> **💼 DevOps Use Case:** Parsing log lines — split by space or colon to extract timestamps, error codes, IP addresses.
 
 ---
 
-### 🔹 Comments
+## 4. Control Flow
+
+### 4.1 Conditional Statements (if / elif / else)
 
 ```python
-# This is a single-line comment
-
-"""
-This is a multi-line comment.
-Use this to describe your script purpose.
-"""
-
-def deploy():
-    """This function deploys the application."""
-    print("Deploying...")
-```
-
----
-
-## 2. Control Flow
-
-### 🔹 if / elif / else — Conditional Statements
-
-Control flow allows programs to **make decisions**.
-
-```python
+# Basic if-else
 server_status = "running"
 
 if server_status == "running":
-    print("Server is healthy")
+    print("Server is healthy ✅")
 elif server_status == "stopped":
-    print("Server is down")
+    print("Server is down ⚠️")
 else:
-    print("Unknown status")
+    print("Unknown status ❓")
 ```
 
-**Nested Condition:**
+#### DevOps Example — Nested Condition for CPU + Memory Alert
 ```python
-cpu_usage    = 88
-memory_usage = 92
+cpu_usage    = 80
+memory_usage = 90
 
 if cpu_usage > 75:
     if memory_usage > 80:
-        print("High CPU and Memory — Scale up!")
+        print("🚨 HIGH CPU + MEMORY — Scale up immediately!")
     else:
-        print("Only CPU is high — monitor closely")
+        print("⚠️ CPU is high — Monitor closely.")
+else:
+    print("✅ System resources are normal.")
 ```
 
-**Shorthand (Inline) if-else:**
+#### Shorthand If (Inline / Ternary)
 ```python
-status  = "up"
-message = "Server is UP" if status == "up" else "Server is DOWN"
-print(message)
+status = "up"
+result = "Server is UP ✅" if status == "up" else "Server is DOWN ❌"
+print(result)
 ```
 
 ---
 
-### 🔹 For Loop
+### 4.2 Loops
 
+#### For Loop
 ```python
-# Loop over a list
-tools = ["docker", "jenkins", "ansible"]
+# Iterating over a list
+tools = ["Docker", "Jenkins", "Ansible"]
 
 for tool in tools:
-    print(f"Installing {tool}")
+    print(f"Installing {tool}...")
 
-# Loop with range
-for batch in range(1, 4):    # 1, 2, 3
-    print(f"Deploying batch {batch}")
-
-# Loop over dictionary
-servers = {"web01": "running", "db01": "stopped"}
-
-for name, status in servers.items():
-    if status == "running":
-        print(f"{name} is healthy")
-    else:
-        print(f"{name} is down — restarting")
+# Using range()
+for i in range(1, 4):   # 1, 2, 3 (4 is excluded)
+    print(f"Deploying service batch {i}")
 ```
 
----
-
-### 🔹 While Loop
-
+#### While Loop
 ```python
 count = 0
 
 while count < 3:
-    print(f"Running build pipeline attempt {count + 1}")
-    count += 1    # increment — MUST have this to avoid infinite loop
+    print(f"Running pipeline — attempt {count + 1}")
+    count += 1  # Important: increment to avoid infinite loop
 ```
 
-> **Common Mistake 🔴:** Forgetting the increment `count += 1` creates an **infinite loop**.
+> **⚠️ Common Mistake:** Forgetting to increment the counter in a `while` loop causes an **infinite loop**. Always make sure the condition will eventually become `False`.
 
 ---
 
-### 🔹 Loop Control Statements
+### 4.3 Loop Control Statements
 
-**break — exit the loop immediately:**
 ```python
-servers = ["web01", "db01", "FAILED", "cache01"]
-
-for server in servers:
-    if server == "FAILED":
-        print("Critical failure — stopping")
+# break — exit the loop early
+for i in range(1, 6):
+    if i == 3:
+        print("Stopping at 3!")
         break
-    print(f"{server} — OK")
+    print(i)
+# Output: 1, 2, Stopping at 3!
+
+# continue — skip current iteration
+for i in range(1, 6):
+    if i == 3:
+        continue   # skip 3
+    print(i)
+# Output: 1, 2, 4, 5
+
+# pass — do nothing (placeholder)
+for i in range(3):
+    pass   # code here later
 ```
 
-**continue — skip current iteration:**
+#### else with Loop
 ```python
-logs = ["INFO: started", "ERROR: disk full", "INFO: running"]
-
-for log in logs:
-    if log.startswith("INFO"):
-        continue    # skip INFO, only process ERROR
-    print(f"Alert: {log}")
-```
-
-**pass — placeholder, does nothing:**
-```python
-for server in servers:
-    if server == "FAILED":
-        pass    # TODO: add alert logic later
-    else:
-        print(f"{server} is OK")
-```
-
-**else with loop — executes when loop finishes normally:**
-```python
+# else block runs when loop completes without break
 for i in range(3):
     print(f"Checking node {i}")
 else:
-    print("All nodes checked successfully")
+    print("✅ All nodes checked successfully!")
 ```
 
 ---
 
-## 3. Data Structures
+#### 🔥 DevOps Example — Server Status Checker
+```python
+servers = {
+    "web01":   "running",
+    "db01":    "stopped",
+    "cache01": "running"
+}
 
-### 🔹 List — Ordered & Mutable
+for name, status in servers.items():
+    if status == "running":
+        print(f"✅ {name} is healthy")
+    else:
+        print(f"❌ {name} is DOWN — Restarting service...")
+```
+
+---
+
+## 5. Data Structures
+
+### 5.1 Lists — Ordered & Mutable
 
 ```python
-servers = ["docker", "jenkins", "ansible", "kubernetes"]
+tools = ["Docker", "Jenkins", "Ansible", "Kubernetes"]
 
 # Access by index (starts at 0)
-print(servers[0])     # docker  (first)
-print(servers[-1])    # kubernetes (last)
+print(tools[0])   # Docker
+print(tools[-1])  # Kubernetes (last element)
 
-# Add element at the end
-servers.append("terraform")
-print(servers)
+# Add
+tools.append("Terraform")       # Add at end
+tools.insert(1, "GitLab")       # Add at index 1
 
-# Remove specific element
-servers.remove("jenkins")
-print(servers)
+# Modify
+tools[1] = "GitHub Actions"     # Update element
 
-# Modify (update) element — possible because list is MUTABLE
-servers[1] = "gitlab"
-print(servers)
+# Remove
+tools.remove("Jenkins")         # Remove by value
+tools.pop(0)                    # Remove by index
+del tools[0]                    # Also removes by index
 
-# Loop through list
-for s in servers:
-    print(f"Checking logs for {s}")
+# Iterate
+for tool in tools:
+    print(f"Tool: {tool}")
+
+print(len(tools))               # Length of list
 ```
 
 ---
 
-### 🔹 Tuple — Ordered & Immutable
+### 5.2 Tuples — Ordered & Immutable
 
 ```python
-credentials = ("admin", "password123")
+# Use tuples for data that should NEVER change
+credentials = ("admin", "securePass123")
 
-print(credentials[0])    # admin
-print(credentials[1])    # password123
+print(credentials[0])   # admin
+print(credentials[1])   # securePass123
 
-# Trying to modify → ERROR
-# credentials[0] = "root"
-# TypeError: 'tuple' object does not support item assignment
+# Attempting to modify throws TypeError
+# credentials[0] = "root"   # ❌ TypeError!
 ```
 
-> **DevOps Use:** Use tuples for **credentials, fixed config values** that must NOT be modified.
+> **💼 DevOps Use Case:** Store DB credentials, AWS region names, port numbers — data that must not change accidentally.
 
 ---
 
-### 🔹 Set — Unordered & Unique
+### 5.3 Sets — Unordered & Unique
 
 ```python
-# Removes duplicates automatically
-tools = {"docker", "ansible", "docker", "terraform", "ansible"}
-print(tools)    # {'docker', 'ansible', 'terraform'} — no duplicates
+# Sets automatically remove duplicates
+active_servers = {"web01", "db01", "web01", "cache01"}
+print(active_servers)  # {'web01', 'db01', 'cache01'} — duplicate removed
 
 # Set operations
-team_a = {"docker", "ansible", "jenkins"}
-team_b = {"aws", "terraform", "docker"}
+set1 = {"Docker", "Ansible", "Jenkins"}
+set2 = {"AWS", "Terraform", "Docker"}
 
-# Union — combine both
-print(team_a | team_b)
+# Union — all elements from both
+print(set1 | set2)   # {'Docker', 'Ansible', 'Jenkins', 'AWS', 'Terraform'}
 
-# Intersection — only common items
-print(team_a & team_b)    # {'docker'}
+# Intersection — common elements only
+print(set1 & set2)   # {'Docker'}
+
+# Difference — in set1 but not set2
+print(set1 - set2)   # {'Ansible', 'Jenkins'}
 ```
+
+> **💼 DevOps Use Case:** Find which servers are in both staging and production, or find tools used in multiple pipelines.
 
 ---
 
-### 🔹 Dictionary — Key-Value Pairs
+### 5.4 Dictionaries — Key-Value Pairs
 
 ```python
 server = {
-    "name":   "web-prod-01",
-    "ip":     "10.0.1.50",
+    "name":   "web01",
+    "ip":     "192.168.1.10",
     "status": "running"
 }
 
-# Access value by key
-print(server["name"])    # web-prod-01
-print(server["status"])  # running
+# Access
+print(server["name"])         # web01
+print(server.get("status"))   # running (safer — returns None if key missing)
 
-# Add new key
-server["region"] = "us-east-1"
+# Add / Update
+server["region"] = "ap-south-1"    # Add new key
+server["status"] = "stopped"       # Update existing key
 
-# Update value
-server["status"] = "stopped"
+# Delete
+del server["ip"]                    # Remove key-value pair
 
-# Delete key
-del server["ip"]
-
-# Loop through all key-value pairs
+# Iterate
 for key, value in server.items():
     print(f"{key}: {value}")
+
+# Check key existence
+if "region" in server:
+    print("Region is defined")
 ```
 
 ---
 
-### 🔹 Nested Data Structures
+### 5.5 Nested Data Structures
 
-**List of Dictionaries — Most common in DevOps:**
+#### List of Dictionaries (Very common in DevOps — AWS API responses)
 ```python
 servers = [
-    {"name": "web01", "status": "running"},
-    {"name": "db01",  "status": "stopped"},
-    {"name": "web02", "status": "running"}
+    {"name": "web01",   "status": "running"},
+    {"name": "db01",    "status": "stopped"},
+    {"name": "cache01", "status": "running"}
 ]
 
+# Filter only running servers
 for s in servers:
     if s["status"] == "running":
-        print(f"{s['name']} is healthy")
-    else:
-        print(f"{s['name']} is down — restarting service")
+        print(f"✅ {s['name']} is healthy")
 ```
 
-**Dictionary of Lists:**
+#### Dictionary of Lists
 ```python
-deployment = {
+deployments = {
     "production": ["web01", "web02"],
-    "staging":    ["stg01"]
+    "staging":    ["stg01", "stg02"]
 }
 
-for env, server_list in deployment.items():
+for env, servers in deployments.items():
     print(f"Environment: {env}")
-    for s in server_list:
-        print(f"  Server: {s}")
+    for server in servers:
+        print(f"  → {server}")
 ```
 
 ---
 
-### 🔹 Conversion Between Data Structures
+## 6. Functions
+
+### 6.1 Basic Function
 
 ```python
-# List → Set (remove duplicates)
-servers     = ["web01", "db01", "web01"]
-unique      = set(servers)
-print(unique)
+# Define
+def greet():
+    print("Welcome to Python for DevOps!")
 
-# Tuple → List
-creds       = ("admin", "pass123")
-creds_list  = list(creds)
-print(creds_list)
-
-# Dictionary → get keys and values as list
-config      = {"tool": "docker", "env": "prod"}
-keys        = list(config.keys())
-values      = list(config.values())
-print(keys)     # ['tool', 'env']
-print(values)   # ['docker', 'prod']
+# Call
+greet()
 ```
 
----
-
-## 4. Functions
-
-### 🔹 Basic Function
+### 6.2 Function with Parameters & Return Value
 
 ```python
-# Function without parameters
-def show_banner():
-    print("=" * 40)
-    print("  DevOps Automation Script")
-    print("=" * 40)
-
-show_banner()   # Call the function
-```
-
-### 🔹 Function with Parameters & Return Value
-
-```python
-def check_server(server_name, status):
+def check_service(status):
     if status == "running":
-        return f"{server_name} is HEALTHY"
+        return "✅ Healthy"
     else:
-        return f"{server_name} is DOWN"
+        return "❌ Issue Detected"
 
-result = check_server("web-prod-01", "running")
-print(result)    # web-prod-01 is HEALTHY
+# Call and store result
+result = check_service("running")
+print(result)   # ✅ Healthy
 ```
 
 ---
 
-### 🔹 Types of Function Arguments
+### 6.3 Types of Function Arguments
 
-**1. Positional — order matters:**
+#### Positional Arguments
 ```python
 def deploy(environment, version):
     print(f"Deploying version {version} to {environment}")
 
-deploy("production", "2.4.1")    # correct order
+deploy("production", "2.1.0")   # order matters!
 ```
 
-**2. Keyword — order doesn't matter:**
+#### Keyword Arguments
 ```python
-deploy(version="2.4.1", environment="staging")
+deploy(version="2.1.0", environment="staging")  # order doesn't matter
 ```
 
-**3. Default — fallback value if not provided:**
+#### Default Arguments
 ```python
-def start_server(name, region="us-east-1"):
-    print(f"Starting {name} in {region}")
+def start_server(name, region="ap-south-1"):
+    print(f"Starting {name} in region {region}")
 
-start_server("web01")                    # uses default region
-start_server("web01", "ap-south-1")     # overrides default
+start_server("web01")                   # uses default region
+start_server("web02", "us-east-1")      # overrides default
 ```
 
-**4. `*args` — Multiple positional arguments:**
+#### Variable-Length Positional Arguments (`*args`)
 ```python
 def install_tools(*tools):
     for tool in tools:
-        print(f"Installing {tool}")
+        print(f"Installing {tool}...")
 
-install_tools("docker", "kubectl", "terraform")
-# can pass any number of arguments
+install_tools("Docker", "Jenkins", "Ansible")
+install_tools("Docker", "Jenkins", "Ansible", "Terraform", "ArgoCD")
+# Any number of arguments!
 ```
 
-**5. `**kwargs` — Multiple keyword arguments:**
+#### Variable-Length Keyword Arguments (`**kwargs`)
 ```python
-def configure_server(**settings):
-    for key, value in settings.items():
+def server_details(**info):
+    for key, value in info.items():
         print(f"{key}: {value}")
 
-configure_server(hostname="web01", ip="10.0.1.50", os="Ubuntu")
+server_details(name="web01", ip="10.0.0.1", status="running", memory="8GB")
 ```
-
-> **Interview Tip 🎯:**
-> - `*args` → tuple internally — for multiple positional args
-> - `**kwargs` → dictionary internally — for multiple keyword args
 
 ---
 
-### 🔹 Lambda Functions
+### 6.4 Lambda Functions
 
-One-line anonymous function using `lambda` instead of `def`:
+**Lambda** = small, anonymous, one-line function.
 
 ```python
-# Regular function
-def square(x):
-    return x * x
-
-# Same as lambda
+# Syntax: lambda parameters: expression
 square = lambda x: x * x
-print(square(5))    # 25
+print(square(5))   # 25
 
-# Filter running servers using lambda
+# DevOps use case — filter running servers
 servers = [
     {"name": "web01", "status": "running"},
     {"name": "db01",  "status": "stopped"},
-    {"name": "web02", "status": "running"}
+    {"name": "api01", "status": "running"}
 ]
 
 running = list(filter(lambda s: s["status"] == "running", servers))
-print([s["name"] for s in running])    # ['web01', 'web02']
+print(running)
+# [{'name': 'web01', 'status': 'running'}, {'name': 'api01', 'status': 'running'}]
 ```
 
 ---
 
-### 🔹 Variable Scope — Local vs Global
+### 6.5 Variable Scope (Local vs Global)
 
 ```python
-count = 0    # GLOBAL — accessible anywhere
+instance_count = 5   # Global variable
 
-def run_deploy():
-    global count          # declare you want to modify global
-    local_msg = "done"    # LOCAL — only inside this function
-    count += 1
-    print(f"Deploy #{count}: {local_msg}")
+def launch_instances():
+    new_count = 3    # Local variable — only accessible inside this function
+    print(f"Launching {new_count} new instances")
+    print(f"Total running: {instance_count}")  # Can read global
 
-run_deploy()    # Deploy #1: done
-run_deploy()    # Deploy #2: done
-
-print(count)    # 2 — global was modified
-# print(local_msg)  # ❌ NameError — local variable not accessible here
+launch_instances()
+print(instance_count)   # 5 — accessible anywhere
+# print(new_count)      # ❌ NameError — local variable not accessible outside
 ```
 
 ---
 
-### 🔹 Nested Functions
+### 6.6 Nested Functions
 
 ```python
 def devops_pipeline():
     def build():
-        print("Building code...")
-
+        print("🔨 Building code...")
     def deploy():
-        print("Deploying to server...")
+        print("🚀 Deploying to servers...")
 
-    build()     # call inner function
-    deploy()    # call inner function
+    build()    # must call inner functions
+    deploy()
 
 devops_pipeline()
 ```
 
 ---
 
-## 5. Modules & Packages
+### 🔥 Simple DevOps Programs — Functions
 
-### 🔹 What is a Module?
-
-A **module** is simply a `.py` file that contains functions, variables, and classes you can reuse.
-
-**Create custom module — `devops_utils.py`:**
+#### Program 1: Disk Space Checker
 ```python
-# devops_utils.py
+import random
 
+def check_disk_space(server_name):
+    """Simulate checking disk space on a server"""
+    usage = random.randint(50, 95)   # Simulated usage %
+    print(f"📊 {server_name} — Disk Usage: {usage}%")
+    
+    if usage > 85:
+        print(f"  🚨 ALERT: High disk usage on {server_name}! Cleanup required.")
+    else:
+        print(f"  ✅ Disk usage is normal.")
+
+# Call for multiple servers
+check_disk_space("web-server-01")
+check_disk_space("db-server-01")
+check_disk_space("app-server-01")
+```
+**Explanation:** Simulates a real monitoring scenario where you check disk usage on multiple servers. In production, replace `random.randint` with actual `psutil.disk_usage('/')` calls.
+
+---
+
+#### Program 2: Log Error Counter
+```python
+def count_errors(log_lines):
+    """Count ERROR occurrences in log lines"""
+    error_count = 0
+    for line in log_lines:
+        if "ERROR" in line:
+            error_count += 1
+    return error_count
+
+# Simulated log data
+logs = [
+    "2024-01-01 INFO Service started",
+    "2024-01-01 ERROR Database connection failed",
+    "2024-01-01 INFO Retry attempt 1",
+    "2024-01-01 ERROR Timeout reached",
+    "2024-01-01 INFO Service recovered"
+]
+
+total_errors = count_errors(logs)
+print(f"📋 Total errors found: {total_errors}")
+```
+**Explanation:** Demonstrates a basic log analyzer — a very common DevOps task. Functions make it reusable — you can call it for different log files.
+
+---
+
+#### Program 3: EC2 Instance Action Simulator
+```python
+def manage_ec2(action, instance_id):
+    """Simulate EC2 start/stop/status actions"""
+    valid_actions = ["start", "stop", "status"]
+    
+    if action not in valid_actions:
+        return f"❌ Invalid action: {action}. Use: {valid_actions}"
+    
+    if action == "start":
+        return f"✅ Starting EC2 instance: {instance_id}"
+    elif action == "stop":
+        return f"⛔ Stopping EC2 instance: {instance_id}"
+    elif action == "status":
+        return f"📊 Fetching status of: {instance_id}"
+
+# Usage
+print(manage_ec2("start",  "i-1234567890abcdef0"))
+print(manage_ec2("stop",   "i-0987654321fedcba0"))
+print(manage_ec2("status", "i-1234567890abcdef0"))
+print(manage_ec2("reboot", "i-1234567890abcdef0"))  # Invalid
+```
+**Explanation:** Shows how to build a reusable utility function for cloud operations. In real-world use, replace the `return` statements with actual Boto3 calls.
+
+---
+
+#### Program 4: Deploy Version Tracker
+```python
+def deploy_app(app_name, version, environment="staging"):
+    """Track and validate deployments"""
+    valid_envs = ["staging", "production", "dev"]
+    
+    if environment not in valid_envs:
+        print(f"❌ Unknown environment: {environment}")
+        return
+    
+    if environment == "production" and not version.startswith("v"):
+        print("❌ Production versions must start with 'v' (e.g., v2.1.0)")
+        return
+    
+    print(f"🚀 Deploying {app_name} version {version} to {environment}...")
+    print(f"✅ Deployment complete!")
+
+deploy_app("my-api",    "v2.1.0",  "production")
+deploy_app("my-api",    "latest",  "production")   # Will fail validation
+deploy_app("my-api",    "latest",  "staging")      # Works fine
+deploy_app("my-api",    "v1.0.0",  "qa")           # Unknown env
+```
+**Explanation:** Shows input validation in deployment functions — a best practice in real CI/CD automation. Prevents accidental deployments with wrong version formats.
+
+---
+
+## 7. Modules & Packages
+
+### 7.1 What is a Module?
+A **module** is simply a `.py` file that contains functions, variables, and classes that you can **import and reuse** in other scripts.
+
+```python
+# File: devops_utils.py
 def start_server(server_name):
-    print(f"Starting server: {server_name}")
+    print(f"🟢 Starting server: {server_name}")
 
 def stop_server(server_name):
-    print(f"Stopping server: {server_name}")
+    print(f"🔴 Stopping server: {server_name}")
 
 def get_status(server_name):
-    print(f"Checking status of: {server_name}")
+    print(f"📊 Checking status of: {server_name}")
 ```
 
-**Import and use in `main.py`:**
 ```python
-# main.py
+# File: main.py
 import devops_utils
 
-devops_utils.start_server("web-prod-01")
-devops_utils.stop_server("db-stg-01")
-devops_utils.get_status("cache-01")
+devops_utils.start_server("web01")
+devops_utils.stop_server("db01")
+devops_utils.get_status("cache01")
 ```
 
 ```bash
 python3 main.py
+# 🟢 Starting server: web01
+# 🔴 Stopping server: db01
+# 📊 Checking status of: cache01
+```
+
+#### Import Styles
+```python
+import os                             # import whole module
+from os import getcwd, listdir        # import specific functions
+from os import getcwd as get_dir      # import with alias
+import os as operating_system         # module alias
 ```
 
 ---
 
-### 🔹 OS Module — Interact with Operating System
+### 7.2 Built-in Python Modules (Critical for DevOps)
 
+#### `os` Module — Interact with Operating System
 ```python
 import os
 
-# Get current directory
+# Current working directory
 print(os.getcwd())
 
 # Change directory
-os.chdir("/tmp")
+os.chdir("/home/ubuntu")
 
-# Create a new directory
-os.makedirs("/tmp/logs", exist_ok=True)
+# List files and folders
+print(os.listdir("."))
 
-# List files in a directory
-files = os.listdir("/tmp")
-print(files)
+# Create directory
+os.makedirs("backup/logs", exist_ok=True)  # exist_ok prevents error if exists
 
-# Check if file exists
-if os.path.exists("/etc/nginx/nginx.conf"):
-    print("Nginx config found")
-else:
-    print("Nginx config missing")
+# Remove directory
+os.rmdir("old_logs")
 
-# Rename a file
-os.rename("old.txt", "new.txt")
+# Rename file
+os.rename("old.log", "archive.log")
 
-# Delete a file
-os.remove("/tmp/temp.txt")
+# Delete file
+os.remove("temp.txt")
+
+# Run shell command (simple)
+os.system("ls -la")
 
 # Get environment variable
-db_pass = os.environ.get("DB_PASSWORD", "default")
-print(f"DB Password: {db_pass}")
+db_host = os.getenv("DB_HOST", "localhost")   # default = "localhost"
+print(f"DB Host: {db_host}")
 ```
 
 ---
 
-### 🔹 SYS Module — System Parameters
-
+#### `sys` Module — System Information
 ```python
 import sys
 
-# Python version
-print(sys.version)
+print(sys.version)      # Python version
+print(sys.platform)     # 'linux', 'win32', etc.
+print(sys.argv)         # Command-line arguments as a list
+print(sys.path)         # Python module search paths
 
-# OS platform
-print(sys.platform)    # 'linux', 'win32', 'darwin'
+# Exit script with code
+# sys.exit(0)    # 0 = success
+# sys.exit(1)    # 1 = error
+```
 
-# System path
-print(sys.path)
-
-# Command-line arguments
-# Run: python3 script.py web01 us-east-1
-print(sys.argv[0])    # script.py
-print(sys.argv[1])    # web01
-print(sys.argv[2])    # us-east-1
-
-# Exit with status code
-if not os.path.exists("/etc/app/config.yml"):
-    print("Config missing!")
-    sys.exit(1)    # exit with error code 1
+```bash
+python3 script.py hello world
+# sys.argv = ['script.py', 'hello', 'world']
 ```
 
 ---
 
-### 🔹 Subprocess Module — Run Shell Commands
-
+#### `subprocess` Module — Run Shell Commands
 ```python
 import subprocess
 
-# Run command and capture output
+# Run command and get output
+output = subprocess.check_output("uptime", shell=True, text=True)
+print(f"Server uptime: {output.strip()}")
+
+# Run command — check return code
 result = subprocess.run(
-    ["df", "-h"],
+    ["df", "-h"],          # command as list (safer)
     capture_output=True,
     text=True
 )
 print(result.stdout)
+print("Return code:", result.returncode)  # 0 = success
 
-# Check if service is running
+# Run with error handling
 result = subprocess.run(
-    ["systemctl", "is-active", "nginx"],
+    ["systemctl", "status", "nginx"],
     capture_output=True,
     text=True
 )
-
-if result.stdout.strip() == "active":
-    print("Nginx is running")
+if result.returncode == 0:
+    print("✅ Nginx is running")
 else:
-    print("Nginx is down")
-
-# Get uptime
-output = subprocess.check_output("uptime", shell=True, text=True)
-print(f"Uptime: {output.strip()}")
+    print("❌ Nginx is not running")
+    print(result.stderr)
 ```
 
-> **Production Best Practice 🔐:** Never use `shell=True` with user-supplied input — risk of shell injection. Pass commands as a **list**.
+> **💼 DevOps Use Case:** Check service status, restart services, run Ansible playbooks, execute kubectl commands — all from Python.
 
 ---
 
-### 🔹 Shutil Module — High-Level File Operations
-
+#### `shutil` Module — High-Level File Operations
 ```python
 import shutil
 
-# Copy a file
-shutil.copy("nginx.conf", "/etc/nginx/nginx.conf.bak")
-
-# Move a file
-shutil.move("deploy.log", "/var/log/archive/deploy.log")
+# Copy file
+shutil.copy("source.txt", "backup/source.txt")
 
 # Copy entire directory
-shutil.copytree("/app/config", "/app/config_backup")
+shutil.copytree("configs/", "configs_backup/")
 
-# Delete entire directory
-shutil.rmtree("/tmp/old_build")
+# Move file
+shutil.move("source.txt", "archive/source.txt")
+
+# Delete entire directory tree
+shutil.rmtree("old_logs/")
 ```
 
 ---
 
-### 🔹 JSON Module
+#### `json` Module — Work with JSON Data
+```python
+import json
+
+# Python dictionary → JSON string (serialization)
+server_info = {
+    "name": "web01",
+    "ip":   "10.0.0.1",
+    "port": 8080
+}
+
+json_str = json.dumps(server_info, indent=4)
+print(json_str)
+print(type(json_str))   # <class 'str'>
+
+# JSON string → Python dictionary (deserialization)
+json_data = '{"name": "db01", "status": "running"}'
+parsed = json.loads(json_data)
+print(parsed["name"])    # db01
+print(type(parsed))      # <class 'dict'>
+
+# Write JSON to file
+with open("config.json", "w") as f:
+    json.dump(server_info, f, indent=4)
+
+# Read JSON from file
+with open("config.json", "r") as f:
+    config = json.load(f)
+    print(config["name"])
+```
+
+> **💼 DevOps Use Case:** Parse AWS CLI output (JSON), read Terraform state files, store deployment configs.
+
+---
+
+#### `datetime` Module — Dates & Times
+```python
+from datetime import datetime, date, timedelta
+
+# Current date and time
+now = datetime.now()
+print(f"Current datetime: {now}")
+
+# Today's date only
+today = date.today()
+print(f"Today: {today}")
+
+# Format dates
+formatted = now.strftime("%d-%m-%Y %H:%M:%S")
+print(f"Formatted: {formatted}")
+
+# Timestamp for log file names
+timestamp = now.strftime("%Y%m%d_%H%M%S")
+log_file = f"app_{timestamp}.log"
+print(f"Log file: {log_file}")   # app_20240115_143022.log
+
+# Date arithmetic
+tomorrow = today + timedelta(days=1)
+last_week = today - timedelta(days=7)
+print(f"Tomorrow: {tomorrow}")
+print(f"Last week: {last_week}")
+```
+
+> **💼 DevOps Use Case:** Add timestamps to backup files, log rotation names, calculate certificate expiry dates.
+
+---
+
+### 7.3 What is a Package?
+A **package** is a **directory (folder)** containing multiple Python modules along with a special `__init__.py` file. The `__init__.py` file marks the folder as a Python package.
+
+```
+devops_tools/           ← Package (folder)
+├── __init__.py         ← Marks as package
+├── aws_utils.py        ← Module
+└── docker_utils.py     ← Module
+main.py
+```
+
+```python
+# devops_tools/__init__.py
+# Mark this folder as a package
+```
+
+```python
+# devops_tools/aws_utils.py
+def deploy_ec2(instance_name):
+    print(f"🚀 Deploying EC2 instance: {instance_name}")
+```
+
+```python
+# devops_tools/docker_utils.py
+def start_container(container_name):
+    print(f"🐳 Starting Docker container: {container_name}")
+```
+
+```python
+# main.py
+from devops_tools import aws_utils, docker_utils
+
+aws_utils.deploy_ec2("web-server-01")
+docker_utils.start_container("nginx-container")
+```
+
+```bash
+python3 main.py
+# 🚀 Deploying EC2 instance: web-server-01
+# 🐳 Starting Docker container: nginx-container
+```
+
+---
+
+### 7.4 Third-Party Libraries for DevOps
+
+Install with `pip`:
+```bash
+pip3 install boto3 paramiko requests psutil
+```
+
+| Library | Purpose |
+|---|---|
+| `boto3` | AWS SDK — manage EC2, S3, Lambda, etc. |
+| `paramiko` | SSH into remote servers |
+| `requests` | HTTP requests — call REST APIs |
+| `psutil` | System monitoring — CPU, memory, disk |
+| `pyyaml` | Read/write YAML files |
+| `python-dotenv` | Load `.env` environment variable files |
+
+```python
+# boto3 — AWS EC2 example
+import boto3
+
+ec2 = boto3.client("ec2", region_name="us-east-1")
+
+# List all EC2 instances
+response = ec2.describe_instances()
+for reservation in response["Reservations"]:
+    for instance in reservation["Instances"]:
+        print(f"ID: {instance['InstanceId']} | State: {instance['State']['Name']}")
+```
+
+```python
+# paramiko — SSH to remote server
+import paramiko
+
+client = paramiko.SSHClient()
+client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+client.connect("192.168.1.100", username="ubuntu", key_filename="/home/user/.ssh/id_rsa")
+
+stdin, stdout, stderr = client.exec_command("uptime")
+print(stdout.read().decode())
+client.close()
+```
+
+```python
+# requests — Check GitHub API
+import requests
+
+response = requests.get("https://api.github.com/repos/torvalds/linux")
+if response.status_code == 200:
+    data = response.json()
+    print(f"Stars: {data['stargazers_count']}")
+else:
+    print(f"❌ Request failed: {response.status_code}")
+```
+
+---
+
+### 🔥 Simple DevOps Programs — Modules
+
+#### Program 1: OS Module — Disk & Directory Management
+```python
+import os
+
+def setup_log_directory(base_path):
+    """Create log directory if it doesn't exist"""
+    log_dir = os.path.join(base_path, "logs")
+    
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+        print(f"✅ Created log directory: {log_dir}")
+    else:
+        print(f"📁 Log directory already exists: {log_dir}")
+    
+    # List existing files
+    files = os.listdir(log_dir)
+    print(f"📋 Files in log dir: {files if files else 'Empty'}")
+
+setup_log_directory("/tmp")
+```
+**Explanation:** Uses `os.path.exists`, `os.makedirs`, and `os.listdir` — three of the most frequently used OS module functions in DevOps automation scripts.
+
+---
+
+#### Program 2: JSON Module — Read Config File
+```python
+import json
+import os
+
+def read_deployment_config(config_file):
+    """Read and validate deployment configuration"""
+    if not os.path.exists(config_file):
+        print(f"❌ Config file not found: {config_file}")
+        return None
+    
+    with open(config_file, "r") as f:
+        config = json.load(f)
+    
+    print(f"🚀 App Name  : {config.get('app_name', 'Unknown')}")
+    print(f"🌍 Environment: {config.get('environment', 'Unknown')}")
+    print(f"📦 Version    : {config.get('version', 'Unknown')}")
+    return config
+
+# Create a sample config first
+config_data = {
+    "app_name":    "my-web-app",
+    "environment": "production",
+    "version":     "v2.1.0",
+    "replicas":    3
+}
+with open("deploy_config.json", "w") as f:
+    json.dump(config_data, f, indent=4)
+
+# Read and use the config
+read_deployment_config("deploy_config.json")
+```
+**Explanation:** This is a very real-world pattern — reading a JSON config file before starting a deployment. The `config.get()` method with a default value is a best practice (prevents `KeyError`).
+
+---
+
+#### Program 3: Subprocess Module — Service Health Check
+```python
+import subprocess
+
+def check_service_status(service_name):
+    """Check if a Linux service is running"""
+    result = subprocess.run(
+        ["systemctl", "is-active", service_name],
+        capture_output=True,
+        text=True
+    )
+    
+    status = result.stdout.strip()
+    
+    if status == "active":
+        print(f"✅ {service_name} is RUNNING")
+    elif status == "inactive":
+        print(f"⚠️  {service_name} is STOPPED")
+    else:
+        print(f"❓ {service_name} status: {status}")
+    
+    return status
+
+# Check multiple services
+services = ["nginx", "sshd", "cron"]
+for service in services:
+    check_service_status(service)
+```
+**Explanation:** Uses `subprocess.run()` — the modern, recommended way to execute shell commands from Python. `capture_output=True` captures both stdout and stderr. Essential for automation scripts.
+
+---
+
+#### Program 4: Datetime + OS — Timestamped Backup
+```python
+import os
+import shutil
+from datetime import datetime
+
+def backup_config_file(source_file):
+    """Create a timestamped backup of a config file"""
+    if not os.path.exists(source_file):
+        print(f"❌ Source file not found: {source_file}")
+        return
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_file = f"{source_file}.backup_{timestamp}"
+    
+    shutil.copy2(source_file, backup_file)
+    print(f"✅ Backup created: {backup_file}")
+    return backup_file
+
+# Create a sample file to backup
+with open("nginx.conf", "w") as f:
+    f.write("# Nginx configuration\nserver { listen 80; }")
+
+backup_config_file("nginx.conf")
+# Output: ✅ Backup created: nginx.conf.backup_20240115_143022
+```
+**Explanation:** A real DevOps pattern — always back up config files before modifying them. Timestamp in filename makes it easy to find the most recent backup.
+
+---
+
+## 8. File Handling
+
+### 8.1 File Modes
+
+| Mode | Description |
+|---|---|
+| `r` | Read — default, file must exist |
+| `w` | Write — creates file if not exists, **overwrites** if exists |
+| `a` | Append — adds to end of file, creates if not exists |
+| `x` | Create — creates new file, **error** if already exists |
+| `r+` | Read + Write |
+| `b` | Binary mode (e.g., `rb`, `wb`) |
+
+---
+
+### 8.2 Writing, Reading, Appending
+
+```python
+# WRITE (creates or overwrites file)
+file = open("devops_notes.txt", "w")
+file.write("Python makes DevOps automation easy.\n")
+file.write("Log monitoring is essential.\n")
+file.close()   # Always close the file!
+
+# READ
+file = open("devops_notes.txt", "r")
+content = file.read()
+print(content)
+file.close()
+
+# APPEND (add to end without deleting existing content)
+file = open("devops_notes.txt", "a")
+file.write("Always secure your secrets!\n")
+file.close()
+```
+
+---
+
+### 8.3 Context Manager — The Right Way (`with` statement)
+
+The `with` statement **automatically closes** the file even if an error occurs. This is the **recommended approach** in production.
+
+```python
+# Writing
+with open("servers.txt", "w") as f:
+    f.write("web01\n")
+    f.write("db01\n")
+    f.write("cache01\n")
+# File is automatically closed here
+
+# Reading all at once
+with open("servers.txt", "r") as f:
+    content = f.read()
+    print(content)
+
+# Reading line by line (memory efficient for large files)
+with open("servers.txt", "r") as f:
+    for line in f:
+        print(f"Server: {line.strip()}")   # .strip() removes \n
+```
+
+---
+
+### 8.4 JSON File Handling
 
 ```python
 import json
 
-# Python dictionary → JSON string
-config = {
-    "name":   "web-prod-01",
-    "port":   8080,
-    "active": True
-}
-json_str = json.dumps(config, indent=4)
-print(json_str)
-
 # Write JSON to file
+config = {
+    "app": "web-app",
+    "servers": ["web01", "web02"],
+    "environment": "production"
+}
+
 with open("config.json", "w") as f:
     json.dump(config, f, indent=4)
+print("✅ config.json written")
 
 # Read JSON from file
 with open("config.json", "r") as f:
-    loaded = json.load(f)
-print(loaded["name"])    # web-prod-01
-
-# JSON string → Python dictionary
-api_resp = '{"status": "ok", "version": "2.4"}'
-data = json.loads(api_resp)
-print(data["status"])    # ok
+    data = json.load(f)
+    print(f"App: {data['app']}")
+    print(f"Servers: {data['servers']}")
+    print(f"Environment: {data['environment']}")
 ```
 
 ---
 
-### 🔹 YAML Module
+### 8.5 YAML File Handling
 
 ```bash
-pip install pyyaml
+# Install PyYAML first
+pip3 install pyyaml
 ```
 
 ```python
 import yaml
 
 # Write YAML file
-config = {
-    "app":         "web-frontend",
-    "environment": "production",
-    "replicas":    3
-}
-
-with open("deploy.yaml", "w") as f:
-    yaml.dump(config, f, default_flow_style=False)
-
-# Read YAML file — always use safe_load
-with open("deploy.yaml", "r") as f:
-    data = yaml.safe_load(f)
-
-print(data["app"])           # web-frontend
-print(data["replicas"])      # 3
-```
-
-> **Production Best Practice:** Always `yaml.safe_load()` — never `yaml.load()` (security risk).
-
----
-
-### 🔹 Datetime Module
-
-```python
-from datetime import datetime
-
-# Current date and time
-now = datetime.now()
-print(now)    # 2024-01-15 14:30:45.123456
-
-# Only today's date
-today = datetime.today().date()
-print(today)    # 2024-01-15
-
-# Custom date
-custom = datetime(2024, 12, 31)
-print(custom)
-
-# Custom time
-from datetime import time
-t = time(14, 30, 45)
-print(t)    # 14:30:45
-
-# Formatted timestamp for log filenames
-stamp = now.strftime("%Y%m%d_%H%M%S")
-print(f"deploy_{stamp}.log")    # deploy_20240115_143045.log
-
-# Difference between two dates
-from datetime import timedelta
-past = datetime(2024, 1, 1)
-diff = now - past
-print(f"Days since Jan 1: {diff.days}")
-
-# Date 30 days ago (for log cleanup)
-cutoff = datetime.now() - timedelta(days=30)
-print(f"Delete logs before: {cutoff.strftime('%Y-%m-%d')}")
-```
-
----
-
-### 🔹 Creating a Custom Package
-
-**Folder structure:**
-```
-devops_tools/
-├── __init__.py         ← marks folder as package
-├── aws_utils.py
-└── docker_utils.py
-```
-
-```python
-# devops_tools/__init__.py
-# mark this folder as a package
-
-# devops_tools/aws_utils.py
-def deploy_ec2(instance_name):
-    print(f"Deploying EC2: {instance_name}")
-
-# devops_tools/docker_utils.py
-def start_container(container_name):
-    print(f"Starting container: {container_name}")
-
-# main.py
-from devops_tools import aws_utils, docker_utils
-
-aws_utils.deploy_ec2("web-instance-01")
-docker_utils.start_container("nginx-frontend")
-```
-
-```bash
-python3 main.py
-# Output:
-# Deploying EC2: web-instance-01
-# Starting container: nginx-frontend
-```
-
----
-
-### 🔹 Third-Party Libraries for DevOps
-
-Install all at once:
-```bash
-pip install boto3 paramiko requests psutil
-```
-
-| Library    | Purpose                           | DevOps Use                          |
-|------------|-----------------------------------|-------------------------------------|
-| `boto3`    | AWS SDK                           | EC2, S3, Lambda automation          |
-| `paramiko` | SSH client                        | Remote command execution            |
-| `requests` | HTTP client                       | REST API calls (Jenkins, GitHub)    |
-| `psutil`   | System monitoring                 | CPU, memory, disk checks            |
-
-**Quick `requests` example:**
-```python
-import requests
-
-response = requests.get("https://api.github.com")
-print(response.status_code)    # 200
-```
-
----
-
-## 6. File Handling
-
-### 🔹 File Modes
-
-| Mode  | What it does                                       |
-|-------|----------------------------------------------------|
-| `r`   | Read only — file must exist (default)              |
-| `w`   | Write — creates new or **overwrites** existing     |
-| `a`   | Append — adds to end, creates if not found         |
-| `x`   | Create — fails if file already exists              |
-| `r+`  | Read and Write                                     |
-| `rb`  | Read binary (images, PDFs)                         |
-
----
-
-### 🔹 Writing to a File
-
-```python
-# Write mode — creates new or overwrites
-with open("devops_notes.txt", "w") as f:
-    f.write("Python makes DevOps automation easy\n")
-    f.write("Logging and monitoring are essential\n")
-
-# File is auto-closed after 'with' block — no need for f.close()
-```
-
----
-
-### 🔹 Reading from a File
-
-```python
-# Read entire file
-with open("devops_notes.txt", "r") as f:
-    content = f.read()
-    print(content)
-
-# Read line by line (memory efficient for large files)
-with open("devops_notes.txt", "r") as f:
-    for line in f:
-        print(line.strip())
-```
-
----
-
-### 🔹 Appending to a File
-
-```python
-# Append — does NOT overwrite, adds to end
-with open("devops_notes.txt", "a") as f:
-    f.write("Always secure your servers\n")
-```
-
----
-
-### 🔹 Context Manager (with open)
-
-```python
-# ❌ Old way — risk of forgetting to close
-f = open("file.txt", "r")
-content = f.read()
-f.close()   # easy to forget!
-
-# ✅ Correct way — auto-closes even if error occurs
-with open("file.txt", "r") as f:
-    content = f.read()
-# file is automatically closed here
-```
-
----
-
-### 🔹 Check if File Exists
-
-```python
-import os
-
-if os.path.exists("servers.txt"):
-    print("File exists")
-else:
-    print("File does not exist")
-```
-
----
-
-### 🔹 Log Analysis — Count Errors
-
-```python
-# Create a sample log file
-with open("system.log", "w") as f:
-    f.write("INFO: server started\n")
-    f.write("ERROR: disk full\n")
-    f.write("INFO: request received\n")
-    f.write("ERROR: out of memory\n")
-    f.write("ERROR: connection refused\n")
-
-# Count errors
-error_count = 0
-
-with open("system.log", "r") as f:
-    for line in f:
-        if "ERROR" in line:
-            error_count += 1
-
-print(f"Total errors found: {error_count}")    # 3
-```
-
----
-
-### 🔹 JSON File Handling
-
-```python
-import json
-
-# Write JSON data
-data = {
-    "app":     "web-frontend",
-    "servers": ["web01", "web02"],
-    "port":    8080
-}
-
-with open("config.json", "w") as f:
-    json.dump(data, f, indent=4)
-
-print("config.json written")
-
-# Read JSON data
-with open("config.json", "r") as f:
-    loaded = json.load(f)
-
-print(f"App: {loaded['app']}")
-print(f"Servers: {loaded['servers']}")
-```
-
----
-
-### 🔹 YAML File Handling
-
-```python
-import yaml
-
-# Write YAML
-deploy_config = {
-    "app":         "nginx",
+deployment = {
+    "app": "nginx",
     "environment": "staging",
-    "replicas":    2
+    "replicas": 3,
+    "image": "nginx:1.25"
 }
 
-with open("deploy.yaml", "w") as f:
-    yaml.dump(deploy_config, f, default_flow_style=False)
+with open("deployment.yaml", "w") as f:
+    yaml.dump(deployment, f, default_flow_style=False)
 
-# Read YAML
-with open("deploy.yaml", "r") as f:
-    config = yaml.safe_load(f)
+# deployment.yaml looks like:
+# app: nginx
+# environment: staging
+# replicas: 3
+# image: nginx:1.25
 
-print(f"App: {config['app']}")
-print(f"Env: {config['environment']}")
+# Read YAML file
+with open("deployment.yaml", "r") as f:
+    config = yaml.safe_load(f)   # safe_load is more secure
+    print(f"App: {config['app']}")
+    print(f"Replicas: {config['replicas']}")
 ```
+
+> **💼 DevOps Use Case:** Parse Kubernetes YAML manifests, Ansible playbooks, Docker Compose files.
 
 ---
 
-### 🔹 CSV File Handling
+### 8.6 CSV File Handling
 
 ```python
 import csv
@@ -1158,744 +1355,792 @@ import csv
 # Write CSV
 with open("servers.csv", "w", newline="") as f:
     writer = csv.writer(f)
-    writer.writerow(["server", "ip", "status"])       # header row
-    writer.writerow(["web01", "10.0.1.50", "running"])  # data row
-
-print("servers.csv written")
+    writer.writerow(["Server", "IP", "Status"])          # Header row
+    writer.writerow(["web01", "10.0.0.1", "running"])
+    writer.writerow(["db01",  "10.0.0.2", "stopped"])
 
 # Read CSV
 with open("servers.csv", "r") as f:
-    reader = csv.reader(f)
+    reader = csv.DictReader(f)   # DictReader reads rows as dicts
     for row in reader:
-        print(row)
+        print(f"{row['Server']} ({row['IP']}) — {row['Status']}")
 ```
 
 ---
 
-### 🔹 Log Rotation
+### 8.7 Log Analysis Example
+
+```python
+def analyze_log(log_file):
+    """Count errors in a log file"""
+    error_count   = 0
+    warning_count = 0
+    
+    with open(log_file, "r") as f:
+        for line in f:
+            if "ERROR" in line:
+                error_count += 1
+            elif "WARNING" in line:
+                warning_count += 1
+    
+    print(f"📊 Log Analysis — {log_file}")
+    print(f"  ❌ Errors:   {error_count}")
+    print(f"  ⚠️  Warnings: {warning_count}")
+
+analyze_log("system.log")
+```
+
+---
+
+### 8.8 Log Rotation
 
 ```python
 import shutil
+import os
 from datetime import datetime
 
 def rotate_log(log_file):
-    timestamp   = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_name = f"{log_file}.{timestamp}.bak"
-    shutil.move(log_file, backup_name)
-    print(f"Log rotated: {log_file} → {backup_name}")
+    """Rotate a log file with timestamp"""
+    if not os.path.exists(log_file):
+        print(f"❌ Log file not found: {log_file}")
+        return
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    archived_name = f"{log_file}.{timestamp}.bak"
+    
+    shutil.move(log_file, archived_name)
+    print(f"✅ Log rotated → {archived_name}")
+    
+    # Create fresh empty log file
+    open(log_file, "w").close()
+    print(f"📄 New empty log file created: {log_file}")
 
-rotate_log("system.log")
+rotate_log("app.log")
 ```
 
 ---
 
-## 7. Exception Handling
+## 9. Exception Handling
 
-### 🔹 Why Exception Handling?
+### 9.1 Why Exception Handling?
 
-Without it, **one error stops the entire script**:
+Without exception handling, your script crashes at the first error and all subsequent code is skipped.
 
 ```python
-# ❌ Without exception handling
-print("Script starting")
-result = 10 / 0        # ZeroDivisionError — script STOPS here
-print("Script done")   # NEVER executed
+# Without exception handling — BAD ❌
+print("Script starting...")
+result = 10 / 0         # ZeroDivisionError — script stops here
+print("Script completed")   # Never executes!
 ```
 
----
-
-### 🔹 try / except
-
 ```python
-# ✅ With exception handling
+# With exception handling — GOOD ✅
+print("Script starting...")
 try:
     result = 10 / 0
 except ZeroDivisionError:
-    print("Cannot divide by zero")
-
-print("Script continues...")    # this DOES execute now
+    print("⚠️ Cannot divide by zero!")
+print("Script completed")   # Now this WILL execute
 ```
 
 ---
 
-### 🔹 Multiple except blocks
+### 9.2 try / except / else / finally
 
 ```python
 try:
-    num = int(input("Enter a number: "))
-    result = 10 / num
-    print(f"Result: {result}")
-
-except ZeroDivisionError:
-    print("You cannot divide by zero")
-
-except ValueError:
-    print("Please enter a valid number")
-```
-
----
-
-### 🔹 try / except / else / finally
-
-```python
-try:
-    with open("servers.txt", "r") as f:
-        content = f.read()
+    # Code that might raise an exception
+    file = open("config.txt", "r")
+    content = file.read()
 
 except FileNotFoundError:
-    print("File not found")
+    # Runs ONLY if FileNotFoundError occurs
+    print("❌ File not found!")
+
+except PermissionError:
+    # Runs ONLY if PermissionError occurs
+    print("❌ Permission denied!")
 
 else:
-    # runs ONLY when NO exception occurred
-    print("File opened successfully")
+    # Runs ONLY if NO exception occurred
+    print("✅ File read successfully!")
     print(content)
 
 finally:
-    # runs ALWAYS — exception or not
-    print("Closing script — cleanup done")
+    # ALWAYS runs — whether exception occurred or not
+    print("🔒 Closing file operation.")
 ```
 
-> **Interview Tip 🎯:**
-> - `else` → runs only when **no exception** occurred
-> - `finally` → runs **always**, used for cleanup
+#### Key Rules
+| Block | When it runs |
+|---|---|
+| `try` | Always — contains code that might fail |
+| `except` | Only when the specified exception occurs |
+| `else` | Only when NO exception occurred |
+| `finally` | **Always** — even if exception occurs |
+
+> **🎯 Interview Tip:** `finally` is used for cleanup — closing files, DB connections, releasing locks.
 
 ---
 
-### 🔹 Common Python Exceptions
+### 9.3 Common Python Exceptions
 
-| Exception              | When it happens                                  |
-|------------------------|--------------------------------------------------|
-| `FileNotFoundError`    | File or directory not found                      |
-| `ZeroDivisionError`    | Dividing by zero                                 |
-| `ValueError`           | Wrong value type (`int("abc")`)                  |
-| `KeyError`             | Dictionary key doesn't exist                     |
-| `IndexError`           | List index out of range                          |
-| `TypeError`            | Wrong data type for operation                    |
-| `ImportError`          | Module not found                                 |
-| `TimeoutError`         | Operation timed out                              |
-| `PermissionError`      | Insufficient permissions                         |
+| Exception | Cause |
+|---|---|
+| `FileNotFoundError` | File doesn't exist |
+| `ZeroDivisionError` | Dividing by zero |
+| `ValueError` | Wrong value type |
+| `KeyError` | Dictionary key not found |
+| `IndexError` | List index out of range |
+| `TypeError` | Wrong data type in operation |
+| `ImportError` | Module not found |
+| `TimeoutError` | Operation timed out |
+| `PermissionError` | Insufficient permissions |
+| `ConnectionError` | Network connection failed |
 
 ---
 
-### 🔹 raise — Manually Trigger Exception
+### 9.4 Multiple Exceptions
 
 ```python
+def safe_divide(num_str):
+    try:
+        result = 10 / int(num_str)
+        print(f"Result: {result}")
+    except ZeroDivisionError:
+        print("❌ Cannot divide by zero!")
+    except ValueError:
+        print("❌ Please enter a valid number!")
+
+safe_divide("5")    # Result: 2.0
+safe_divide("0")    # Cannot divide by zero!
+safe_divide("abc")  # Please enter a valid number!
+```
+
+---
+
+### 9.5 Raising Custom Exceptions with `raise`
+
+```python
+class DeploymentError(Exception):
+    """Custom exception for deployment failures"""
+    pass
+
 def deploy(version):
     if float(version) < 1.0:
-        raise ValueError(f"Invalid version: {version}. Must be >= 1.0")
-    print(f"Deploying version {version}")
+        raise DeploymentError(f"❌ Invalid version {version}. Must be >= 1.0")
+    print(f"✅ Deploying version {version}")
 
 try:
     deploy("0.8")
-except ValueError as e:
-    print(f"Error: {e}")
+except DeploymentError as e:
+    print(f"Deployment failed: {e}")
 ```
 
 ---
 
-### 🔹 Custom Exceptions
+### 9.6 Creating Custom Exception Classes
 
 ```python
-# Create a custom exception class
-class DeploymentError(Exception):
+class ServerNotFoundError(Exception):
+    """Raised when a server cannot be reached"""
     pass
 
-def deploy_app(version):
-    if version == "BROKEN":
-        raise DeploymentError("Deployment package is corrupted!")
-    print(f"Deploying {version} successfully")
+class InsufficientResourcesError(Exception):
+    """Raised when server lacks required resources"""
+    def __init__(self, required, available):
+        super().__init__(
+            f"Required: {required}GB, Available: {available}GB"
+        )
 
+# Usage
 try:
-    deploy_app("BROKEN")
-except DeploymentError as e:
-    print(f"Custom Exception caught: {e}")
+    available_memory = 2
+    required_memory  = 8
+    if available_memory < required_memory:
+        raise InsufficientResourcesError(required_memory, available_memory)
+except InsufficientResourcesError as e:
+    print(f"❌ Resource Error: {e}")
 ```
 
 ---
 
-### 🔹 Retry Logic
+### 9.7 Retry Pattern (Very Common in DevOps)
 
 ```python
 import time
 
-def connect_to_server(server, max_retries=3):
+def connect_to_server(server_ip, max_retries=3):
+    """Retry connection with backoff"""
     for attempt in range(1, max_retries + 1):
         try:
-            print(f"Attempt {attempt}: Connecting to {server}")
-            if attempt < max_retries:
-                raise ConnectionError("Connection refused")
-            print(f"Connected to {server} successfully!")
-            break
-
+            print(f"🔌 Connecting to {server_ip} — Attempt {attempt}/{max_retries}")
+            
+            # Simulate connection failure
+            raise ConnectionError("Connection refused")
+            
+            print(f"✅ Connected to {server_ip}")
+            return True
+            
         except ConnectionError as e:
-            print(f"Failed: {e}")
+            print(f"  ❌ Failed: {e}")
             if attempt < max_retries:
-                print(f"Retrying in 2 seconds...")
-                time.sleep(2)
+                wait = attempt * 2   # Exponential backoff: 2s, 4s, 6s...
+                print(f"  ⏳ Retrying in {wait} seconds...")
+                time.sleep(wait)
+    
+    print(f"💀 Could not connect to {server_ip} after {max_retries} attempts.")
+    return False
 
-connect_to_server("10.0.1.50")
+connect_to_server("10.0.0.1")
 ```
 
 ---
 
-### 🔹 Logging Exceptions to File
+### 9.8 Logging Exceptions to File
 
 ```python
 import logging
 
-# Setup logging to write to a file
+# Configure logging
 logging.basicConfig(
     filename="errors.log",
     level=logging.ERROR,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-try:
-    result = 10 / 0
-except ZeroDivisionError as e:
-    logging.error(f"Division by zero: {e}")
-    print("Error logged to errors.log")
+def risky_operation():
+    try:
+        result = 10 / 0
+    except ZeroDivisionError as e:
+        logging.error(f"Math error occurred: {e}")
+        print("❌ Error logged to errors.log")
+
+risky_operation()
 ```
 
-**Logging levels:**
-```python
-logging.debug("Debug details")       # lowest level
-logging.info("Script started")
-logging.warning("CPU at 78%")
-logging.error("DB connection failed")
-logging.critical("Server is DOWN!")  # highest level
-```
+> **💡 Production Best Practice:** Never use `print()` for errors in production. Always use `logging`. It writes to files, supports levels (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`), and includes timestamps.
 
 ---
 
-## 8. OOP Concepts
+## 10. Object-Oriented Programming (OOP)
 
-### 🔹 What is OOP?
+### 10.1 What is OOP?
 
-OOP organizes code into **objects** that combine:
-- **Data (attributes)** → properties: `name`, `ip`, `status`
-- **Behavior (methods)** → actions: `start()`, `stop()`, `restart()`
+OOP organizes code into **objects** — entities that combine **data (attributes)** and **behavior (methods)** together.
 
-**4 Pillars:**
-1. **Encapsulation** — hide internal details
-2. **Inheritance** — reuse code from another class
-3. **Polymorphism** — same method name, different behavior
-4. **Abstraction** — hide complexity from user
+| Concept | Simple Definition |
+|---|---|
+| **Class** | Blueprint / Template |
+| **Object** | Instance created from blueprint |
+| **Encapsulation** | Hide internal details (private variables/methods) |
+| **Inheritance** | Child class reuses code from parent class |
+| **Polymorphism** | Same method name — different behavior |
+| **Abstraction** | Hide complexity, show only what's needed |
 
 ---
 
-### 🔹 Class & Object
+### 10.2 Class & Object
 
 ```python
 class Server:
-
     def __init__(self, name, ip):
-        # __init__ is the constructor
-        # automatically called when object is created
-        self.name = name    # instance variable
-        self.ip   = ip      # instance variable
-
+        # __init__ = constructor — runs automatically when object is created
+        self.name = name   # instance variable
+        self.ip   = ip     # instance variable
+    
     def start(self):
-        print(f"Server {self.name} ({self.ip}) is starting...")
+        print(f"🟢 Starting server {self.name} at {self.ip}")
+    
+    def stop(self):
+        print(f"🔴 Stopping server {self.name}")
+    
+    def status(self):
+        print(f"📊 {self.name} ({self.ip}) — checking status...")
 
-# Create objects (instances of the class)
-web_server = Server("web-prod-01", "10.0.1.50")
-db_server  = Server("db-prod-01", "10.0.2.30")
+# Create objects (instances of Server class)
+web_server = Server("web01", "192.168.1.10")
+db_server  = Server("db01",  "192.168.1.20")
 
 web_server.start()
-db_server.start()
+db_server.stop()
 ```
-
-> **Interview Tip 🎯:** `__init__` is the **constructor** — it initializes object attributes automatically when the object is created.
 
 ---
 
-### 🔹 Encapsulation — Hide Internal Details
+### 10.3 Encapsulation
+
+Hide internal data using **private variables/methods** (prefix with `__`).
 
 ```python
 class JenkinsPipeline:
-
-    def __init__(self, job_name):
-        self.job_name       = job_name     # public attribute
-        self.__secret_token = "abc123"     # private — double underscore
-        self.__build_count  = 0            # private variable
-
-    def __build(self):
-        # private method — can only be called inside this class
-        self.__build_count += 1
-        print(f"Building {self.job_name} — build #{self.__build_count}")
-
-    def __deploy(self):
-        # private method
-        print(f"Deploying {self.job_name}")
-
+    def __init__(self, project_name):
+        self.__project = project_name   # Private variable
+        self.__build_number = 0         # Private variable
+    
+    def __run_build(self):
+        # Private method — can only be called inside this class
+        self.__build_number += 1
+        print(f"🔨 Running build #{self.__build_number} for {self.__project}")
+    
     def trigger_pipeline(self):
-        # public method — this is the only external interface
-        print(f"Pipeline triggered: {self.job_name}")
-        self.__build()     # calling private method internally
-        self.__deploy()    # calling private method internally
+        # Public method — callable from outside
+        print(f"🚀 Triggering pipeline for {self.__project}")
+        self.__run_build()
+        print(f"✅ Pipeline complete!")
 
-pipeline = JenkinsPipeline("deploy-webapp")
-pipeline.trigger_pipeline()     # ✅ works
+pipeline = JenkinsPipeline("my-web-app")
+pipeline.trigger_pipeline()
 
-# pipeline.__build()            # ❌ AttributeError — private method
+# pipeline.__run_build()  # ❌ AttributeError — private method!
 ```
-
-> **When to use:** When you want to **hide secrets, credentials, internal logic** from outside access.
 
 ---
 
-### 🔹 Inheritance — Reuse Code from Another Class
+### 10.4 Inheritance
+
+Child class inherits properties and methods from parent class.
 
 ```python
-# Parent class
 class Server:
-
-    def __init__(self, name, ip):
+    """Parent class"""
+    def __init__(self, name):
         self.name = name
-        self.ip   = ip
-
+    
     def start(self):
-        print(f"Starting {self.name}")
+        print(f"🟢 Starting server: {self.name}")
 
-# Child class — inherits Server
 class WebServer(Server):
+    """Child class — inherits from Server"""
+    def deploy(self, app_name):
+        print(f"🚀 Deploying {app_name} on {self.name}")
 
-    def __init__(self, name, ip, domain):
-        super().__init__(name, ip)    # call parent constructor
-        self.domain = domain
+class DatabaseServer(Server):
+    """Child class — inherits from Server"""
+    def backup(self):
+        print(f"💾 Creating backup on {self.name}")
 
-    def deploy(self, app):
-        print(f"Deploying {app} to {self.domain}")
+# WebServer gets start() from Server + has its own deploy()
+web = WebServer("nginx-server")
+web.start()      # Inherited from Server
+web.deploy("my-app")  # Own method
 
-web = WebServer("nginx-01", "10.0.1.50", "app.example.com")
-
-web.start()             # inherited from Server
-web.deploy("v2.1")      # WebServer's own method
+db = DatabaseServer("postgres-server")
+db.start()   # Inherited from Server
+db.backup()  # Own method
 ```
 
 ---
 
-### 🔹 Polymorphism — Same Method, Different Behavior
+### 10.5 Polymorphism
+
+Same method name — different behavior in different classes.
 
 ```python
 class Server:
     def restart(self):
-        print("Restarting generic server")
+        print("🔄 Restarting generic server...")
 
 class WebServer(Server):
     def restart(self):
-        print("Gracefully restarting Nginx...")
+        print("🔄 Restarting Nginx web server — draining connections first...")
 
 class DatabaseServer(Server):
     def restart(self):
-        print("Restarting PostgreSQL — waiting for transactions...")
+        print("🔄 Restarting MySQL — flushing data & closing connections...")
 
-class CacheServer(Server):
-    def restart(self):
-        print("Restarting Redis — cache warm-up needed...")
-
-# Same method name, different behavior
-servers = [WebServer(), DatabaseServer(), CacheServer()]
+# Polymorphism in action
+servers = [WebServer(), DatabaseServer()]
 
 for server in servers:
-    server.restart()    # each calls its OWN restart()
-
-# Output:
-# Gracefully restarting Nginx...
-# Restarting PostgreSQL — waiting for transactions...
-# Restarting Redis — cache warm-up needed...
+    server.restart()   # Same method call — different output!
 ```
 
 ---
 
-### 🔹 Abstraction — Hide Complexity
+### 10.6 Abstraction
+
+Hide complexity from users. Use `ABC` (Abstract Base Class).
 
 ```python
 from abc import ABC, abstractmethod
 
 class CloudProvider(ABC):
-    # Abstract class — cannot be instantiated directly
-
+    """Abstract class — defines interface"""
+    
     @abstractmethod
     def create_instance(self, instance_type):
-        pass   # every child MUST implement this
+        pass   # No implementation — subclass MUST implement this
+    
+    @abstractmethod
+    def delete_instance(self, instance_id):
+        pass
 
-class AWSProvider(CloudProvider):
+class AWS(CloudProvider):
     def create_instance(self, instance_type):
-        print(f"AWS: Launching EC2 — {instance_type}")
+        print(f"☁️  AWS: Launching EC2 {instance_type}")
+    
+    def delete_instance(self, instance_id):
+        print(f"☁️  AWS: Terminating {instance_id}")
 
-class AzureProvider(CloudProvider):
+class Azure(CloudProvider):
     def create_instance(self, instance_type):
-        print(f"Azure: Creating VM — {instance_type}")
+        print(f"☁️  Azure: Launching VM {instance_type}")
+    
+    def delete_instance(self, instance_id):
+        print(f"☁️  Azure: Deleting {instance_id}")
 
-# ✅ Concrete classes work
-aws   = AWSProvider()
-azure = AzureProvider()
-aws.create_instance("t3.large")
+aws   = AWS()
+azure = Azure()
+aws.create_instance("t3.micro")
 azure.create_instance("Standard_D2s_v3")
 
-# ❌ Abstract class cannot be instantiated
-# cloud = CloudProvider()
-# TypeError: Can't instantiate abstract class
+# cloud = CloudProvider()  # ❌ TypeError — can't instantiate abstract class!
 ```
 
 ---
 
-### 🔹 Composition — Combining Multiple Classes
-
-```python
-class Logger:
-    def log(self, message):
-        print(f"LOG: {message}")
-
-class Deployment:
-
-    def __init__(self, app_name):
-        self.app_name = app_name
-        self.logger   = Logger()    # using Logger class inside Deployment
-
-    def deploy(self):
-        self.logger.log(f"Deploying {self.app_name}")
-        print(f"Deploying {self.app_name}...")
-
-d = Deployment("flask-app")
-d.deploy()
-# Output:
-# LOG: Deploying flask-app
-# Deploying flask-app...
-```
-
----
-
-### 🔹 Class Variables vs Instance Variables
+### 10.7 Class Variables vs Instance Variables
 
 ```python
 class Server:
-    region = "ap-south-1"    # CLASS variable — shared by ALL objects
-
+    # Class variable — shared by ALL instances
+    datacenter = "AP-South-1"
+    
     def __init__(self, name):
-        self.name = name     # INSTANCE variable — unique per object
+        # Instance variable — unique to each instance
+        self.name = name
 
-s1 = Server("web-server-01")
-s2 = Server("db-server-01")
+s1 = Server("web01")
+s2 = Server("db01")
 
-print(s1.name)     # web-server-01
-print(s2.name)     # db-server-01
-print(s1.region)   # ap-south-1 — same for all
-print(s2.region)   # ap-south-1 — same for all
+print(s1.name)        # web01    — unique to s1
+print(s2.name)        # db01     — unique to s2
+print(s1.datacenter)  # AP-South-1 — same for both!
+print(s2.datacenter)  # AP-South-1 — same for both!
 ```
-
-> **Interview Tip 🎯:**
-> - **Class variable** → declared inside class but outside functions → shared by all objects
-> - **Instance variable** → declared inside `__init__` → unique per object
 
 ---
 
-### 🔹 Magic Methods
+### 10.8 Magic Methods (Dunder Methods)
 
 ```python
 class Server:
-
     def __init__(self, name, services):
         self.name     = name
-        self.services = services    # list of services
-
+        self.services = services
+    
     def __str__(self):
-        # called when you print() the object
-        return f"Server({self.name}) with {len(self.services)} services"
-
+        """Called when you print(object)"""
+        return f"Server: {self.name} | Services: {', '.join(self.services)}"
+    
     def __len__(self):
-        # called when you use len() on the object
+        """Called when you use len(object)"""
         return len(self.services)
+    
+    def __repr__(self):
+        """Unambiguous representation — for debugging"""
+        return f"Server(name={self.name!r}, services={self.services!r})"
 
-server = Server("web-prod-01", ["nginx", "nodejs", "redis"])
-
-print(server)        # Server(web-prod-01) with 3 services
-print(len(server))   # 3
+s = Server("web01", ["nginx", "nodejs", "redis"])
+print(s)        # Calls __str__ — Server: web01 | Services: nginx, nodejs, redis
+print(len(s))   # Calls __len__ — 3
+print(repr(s))  # Calls __repr__
 ```
 
 ---
 
-## 9. Advanced Topics
+## 11. Advanced Topics
 
-### 🔹 Iterators — Traverse Elements One at a Time
+### 11.1 Iterators
+
+An **iterator** is an object that returns elements one at a time.
 
 ```python
 # Convert list to iterator
-servers    = [10, 20, 30, 40]
-server_itr = iter(servers)    # iter() converts to iterator
+servers = ["web01", "web02", "web03"]
+it = iter(servers)
 
-print(next(server_itr))    # 10 — first element
-print(next(server_itr))    # 20
-print(next(server_itr))    # 30
-print(next(server_itr))    # 40
-# print(next(server_itr))  # ❌ StopIteration — no more elements
+print(next(it))   # web01
+print(next(it))   # web02
+print(next(it))   # web03
+# next(it)        # StopIteration error — no more elements
 ```
 
 ---
 
-### 🔹 Generators — Memory-Efficient with `yield`
+### 11.2 Generators
 
-A generator uses `yield` instead of `return` — produces **one value at a time**, saves memory:
+A **generator** uses `yield` instead of `return` — produces values **one at a time** without loading everything into memory. Ideal for large files or large datasets.
 
 ```python
-# Generator function
-def get_servers(count):
-    for i in range(1, count + 1):
-        yield f"server-{i:03d}"    # yield pauses here, resumes on next()
+def get_log_lines(filepath):
+    """Memory-efficient log reader — one line at a time"""
+    with open(filepath, "r") as f:
+        for line in f:
+            yield line.strip()
 
-# Use the generator
-for server in get_servers(3):
-    print(f"Provisioning {server}")
-
-# Output:
-# Provisioning server-001
-# Provisioning server-002
-# Provisioning server-003
+# Process a 10GB log file without loading it all into memory!
+for line in get_log_lines("large.log"):
+    if "ERROR" in line:
+        print(f"Error found: {line}")
 ```
 
-> **Interview Tip 🎯:** `yield` is used instead of `return` in generators. It saves memory — only one item is in memory at a time, unlike a list which loads everything.
+> **💼 DevOps Use Case:** Processing large log files, streaming S3 objects, generating large config files.
 
 ---
 
-### 🔹 Decorators — Add Functionality Without Modifying Function
+### 11.3 Decorators
 
-A decorator **wraps a function** to add extra behavior (logging, timing):
+A **decorator** is a function that adds functionality to another function **without modifying its code**.
 
 ```python
 import time
 
-# Define the decorator
-def log_execution(func):
+def timer(func):
+    """Decorator — measures execution time of any function"""
     def wrapper(*args, **kwargs):
-        print(f"Running: {func.__name__}")
-        result = func(*args, **kwargs)    # call original function
-        print(f"Completed: {func.__name__}")
+        start = time.time()
+        result = func(*args, **kwargs)
+        end = time.time()
+        print(f"⏱️  {func.__name__} took {end - start:.4f} seconds")
         return result
     return wrapper
 
-# Apply decorator using @
-@log_execution
-def deploy_app():
-    print("Deploying application...")
+def logger(func):
+    """Decorator — logs function calls"""
+    def wrapper(*args, **kwargs):
+        print(f"📋 Calling: {func.__name__}")
+        result = func(*args, **kwargs)
+        print(f"✅ Completed: {func.__name__}")
+        return result
+    return wrapper
 
-deploy_app()
+@timer
+@logger
+def deploy_application(app_name):
+    print(f"🚀 Deploying {app_name}...")
+    time.sleep(1)   # Simulate deployment
 
-# Output:
-# Running: deploy_app
-# Deploying application...
-# Completed: deploy_app
+deploy_application("my-app")
+# 📋 Calling: deploy_application
+# 🚀 Deploying my-app...
+# ✅ Completed: deploy_application
+# ⏱️  deploy_application took 1.0023 seconds
 ```
 
 ---
 
-### 🔹 Context Manager — `with` Statement
-
-```python
-# The 'with' statement automatically handles open/close
-# Already covered in file handling — this is the context manager
-
-with open("file.txt", "r") as f:
-    content = f.read()
-# file auto-closed here — even if error occurs
-
-# Used for:
-# - File operations
-# - Database connections
-# - Network connections
-```
-
----
-
-### 🔹 Regular Expressions — `re` Module
-
-Used to **search, match, and manipulate text** (log files, config files):
+### 11.4 Regular Expressions (`re` module)
 
 ```python
 import re
 
-# Find email in text
-text = "Contact admin at admin@company.com for access"
+# Find email addresses in text
+text = "Contact: admin@company.com or support@devops.io for help"
+emails = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', text)
+print(f"Emails found: {emails}")
 
-email_pattern = r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"
-match = re.search(email_pattern, text)
+# Extract IP addresses from log file
+log = """
+2024-01-15 ERROR from 192.168.1.10
+2024-01-15 WARNING from 10.0.0.55
+2024-01-15 INFO from 172.16.0.1
+"""
+ips = re.findall(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', log)
+print(f"IP addresses: {ips}")
 
-if match:
-    print(f"Email found: {match.group()}")    # admin@company.com
-
-# Find all IP addresses in log
-log = "Request from 192.168.1.100 and 10.0.0.5"
-ip_pattern = r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"
-ips = re.findall(ip_pattern, log)
-print(f"IPs found: {ips}")    # ['192.168.1.100', '10.0.0.5']
+# Extract HTTP status codes from access log
+access_log = "GET /api/health 200 OK\nGET /api/data 500 Error\nGET /login 404 Not Found"
+codes = re.findall(r'\b[2-5]\d{2}\b', access_log)
+print(f"Status codes: {codes}")
 ```
 
 ---
 
-### 🔹 Multi-threading — Run Tasks Concurrently
+### 11.5 Multi-threading
 
-Use when tasks spend time **waiting** (network, API calls, file I/O):
+Run multiple **threads** (lightweight tasks) **concurrently** — good for I/O-bound tasks (API calls, file reads, network operations).
 
 ```python
 import threading
 import time
 
-def check_server(server_name):
-    time.sleep(1)    # simulate network delay
-    print(f"{server_name} — healthy")
+def check_server(server_name, delay):
+    """Simulate checking a server's health"""
+    time.sleep(delay)   # Simulate network latency
+    print(f"✅ {server_name} — Health check complete")
 
-servers = ["web-01", "web-02", "db-01", "cache-01"]
+servers = [
+    ("web01", 1),
+    ("db01",  2),
+    ("api01", 1.5)
+]
 
-# Sequential — takes 4 seconds
-# for s in servers:
-#     check_server(s)
+print("🔍 Starting parallel health checks...")
+start = time.time()
 
-# Multi-threaded — takes ~1 second (all run at same time)
 threads = []
-
-for server in servers:
-    t = threading.Thread(target=check_server, args=(server,))
+for name, delay in servers:
+    t = threading.Thread(target=check_server, args=(name, delay))
     threads.append(t)
     t.start()
 
+# Wait for all threads to complete
 for t in threads:
-    t.join()    # wait for all threads to finish
+    t.join()
 
-print("All servers checked!")
+elapsed = time.time() - start
+print(f"⏱️  All checks done in {elapsed:.2f}s (vs {sum(d for _,d in servers)}s sequential)")
 ```
 
 ---
 
-### 🔹 Multi-processing — True Parallel Execution
+### 11.6 Multi-processing
 
-Use for **CPU-heavy tasks** — bypasses Python's GIL:
+Run multiple **processes** with **separate memory** — good for CPU-bound tasks. Bypasses Python's GIL.
 
 ```python
-from multiprocessing import Process
+import multiprocessing
 import time
 
-def calculate_square(numbers):
-    for n in numbers:
-        time.sleep(1)    # simulate heavy CPU work
-        print(f"Square of {n} is {n*n}")
+def compress_logs(server_name):
+    """Simulate compressing logs on a server"""
+    print(f"🗜️  Compressing logs on {server_name}...")
+    time.sleep(2)
+    print(f"✅ Done compressing on {server_name}")
 
-def calculate_cube(numbers):
-    for n in numbers:
-        time.sleep(1)
-        print(f"Cube of {n} is {n**3}")
-
-nums = [1, 2, 3, 4, 5]
-
-p1 = Process(target=calculate_square, args=(nums,))
-p2 = Process(target=calculate_cube,   args=(nums,))
-
-p1.start()
-p2.start()
-
-p1.join()    # wait for both to finish
-p2.join()
-
-print("Both processes completed!")
+if __name__ == "__main__":   # Required for multiprocessing on Windows/Mac
+    servers = ["web01", "db01", "cache01"]
+    
+    processes = []
+    for server in servers:
+        p = multiprocessing.Process(target=compress_logs, args=(server,))
+        processes.append(p)
+        p.start()
+    
+    for p in processes:
+        p.join()
+    
+    print("✅ Log compression complete on all servers!")
 ```
 
-> **Interview Tip 🎯:**
-> - **Multi-threading** → I/O-bound (network, file) — shared memory
-> - **Multi-processing** → CPU-bound (calculations) — separate memory, bypasses GIL
+| Feature | Multi-threading | Multi-processing |
+|---|---|---|
+| Memory | Shared | Separate |
+| Best for | I/O-bound (API, files, network) | CPU-bound (math, compression) |
+| GIL affected | Yes | No |
+| Use case | Parallel API calls | Parallel data processing |
 
 ---
 
-### 🔹 argparse — Command-Line Arguments
+### 11.7 argparse — Command Line Arguments
 
 ```python
+# deploy.py
 import argparse
 
-parser = argparse.ArgumentParser(description="Deployment Script")
-parser.add_argument("--env",     required=True,  help="dev / staging / prod")
-parser.add_argument("--version", required=True,  help="App version")
-parser.add_argument("--region",  default="us-east-1", help="AWS region")
+parser = argparse.ArgumentParser(description="Deployment automation script")
+
+parser.add_argument("--env",      required=True,  help="Target environment (dev/staging/production)")
+parser.add_argument("--version",  required=True,  help="App version to deploy (e.g., v2.1.0)")
+parser.add_argument("--replicas", type=int, default=2, help="Number of replicas (default: 2)")
+parser.add_argument("--dry-run",  action="store_true", help="Simulate without actually deploying")
 
 args = parser.parse_args()
 
-print(f"Deploying version {args.version} to {args.env} in {args.region}")
+print(f"🚀 Deployment Config:")
+print(f"   Environment : {args.env}")
+print(f"   Version     : {args.version}")
+print(f"   Replicas    : {args.replicas}")
+print(f"   Dry Run     : {args.dry_run}")
+
+if not args.dry_run:
+    print(f"\n✅ Deploying {args.version} to {args.env} with {args.replicas} replicas...")
+else:
+    print(f"\n🧪 DRY RUN — No actual deployment made.")
 ```
 
 ```bash
-# Usage
-python3 deploy.py --env prod --version 2.4.1
-python3 deploy.py --env staging --version 2.4.1 --region ap-south-1
+# Run it
+python3 deploy.py --env production --version v2.1.0 --replicas 3
+python3 deploy.py --env staging --version v2.1.0 --dry-run
+
+# Built-in help
 python3 deploy.py --help
 ```
 
 ---
 
-### 🔹 Environment Variables
+### 11.8 Environment Variables
 
 ```python
 import os
 
-# Set env variable in terminal before running:
-# export DB_PASSWORD="mysecretpass"
+# Read environment variable (with default fallback)
+db_host     = os.getenv("DB_HOST",     "localhost")
+db_password = os.getenv("DB_PASSWORD", "")         # Don't hardcode secrets!
+aws_region  = os.getenv("AWS_REGION",  "us-east-1")
+environment = os.getenv("APP_ENV",     "development")
 
-db_host = os.environ.get("DB_HOST",     "localhost")
-db_pass = os.environ.get("DB_PASSWORD", "")
-region  = os.environ.get("AWS_REGION",  "us-east-1")
+print(f"DB Host:     {db_host}")
+print(f"AWS Region:  {aws_region}")
+print(f"Environment: {environment}")
 
-if not db_pass:
-    print("ERROR: DB_PASSWORD not set!")
-else:
-    print(f"Connecting to {db_host} in {region}")
+if not db_password:
+    print("⚠️  WARNING: DB_PASSWORD environment variable not set!")
 ```
 
 ```bash
-# Set environment variable
-export DB_PASSWORD="mysecretpass"
+# Set environment variables
 export DB_HOST="prod-db.company.com"
-python3 script.py
+export DB_PASSWORD="super_secret_password"
+export APP_ENV="production"
+
+python3 app.py
 ```
+
+> **💡 Production Best Practice:** **Never hardcode secrets** (passwords, API keys, tokens) in your code. Always use environment variables or a secrets manager (AWS Secrets Manager, HashiCorp Vault).
 
 ---
 
-### 🔹 Time Module — Delay and Timing
+### 11.9 Task Scheduling
 
+#### Using `time.sleep()` for delays
 ```python
 import time
 
-print("Starting backup...")
-time.sleep(5)    # pause for 5 seconds
-print("Backup completed")
+def backup_databases():
+    print("💾 Starting database backup...")
+    time.sleep(3)   # Simulate backup taking 3 seconds
+    print("✅ Database backup complete!")
 
-# Measure execution time
-start = time.time()
-time.sleep(2)
-end   = time.time()
-print(f"Execution took: {end - start:.2f} seconds")
+print("⏰ Starting backup job...")
+backup_databases()
 ```
 
----
-
-### 🔹 Schedule Module — Periodic Automation
-
+#### Using `schedule` library for periodic tasks
 ```bash
-pip install schedule
+pip3 install schedule
 ```
 
 ```python
 import schedule
 import time
 
-def check_servers():
-    print("Checking server health...")
+def health_check():
+    print("🔍 Running server health check...")
+    # Add real health check logic here
 
-def backup_database():
-    print("Running database backup...")
+def cleanup_logs():
+    print("🗑️  Cleaning up old log files...")
 
-# Schedule tasks
-schedule.every(10).seconds.do(check_servers)
-schedule.every(1).hours.do(backup_database)
+# Schedule jobs
+schedule.every(10).seconds.do(health_check)   # Every 10 seconds
+schedule.every(1).hours.do(cleanup_logs)       # Every hour
+schedule.every().day.at("02:00").do(backup_databases)  # Daily at 2 AM
 
-print("Scheduler running — press Ctrl+C to stop")
-
+print("⏰ Scheduler started. Press Ctrl+C to stop.")
 while True:
     schedule.run_pending()
     time.sleep(1)
@@ -1903,1762 +2148,188 @@ while True:
 
 ---
 
-## 10. Simple Production Programs for Every Module
+## 🎯 Production Best Practices Summary
 
-### 🏭 Program 1: OS Module — Server Disk Space Checker
-
+### ✅ Code Quality
 ```python
-#!/usr/bin/env python3
-"""
-Script: disk_checker.py
-Purpose: Check disk space on the server and alert if usage is high
-Usage: python3 disk_checker.py
-"""
+# 1. Use f-strings (not .format() or %)
+name = "web01"
+print(f"Server: {name}")   # ✅
 
-import os
-import subprocess
+# 2. Use context managers for files/connections
+with open("file.txt", "r") as f:   # ✅ Auto-closes
+    data = f.read()
 
-# ── Configuration ──
-THRESHOLD_PERCENT = 80
-LOG_DIR           = "/var/log"
+# 3. Use os.getenv() for configs
+host = os.getenv("DB_HOST", "localhost")   # ✅
 
+# 4. Always validate function inputs
+def deploy(version):
+    if not version:
+        raise ValueError("Version cannot be empty")
+    # proceed...
 
-def get_disk_usage():
-    """Get disk usage using df command."""
-    result = subprocess.run(
-        ["df", "-h", "/"],
-        capture_output=True,
-        text=True
-    )
-    return result.stdout
-
-
-def check_disk_percent():
-    """Return disk usage % as integer."""
-    result = subprocess.run(
-        ["df", "/", "--output=pcent"],
-        capture_output=True,
-        text=True
-    )
-    lines   = result.stdout.strip().split("\n")
-    percent = int(lines[1].replace("%", "").strip())
-    return percent
-
-
-def create_alert_log(percent):
-    """Write alert to a log file."""
-    os.makedirs(LOG_DIR, exist_ok=True)
-    log_path = os.path.join(LOG_DIR, "disk_alerts.log")
-
-    with open(log_path, "a") as f:
-        f.write(f"ALERT: Disk usage at {percent}% — threshold is {THRESHOLD_PERCENT}%\n")
-
-    print(f"Alert written to {log_path}")
-
-
-def main():
-    print("=" * 40)
-    print("  Disk Space Checker")
-    print("=" * 40)
-
-    # Show full disk info
-    print(get_disk_usage())
-
-    # Check percentage
-    usage = check_disk_percent()
-    print(f"Current disk usage: {usage}%")
-
-    if usage >= THRESHOLD_PERCENT:
-        print(f"WARNING: Disk at {usage}% — threshold is {THRESHOLD_PERCENT}%!")
-        create_alert_log(usage)
-    else:
-        print(f"OK: Disk usage is normal ({usage}%)")
-
-
-if __name__ == "__main__":
-    main()
+# 5. Use logging, not print()
+import logging
+logging.basicConfig(level=logging.INFO)
+logging.info("Deployment started")      # ✅
+logging.error("Connection failed")     # ✅
 ```
 
-```bash
-python3 disk_checker.py
+### ✅ Error Handling
+```python
+# Always catch specific exceptions
+try:
+    result = int(user_input)
+except ValueError:        # ✅ Specific
+    print("Invalid input")
+
+# NOT this:
+try:
+    result = int(user_input)
+except Exception:         # ⚠️ Too broad — catches everything including bugs!
+    pass
+```
+
+### ✅ Security
+```python
+# Never do this:
+password = "mypassword123"           # ❌ Hardcoded secret!
+
+# Always do this:
+password = os.getenv("DB_PASSWORD")  # ✅ From environment variable
 ```
 
 ---
 
-### 🏭 Program 2: SYS Module — Python Environment Info Script
+## 🎯 Interview-Focused Quick Reference
+
+| Question | Answer |
+|---|---|
+| List vs Tuple | List is mutable (changeable), Tuple is immutable |
+| List vs Set | List is ordered, Set is unordered and unique |
+| `*args` vs `**kwargs` | `*args` = multiple positional args; `**kwargs` = multiple keyword args |
+| What is GIL? | Global Interpreter Lock — Python threads can't run truly in parallel; use multiprocessing for CPU tasks |
+| What is a decorator? | A function that adds functionality to another function without modifying it |
+| `yield` vs `return` | `return` exits function; `yield` pauses and produces a value — used in generators |
+| What is `__init__`? | Constructor — automatically called when an object is created |
+| `finally` vs `else` in try/except | `finally` always runs; `else` runs only if no exception occurred |
+| What is encapsulation? | Hiding internal data using private variables (`__var`) — protects data integrity |
+| Why use `with` for files? | Automatically closes file even if error occurs — prevents resource leaks |
+
+---
+
+## 🚀 Complete DevOps Automation Script (Putting It All Together)
 
 ```python
 #!/usr/bin/env python3
 """
-Script: env_info.py
-Purpose: Print Python and system environment information
-Usage:   python3 env_info.py
-         python3 env_info.py web01 us-east-1
+DevOps Server Health Monitor
+Checks CPU, memory, disk, and reports status
 """
 
+import os
 import sys
-import os
-
-
-def show_python_info():
-    """Display Python version and platform."""
-    print("=" * 40)
-    print("  Python Environment Info")
-    print("=" * 40)
-    print(f"Python Version : {sys.version}")
-    print(f"Platform       : {sys.platform}")
-    print(f"Executable     : {sys.executable}")
-
-
-def show_command_args():
-    """Display command-line arguments passed."""
-    print("\n--- Command-Line Arguments ---")
-
-    if len(sys.argv) < 2:
-        print("No arguments passed.")
-        print("Usage: python3 env_info.py <server> <region>")
-        return
-
-    print(f"Script Name : {sys.argv[0]}")
-
-    if len(sys.argv) > 1:
-        print(f"Server      : {sys.argv[1]}")
-
-    if len(sys.argv) > 2:
-        print(f"Region      : {sys.argv[2]}")
-
-
-def check_config_file():
-    """Check if a config file exists before proceeding."""
-    config_path = "/etc/app/config.yml"
-
-    if not os.path.exists(config_path):
-        print(f"\nConfig file not found: {config_path}")
-        print("Exiting with error code 1")
-        sys.exit(1)
-    else:
-        print(f"\nConfig file found: {config_path}")
-
-
-def main():
-    show_python_info()
-    show_command_args()
-    check_config_file()
-
-
-if __name__ == "__main__":
-    main()
-```
-
-```bash
-python3 env_info.py
-python3 env_info.py web01 us-east-1
-```
-
----
-
-### 🏭 Program 3: Subprocess Module — Service Health Checker
-
-```python
-#!/usr/bin/env python3
-"""
-Script: service_checker.py
-Purpose: Check status of Linux services and restart if stopped
-Usage:   python3 service_checker.py
-"""
-
-import subprocess
-
-
-# ── Services to monitor ──
-SERVICES = ["nginx", "mysql", "redis-server"]
-
-
-def is_service_active(service_name):
-    """Check if a service is active using systemctl."""
-    result = subprocess.run(
-        ["systemctl", "is-active", service_name],
-        capture_output=True,
-        text=True
-    )
-    return result.stdout.strip() == "active"
-
-
-def restart_service(service_name):
-    """Restart a stopped service."""
-    print(f"  Restarting {service_name}...")
-    result = subprocess.run(
-        ["sudo", "systemctl", "restart", service_name],
-        capture_output=True,
-        text=True
-    )
-
-    if result.returncode == 0:
-        print(f"  {service_name} restarted successfully")
-    else:
-        print(f"  Failed to restart {service_name}: {result.stderr.strip()}")
-
-
-def get_system_uptime():
-    """Get system uptime."""
-    output = subprocess.check_output("uptime", shell=True, text=True)
-    return output.strip()
-
-
-def main():
-    print("=" * 40)
-    print("  Service Health Checker")
-    print("=" * 40)
-    print(f"System Uptime: {get_system_uptime()}")
-    print()
-
-    for service in SERVICES:
-        if is_service_active(service):
-            print(f"[OK]      {service} is running")
-        else:
-            print(f"[STOPPED] {service} is NOT running")
-            restart_service(service)
-
-    print("\nService check completed.")
-
-
-if __name__ == "__main__":
-    main()
-```
-
-```bash
-python3 service_checker.py
-```
-
----
-
-### 🏭 Program 4: Shutil Module — Backup Script
-
-```python
-#!/usr/bin/env python3
-"""
-Script: backup.py
-Purpose: Backup a folder by copying it with a timestamp
-Usage:   python3 backup.py
-"""
-
-import shutil
-import os
-from datetime import datetime
-
-
-# ── Configuration ──
-SOURCE_DIR  = "/etc/nginx"         # folder to backup
-BACKUP_BASE = "/tmp/backups"       # where to store backups
-
-
-def create_backup(source, backup_base):
-    """Copy source directory to backup location with timestamp."""
-
-    # Create backup directory if not exists
-    os.makedirs(backup_base, exist_ok=True)
-
-    # Generate timestamped backup folder name
-    timestamp   = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_dest = os.path.join(backup_base, f"nginx_backup_{timestamp}")
-
-    try:
-        shutil.copytree(source, backup_dest)
-        print(f"Backup created: {backup_dest}")
-        return backup_dest
-
-    except FileNotFoundError:
-        print(f"Source not found: {source}")
-        return None
-
-    except Exception as e:
-        print(f"Backup failed: {e}")
-        return None
-
-
-def list_backups(backup_base):
-    """List all existing backups."""
-    print("\nExisting backups:")
-
-    if not os.path.exists(backup_base):
-        print("  No backups found")
-        return
-
-    backups = os.listdir(backup_base)
-
-    if not backups:
-        print("  No backups found")
-    else:
-        for b in sorted(backups):
-            print(f"  {b}")
-
-
-def delete_old_backup(backup_base, keep_count=3):
-    """Keep only the last N backups, delete older ones."""
-    if not os.path.exists(backup_base):
-        return
-
-    backups = sorted(os.listdir(backup_base))
-
-    while len(backups) > keep_count:
-        oldest      = os.path.join(backup_base, backups[0])
-        shutil.rmtree(oldest)
-        print(f"Deleted old backup: {backups[0]}")
-        backups.pop(0)
-
-
-def main():
-    print("=" * 40)
-    print("  Nginx Backup Script")
-    print("=" * 40)
-
-    # Step 1: Create backup
-    result = create_backup(SOURCE_DIR, BACKUP_BASE)
-
-    # Step 2: List all backups
-    list_backups(BACKUP_BASE)
-
-    # Step 3: Keep only last 3 backups
-    delete_old_backup(BACKUP_BASE, keep_count=3)
-
-    print("\nBackup process complete.")
-
-
-if __name__ == "__main__":
-    main()
-```
-
-```bash
-python3 backup.py
-```
-
----
-
-### 🏭 Program 5: JSON Module — Config Reader & Writer
-
-```python
-#!/usr/bin/env python3
-"""
-Script: config_manager.py
-Purpose: Read, update, and write server config in JSON format
-Usage:   python3 config_manager.py
-"""
-
 import json
-import os
-
-
-CONFIG_FILE = "server_config.json"
-
-
-def create_default_config():
-    """Create a default config file if not exists."""
-    default = {
-        "app_name":    "web-frontend",
-        "version":     "1.0.0",
-        "servers":     ["web01", "web02"],
-        "port":        8080,
-        "environment": "staging",
-        "debug":       False
-    }
-
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(default, f, indent=4)
-
-    print(f"Default config created: {CONFIG_FILE}")
-
-
-def read_config():
-    """Read and return config from JSON file."""
-    with open(CONFIG_FILE, "r") as f:
-        config = json.load(f)
-    return config
-
-
-def update_config(key, value):
-    """Update a specific key in the config."""
-    config     = read_config()
-    old_value  = config.get(key, "not found")
-    config[key] = value
-
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(config, f, indent=4)
-
-    print(f"Updated '{key}': {old_value} → {value}")
-
-
-def display_config(config):
-    """Print config in readable format."""
-    print("\n--- Current Config ---")
-    for key, value in config.items():
-        print(f"  {key:<15}: {value}")
-
-
-def main():
-    print("=" * 40)
-    print("  Config Manager")
-    print("=" * 40)
-
-    # Create config if not exists
-    if not os.path.exists(CONFIG_FILE):
-        create_default_config()
-
-    # Read and display
-    config = read_config()
-    display_config(config)
-
-    # Update version and environment
-    update_config("version",     "2.0.0")
-    update_config("environment", "production")
-
-    # Show updated config
-    config = read_config()
-    display_config(config)
-
-
-if __name__ == "__main__":
-    main()
-```
-
-```bash
-python3 config_manager.py
-```
-
----
-
-### 🏭 Program 6: YAML Module — Kubernetes-Style Deploy Config Reader
-
-```python
-#!/usr/bin/env python3
-"""
-Script: yaml_deploy.py
-Purpose: Read deployment YAML config and simulate a deployment
-Usage:   python3 yaml_deploy.py
-"""
-
-import yaml
-import os
-
-
-YAML_FILE = "deployment.yaml"
-
-
-def create_sample_yaml():
-    """Create a sample deployment YAML."""
-    config = {
-        "app":         "nginx-frontend",
-        "image":       "nginx:1.25",
-        "environment": "production",
-        "replicas":    3,
-        "port":        80,
-        "env_vars": {
-            "APP_ENV":  "production",
-            "LOG_LEVEL": "INFO"
-        },
-        "servers": ["web01", "web02", "web03"]
-    }
-
-    with open(YAML_FILE, "w") as f:
-        yaml.dump(config, f, default_flow_style=False)
-
-    print(f"Sample YAML created: {YAML_FILE}")
-
-
-def read_yaml_config():
-    """Read and return YAML config."""
-    with open(YAML_FILE, "r") as f:
-        config = yaml.safe_load(f)
-    return config
-
-
-def simulate_deployment(config):
-    """Simulate deployment using config values."""
-    print("\n--- Deployment Plan ---")
-    print(f"App        : {config['app']}")
-    print(f"Image      : {config['image']}")
-    print(f"Environment: {config['environment']}")
-    print(f"Replicas   : {config['replicas']}")
-    print(f"Port       : {config['port']}")
-
-    print("\n--- Deploying to servers ---")
-    for server in config["servers"]:
-        print(f"  Deploying {config['app']} to {server}...")
-
-    print("\n--- Environment Variables ---")
-    for key, val in config["env_vars"].items():
-        print(f"  {key}={val}")
-
-    print(f"\nDeployment complete — {config['replicas']} replicas running")
-
-
-def main():
-    print("=" * 40)
-    print("  YAML Deploy Config Reader")
-    print("=" * 40)
-
-    # Create YAML if not exists
-    if not os.path.exists(YAML_FILE):
-        create_sample_yaml()
-
-    # Read and simulate
-    config = read_yaml_config()
-    simulate_deployment(config)
-
-
-if __name__ == "__main__":
-    main()
-```
-
-```bash
-pip install pyyaml
-python3 yaml_deploy.py
-```
-
----
-
-### 🏭 Program 7: Datetime Module — Log File Archiver with Timestamps
-
-```python
-#!/usr/bin/env python3
-"""
-Script: log_archiver.py
-Purpose: Create log files with timestamps and archive old ones
-Usage:   python3 log_archiver.py
-"""
-
-import os
-import shutil
-from datetime import datetime, timedelta
-
-
-LOG_DIR     = "./logs"
-ARCHIVE_DIR = "./logs/archive"
-
-
-def write_log(message):
-    """Write a message to today's log file."""
-    os.makedirs(LOG_DIR, exist_ok=True)
-
-    today    = datetime.now().strftime("%Y-%m-%d")
-    log_file = os.path.join(LOG_DIR, f"app_{today}.log")
-
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    with open(log_file, "a") as f:
-        f.write(f"{timestamp} - {message}\n")
-
-    print(f"Logged: {message}")
-    return log_file
-
-
-def show_today_logs():
-    """Print today's log file content."""
-    today    = datetime.now().strftime("%Y-%m-%d")
-    log_file = os.path.join(LOG_DIR, f"app_{today}.log")
-
-    if not os.path.exists(log_file):
-        print("No logs today yet")
-        return
-
-    print(f"\n--- Today's Logs ({today}) ---")
-    with open(log_file, "r") as f:
-        for line in f:
-            print(f"  {line.strip()}")
-
-
-def archive_old_logs(days_old=7):
-    """Move logs older than N days to archive folder."""
-    os.makedirs(ARCHIVE_DIR, exist_ok=True)
-
-    cutoff = datetime.now() - timedelta(days=days_old)
-    moved  = 0
-
-    for filename in os.listdir(LOG_DIR):
-        if not filename.endswith(".log"):
-            continue
-
-        filepath = os.path.join(LOG_DIR, filename)
-
-        # Get file modification time
-        file_time = datetime.fromtimestamp(os.path.getmtime(filepath))
-
-        if file_time < cutoff:
-            dest = os.path.join(ARCHIVE_DIR, filename)
-            shutil.move(filepath, dest)
-            print(f"Archived: {filename}")
-            moved += 1
-
-    print(f"Total archived: {moved} files")
-
-
-def main():
-    print("=" * 40)
-    print("  Log Archiver")
-    print("=" * 40)
-
-    # Write some logs
-    write_log("Server started successfully")
-    write_log("Deployment completed — version 2.4.1")
-    write_log("Health check passed")
-
-    # Show today's logs
-    show_today_logs()
-
-    # Archive logs older than 7 days
-    print("\n--- Archiving Old Logs ---")
-    archive_old_logs(days_old=7)
-
-    print("\nLog archiver finished.")
-
-
-if __name__ == "__main__":
-    main()
-```
-
-```bash
-python3 log_archiver.py
-```
-
----
-
-### 🏭 Program 8: File Handling — Log Analyzer (Error Counter)
-
-```python
-#!/usr/bin/env python3
-"""
-Script: log_analyzer.py
-Purpose: Analyze a log file and count errors, warnings, info
-Usage:   python3 log_analyzer.py
-"""
-
-import os
-
-
-LOG_FILE = "application.log"
-
-
-def create_sample_log():
-    """Create a sample log file for testing."""
-    lines = [
-        "2024-01-15 09:00:01 INFO  Server started",
-        "2024-01-15 09:01:10 INFO  Request received from 10.0.0.1",
-        "2024-01-15 09:02:05 WARNING CPU usage at 78%",
-        "2024-01-15 09:03:20 ERROR Cannot connect to database",
-        "2024-01-15 09:04:15 INFO  Health check passed",
-        "2024-01-15 09:05:30 ERROR Disk usage at 95%",
-        "2024-01-15 09:06:00 WARNING Memory usage at 82%",
-        "2024-01-15 09:07:45 ERROR Connection timeout to 10.0.0.5",
-        "2024-01-15 09:08:20 INFO  Deployment completed",
-        "2024-01-15 09:09:00 ERROR Out of memory",
-    ]
-
-    with open(LOG_FILE, "w") as f:
-        for line in lines:
-            f.write(line + "\n")
-
-    print(f"Sample log created: {LOG_FILE}")
-
-
-def analyze_log(log_file):
-    """Count log levels and collect error lines."""
-    counts      = {"INFO": 0, "WARNING": 0, "ERROR": 0}
-    error_lines = []
-
-    with open(log_file, "r") as f:
-        for line in f:
-            if "ERROR" in line:
-                counts["ERROR"] += 1
-                error_lines.append(line.strip())
-            elif "WARNING" in line:
-                counts["WARNING"] += 1
-            elif "INFO" in line:
-                counts["INFO"] += 1
-
-    return counts, error_lines
-
-
-def print_report(counts, error_lines):
-    """Print the analysis report."""
-    total = sum(counts.values())
-
-    print("\n--- Log Analysis Report ---")
-    print(f"Total Lines : {total}")
-    print(f"INFO        : {counts['INFO']}")
-    print(f"WARNING     : {counts['WARNING']}")
-    print(f"ERROR       : {counts['ERROR']}")
-
-    if error_lines:
-        print("\n--- Error Details ---")
-        for line in error_lines:
-            print(f"  {line}")
-
-
-def save_report(counts, error_lines):
-    """Save report to a file."""
-    with open("log_report.txt", "w") as f:
-        f.write("Log Analysis Report\n")
-        f.write("=" * 40 + "\n")
-        for level, count in counts.items():
-            f.write(f"{level}: {count}\n")
-        f.write("\nError Lines:\n")
-        for line in error_lines:
-            f.write(f"  {line}\n")
-
-    print("\nReport saved to log_report.txt")
-
-
-def main():
-    print("=" * 40)
-    print("  Log Analyzer")
-    print("=" * 40)
-
-    # Create sample log
-    create_sample_log()
-
-    # Analyze
-    counts, error_lines = analyze_log(LOG_FILE)
-
-    # Print report
-    print_report(counts, error_lines)
-
-    # Save to file
-    save_report(counts, error_lines)
-
-
-if __name__ == "__main__":
-    main()
-```
-
-```bash
-python3 log_analyzer.py
-```
-
----
-
-### 🏭 Program 9: Exception Handling — Safe File Reader with Retry
-
-```python
-#!/usr/bin/env python3
-"""
-Script: safe_reader.py
-Purpose: Read a config file safely with proper exception handling
-Usage:   python3 safe_reader.py
-"""
-
-import json
-import os
-import time
-
-
-CONFIG_FILE = "app_config.json"
-
-
-def read_config_safe(filepath):
-    """Read JSON config file with full exception handling."""
-    try:
-        with open(filepath, "r") as f:
-            config = json.load(f)
-
-    except FileNotFoundError:
-        print(f"ERROR: File not found — {filepath}")
-        return None
-
-    except json.JSONDecodeError as e:
-        print(f"ERROR: Invalid JSON in {filepath}: {e}")
-        return None
-
-    except PermissionError:
-        print(f"ERROR: Permission denied — {filepath}")
-        return None
-
-    else:
-        # runs only when NO exception occurred
-        print(f"Config loaded successfully from {filepath}")
-        return config
-
-    finally:
-        # runs ALWAYS
-        print("File read operation finished (finally block)")
-
-
-def connect_with_retry(server_ip, max_retries=3, delay=2):
-    """Simulate server connection with retry logic."""
-    for attempt in range(1, max_retries + 1):
-        try:
-            print(f"Attempt {attempt}/{max_retries}: Connecting to {server_ip}")
-
-            # Simulate failed connection on first two attempts
-            if attempt < max_retries:
-                raise ConnectionError("Connection refused")
-
-            print(f"Connected to {server_ip} successfully!")
-            return True
-
-        except ConnectionError as e:
-            print(f"  Failed: {e}")
-            if attempt < max_retries:
-                print(f"  Waiting {delay}s before retry...")
-                time.sleep(delay)
-
-    print(f"All {max_retries} attempts failed for {server_ip}")
-    return False
-
-
-def validate_version(version):
-    """Validate version number using custom exception."""
-    class InvalidVersionError(Exception):
-        pass
-
-    try:
-        if float(version) < 1.0:
-            raise InvalidVersionError(
-                f"Version {version} is too old. Minimum is 1.0"
-            )
-        print(f"Version {version} is valid")
-
-    except InvalidVersionError as e:
-        print(f"Version Error: {e}")
-
-    except ValueError:
-        print(f"Invalid format: '{version}' is not a valid version number")
-
-
-def main():
-    print("=" * 40)
-    print("  Safe File Reader Demo")
-    print("=" * 40)
-
-    # Test 1: Read missing file
-    print("\n[Test 1] Read missing file:")
-    result = read_config_safe("missing.json")
-    print(f"Result: {result}")
-
-    # Test 2: Create and read valid config
-    print("\n[Test 2] Read valid config:")
-    sample = {"app": "myapp", "version": "2.0", "env": "prod"}
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(sample, f)
-    config = read_config_safe(CONFIG_FILE)
-    if config:
-        print(f"App: {config['app']}, Env: {config['env']}")
-
-    # Test 3: Retry logic
-    print("\n[Test 3] Connection retry:")
-    connect_with_retry("10.0.1.50", max_retries=3, delay=1)
-
-    # Test 4: Custom exception
-    print("\n[Test 4] Version validation:")
-    validate_version("0.5")
-    validate_version("2.4")
-    validate_version("abc")
-
-
-if __name__ == "__main__":
-    main()
-```
-
-```bash
-python3 safe_reader.py
-```
-
----
-
-### 🏭 Program 10: OOP — Server Management System
-
-```python
-#!/usr/bin/env python3
-"""
-Script: server_manager.py
-Purpose: Simple server management using OOP (Class, Inheritance, Encapsulation)
-Usage:   python3 server_manager.py
-"""
-
-
-# ── Base Server Class ──
-class Server:
-
-    # Class variable — shared by ALL server objects
-    data_center = "DC-Mumbai"
-
-    def __init__(self, name, ip, server_type):
-        self.name        = name
-        self.ip          = ip
-        self.server_type = server_type
-        self.__status    = "stopped"    # private variable
-
-    def start(self):
-        self.__status = "running"
-        print(f"[START] {self.name} ({self.ip}) is now running")
-
-    def stop(self):
-        self.__status = "stopped"
-        print(f"[STOP]  {self.name} ({self.ip}) has stopped")
-
-    def get_status(self):
-        # public method to access private variable
-        return self.__status
-
-    def show_info(self):
-        print(f"  Name   : {self.name}")
-        print(f"  IP     : {self.ip}")
-        print(f"  Type   : {self.server_type}")
-        print(f"  Status : {self.get_status()}")
-        print(f"  DC     : {self.data_center}")
-
-    def __str__(self):
-        return f"Server({self.name}, {self.ip}, {self.get_status()})"
-
-
-# ── Web Server — inherits from Server ──
-class WebServer(Server):
-
-    def __init__(self, name, ip, domain):
-        super().__init__(name, ip, "web")
-        self.domain = domain
-
-    def deploy(self, app_name, version):
-        print(f"[DEPLOY] {app_name} v{version} → {self.domain}")
-
-    def show_info(self):
-        super().show_info()    # call parent show_info
-        print(f"  Domain : {self.domain}")
-
-
-# ── Database Server — inherits from Server ──
-class DatabaseServer(Server):
-
-    def __init__(self, name, ip, db_type):
-        super().__init__(name, ip, "database")
-        self.db_type = db_type
-
-    def backup(self):
-        print(f"[BACKUP] Running {self.db_type} backup on {self.name}")
-
-    def show_info(self):
-        super().show_info()
-        print(f"  DB Type: {self.db_type}")
-
-
-# ── Simple Fleet Manager ──
-class ServerFleet:
-
-    def __init__(self):
-        self.servers = []
-
-    def add_server(self, server):
-        self.servers.append(server)
-        print(f"Added to fleet: {server.name}")
-
-    def start_all(self):
-        print("\n--- Starting all servers ---")
-        for s in self.servers:
-            s.start()
-
-    def stop_all(self):
-        print("\n--- Stopping all servers ---")
-        for s in self.servers:
-            s.stop()
-
-    def show_all(self):
-        print("\n--- Fleet Status ---")
-        for s in self.servers:
-            print(s)    # calls __str__
-
-    def get_running(self):
-        return [s for s in self.servers if s.get_status() == "running"]
-
-
-def main():
-    print("=" * 40)
-    print("  Server Management System")
-    print("=" * 40)
-
-    # Create servers
-    web1 = WebServer("nginx-prod-01", "10.0.1.10", "app.example.com")
-    web2 = WebServer("nginx-prod-02", "10.0.1.11", "api.example.com")
-    db1  = DatabaseServer("mysql-prod-01", "10.0.2.10", "MySQL")
-
-    # Show info
-    print("\n--- Web Server Info ---")
-    web1.show_info()
-
-    print("\n--- DB Server Info ---")
-    db1.show_info()
-
-    # Use fleet
-    fleet = ServerFleet()
-    fleet.add_server(web1)
-    fleet.add_server(web2)
-    fleet.add_server(db1)
-
-    # Start all
-    fleet.start_all()
-
-    # Show status
-    fleet.show_all()
-
-    # Deploy and backup
-    print("\n--- Operations ---")
-    web1.deploy("frontend", "2.4.1")
-    db1.backup()
-
-    # Get running servers
-    running = fleet.get_running()
-    print(f"\nRunning servers: {len(running)}")
-    for s in running:
-        print(f"  {s.name} — {s.ip}")
-
-    # Stop all
-    fleet.stop_all()
-    fleet.show_all()
-
-
-if __name__ == "__main__":
-    main()
-```
-
-```bash
-python3 server_manager.py
-```
-
----
-
-### 🏭 Program 11: Multi-threading — Parallel Server Health Check
-
-```python
-#!/usr/bin/env python3
-"""
-Script: parallel_health_check.py
-Purpose: Check multiple servers at the same time using threading
-Usage:   python3 parallel_health_check.py
-"""
-
-import threading
-import time
-
-
-# ── Server list to monitor ──
-SERVERS = [
-    "web-01",
-    "web-02",
-    "db-01",
-    "cache-01",
-    "lb-01"
-]
-
-
-def check_server_health(server_name):
-    """Simulate a health check (like ping or HTTP check)."""
-    print(f"  Checking {server_name}...")
-    time.sleep(1)    # simulate network delay
-    print(f"  {server_name} — OK")
-
-
-def run_sequential(servers):
-    """Check servers one by one (slow)."""
-    print("\n[Sequential Check]")
-    start = time.time()
-
-    for server in servers:
-        check_server_health(server)
-
-    end = time.time()
-    print(f"Sequential time: {end - start:.1f}s")
-
-
-def run_parallel(servers):
-    """Check all servers at the same time (fast)."""
-    print("\n[Parallel Check using Threads]")
-    start = time.time()
-
-    threads = []
-
-    for server in servers:
-        t = threading.Thread(target=check_server_health, args=(server,))
-        threads.append(t)
-        t.start()    # start thread
-
-    for t in threads:
-        t.join()     # wait for all threads to finish
-
-    end = time.time()
-    print(f"Parallel time  : {end - start:.1f}s")
-
-
-def main():
-    print("=" * 40)
-    print("  Parallel Health Checker")
-    print("=" * 40)
-
-    # Run sequential — shows the slow way
-    run_sequential(SERVERS)
-
-    # Run parallel — shows the fast way
-    run_parallel(SERVERS)
-
-    print("\nBoth methods complete — parallel is much faster!")
-
-
-if __name__ == "__main__":
-    main()
-```
-
-```bash
-python3 parallel_health_check.py
-```
-
----
-
-### 🏭 Program 12: Multi-processing — Parallel Log Processing
-
-```python
-#!/usr/bin/env python3
-"""
-Script: parallel_log_processor.py
-Purpose: Process multiple log files in parallel using multiprocessing
-Usage:   python3 parallel_log_processor.py
-"""
-
-import os
-import time
-from multiprocessing import Process
-
-
-LOG_DIR = "./sample_logs"
-
-
-def create_sample_logs():
-    """Create sample log files for testing."""
-    os.makedirs(LOG_DIR, exist_ok=True)
-
-    log_data = {
-        "access.log":   ["INFO GET /home", "ERROR 404 /missing", "INFO GET /api"],
-        "error.log":    ["ERROR DB timeout", "ERROR disk full", "WARNING high CPU"],
-        "security.log": ["INFO login user1", "ERROR failed login user2", "INFO logout user1"],
-        "app.log":      ["INFO app started", "ERROR null pointer", "INFO request ok"],
-    }
-
-    for filename, lines in log_data.items():
-        filepath = os.path.join(LOG_DIR, filename)
-        with open(filepath, "w") as f:
-            for line in lines:
-                f.write(line + "\n")
-
-    print(f"Sample logs created in {LOG_DIR}/")
-
-
-def process_single_log(log_file):
-    """Count errors in a single log file."""
-    print(f"[Process] Processing {log_file}...")
-    time.sleep(1)    # simulate heavy processing
-
-    error_count = 0
-
-    with open(log_file, "r") as f:
-        for line in f:
-            if "ERROR" in line:
-                error_count += 1
-
-    print(f"[Process] {os.path.basename(log_file)} — {error_count} errors found")
-
-
-def main():
-    print("=" * 40)
-    print("  Parallel Log Processor")
-    print("=" * 40)
-
-    # Create sample logs
-    create_sample_logs()
-
-    # Get all log files
-    log_files = [
-        os.path.join(LOG_DIR, f)
-        for f in os.listdir(LOG_DIR)
-        if f.endswith(".log")
-    ]
-
-    print(f"\nFound {len(log_files)} log files")
-
-    # Run all log processing in parallel
-    start     = time.time()
-    processes = []
-
-    for log_file in log_files:
-        p = Process(target=process_single_log, args=(log_file,))
-        processes.append(p)
-        p.start()
-
-    for p in processes:
-        p.join()    # wait for all processes
-
-    end = time.time()
-    print(f"\nAll logs processed in {end - start:.1f}s")
-
-
-if __name__ == "__main__":
-    main()
-```
-
-```bash
-python3 parallel_log_processor.py
-```
-
----
-
-### 🏭 Program 13: argparse — Deployment Script with CLI Arguments
-
-```python
-#!/usr/bin/env python3
-"""
-Script: deploy.py
-Purpose: Deploy application with arguments from command line
-Usage:   python3 deploy.py --env prod --version 2.4.1
-         python3 deploy.py --env staging --version 2.0.0 --region ap-south-1
-"""
-
+import logging
 import argparse
-import os
-
-
-def parse_arguments():
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Simple Application Deployment Script"
-    )
-
-    parser.add_argument(
-        "--env",
-        required=True,
-        choices=["dev", "staging", "prod"],
-        help="Target environment"
-    )
-
-    parser.add_argument(
-        "--version",
-        required=True,
-        help="Application version (e.g., 2.4.1)"
-    )
-
-    parser.add_argument(
-        "--region",
-        default="us-east-1",
-        help="Deployment region (default: us-east-1)"
-    )
-
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Show what would happen without actually deploying"
-    )
-
-    return parser.parse_args()
-
-
-def run_deployment(env, version, region, dry_run):
-    """Execute the deployment."""
-    print("=" * 40)
-    print("  Deployment Plan")
-    print("=" * 40)
-    print(f"Environment : {env}")
-    print(f"Version     : {version}")
-    print(f"Region      : {region}")
-    print(f"Dry Run     : {dry_run}")
-    print()
-
-    steps = [
-        "Pull latest Docker image",
-        "Stop existing containers",
-        "Start new containers",
-        "Run health check",
-        "Update load balancer"
-    ]
-
-    for i, step in enumerate(steps, 1):
-        if dry_run:
-            print(f"[DRY RUN] Step {i}: {step}")
-        else:
-            print(f"[RUNNING] Step {i}: {step}")
-
-    if dry_run:
-        print("\nDry run complete — no changes made")
-    else:
-        print(f"\nDeployment complete — v{version} is live in {env}!")
-
-
-def main():
-    args = parse_arguments()
-    run_deployment(args.env, args.version, args.region, args.dry_run)
-
-
-if __name__ == "__main__":
-    main()
-```
-
-```bash
-# Deploy to staging
-python3 deploy.py --env staging --version 2.4.1
-
-# Deploy to prod in a specific region
-python3 deploy.py --env prod --version 2.4.1 --region ap-south-1
-
-# Dry run — see what would happen
-python3 deploy.py --env prod --version 2.4.1 --dry-run
-
-# Show help
-python3 deploy.py --help
-```
-
----
-
-### 🏭 Program 14: Environment Variables — Secrets Manager
-
-```python
-#!/usr/bin/env python3
-"""
-Script: env_secrets.py
-Purpose: Read sensitive config from environment variables safely
-Usage:
-    export DB_HOST=prod-db.company.com
-    export DB_PASSWORD=mysecretpass
-    export AWS_REGION=us-east-1
-    python3 env_secrets.py
-"""
-
-import os
-
-
-def load_config():
-    """Load all required config from environment variables."""
-    config = {
-        "db_host":     os.environ.get("DB_HOST",     "localhost"),
-        "db_port":     os.environ.get("DB_PORT",     "5432"),
-        "db_name":     os.environ.get("DB_NAME",     "appdb"),
-        "db_user":     os.environ.get("DB_USER",     "admin"),
-        "db_password": os.environ.get("DB_PASSWORD", ""),
-        "aws_region":  os.environ.get("AWS_REGION",  "us-east-1"),
-        "app_env":     os.environ.get("APP_ENV",     "development"),
-    }
-    return config
-
-
-def validate_config(config):
-    """Check all required values are present."""
-    required = ["db_password"]
-    missing  = []
-
-    for key in required:
-        if not config[key]:
-            missing.append(key.upper())
-
-    return missing
-
-
-def connect_to_db(config):
-    """Simulate DB connection using config."""
-    print(f"Connecting to DB: {config['db_user']}@{config['db_host']}:{config['db_port']}/{config['db_name']}")
-    print("Connection successful!")
-
-
-def main():
-    print("=" * 40)
-    print("  Environment Variable Manager")
-    print("=" * 40)
-
-    # Load config
-    config = load_config()
-
-    # Show config (mask password)
-    print("\n--- Loaded Config ---")
-    for key, val in config.items():
-        if "password" in key.lower():
-            display = "***" if val else "(NOT SET)"
-        else:
-            display = val
-        print(f"  {key:<15}: {display}")
-
-    # Validate
-    missing = validate_config(config)
-
-    if missing:
-        print(f"\nERROR: Missing required env variables: {', '.join(missing)}")
-        print("Set them with: export DB_PASSWORD=yourpassword")
-        return
-
-    # Connect
-    print("\n--- Connecting ---")
-    connect_to_db(config)
-
-    print(f"\nRunning in: {config['app_env']} environment")
-
-
-if __name__ == "__main__":
-    main()
-```
-
-```bash
-# Set env vars
-export DB_PASSWORD="mysecretpass"
-export DB_HOST="prod-db.company.com"
-export APP_ENV="production"
-
-python3 env_secrets.py
-```
-
----
-
-### 🏭 Program 15: Schedule Module — Automated Monitoring Script
-
-```python
-#!/usr/bin/env python3
-"""
-Script: scheduler_monitor.py
-Purpose: Schedule periodic monitoring tasks using the schedule module
-Usage:   python3 scheduler_monitor.py
-         pip install schedule
-"""
-
-import schedule
-import time
-import os
 from datetime import datetime
 
-
-def get_timestamp():
-    """Return current time as string."""
-    return datetime.now().strftime("%H:%M:%S")
-
-
-def check_server_health():
-    """Simulate server health check every 10 seconds."""
-    print(f"[{get_timestamp()}] Checking server health...")
-    # In real scripts: ping servers, check HTTP endpoints
-    print(f"[{get_timestamp()}] All servers are healthy")
-
-
-def check_disk_space():
-    """Check disk space every 30 seconds."""
-    print(f"[{get_timestamp()}] Checking disk space...")
-    # In real scripts: use subprocess to run df -h
-    print(f"[{get_timestamp()}] Disk space is OK")
-
-
-def backup_config():
-    """Backup config files every minute."""
-    print(f"[{get_timestamp()}] Running config backup...")
-    # In real scripts: use shutil.copy to backup config files
-    print(f"[{get_timestamp()}] Config backup complete")
-
-
-def send_daily_report():
-    """Send daily report (runs once per day at 08:00)."""
-    print(f"[{get_timestamp()}] Sending daily report...")
-    # In real scripts: send email or Slack message
-    print(f"[{get_timestamp()}] Daily report sent")
-
-
-def main():
-    print("=" * 40)
-    print("  Automated Monitoring Scheduler")
-    print("=" * 40)
-    print("Press Ctrl+C to stop\n")
-
-    # ── Schedule all tasks ──
-    schedule.every(10).seconds.do(check_server_health)
-    schedule.every(30).seconds.do(check_disk_space)
-    schedule.every(1).minutes.do(backup_config)
-    schedule.every().day.at("08:00").do(send_daily_report)
-
-    # ── Run loop ──
-    while True:
-        try:
-            schedule.run_pending()
-            time.sleep(1)
-
-        except KeyboardInterrupt:
-            print("\nScheduler stopped by user")
-            break
-
-
-if __name__ == "__main__":
-    main()
-```
-
-```bash
-pip install schedule
-python3 scheduler_monitor.py
-```
-
----
-
-### 🏭 Program 16: Regular Expressions — Log Parser
-
-```python
-#!/usr/bin/env python3
-"""
-Script: log_parser.py
-Purpose: Parse log file using regex to extract IPs, emails, errors
-Usage:   python3 log_parser.py
-"""
-
-import re
-import os
-
-
-LOG_FILE = "nginx_access.log"
-
-
-def create_sample_log():
-    """Create sample Nginx-style access log."""
-    log_lines = [
-        '192.168.1.100 - admin [15/Jan/2024] "GET /home HTTP/1.1" 200',
-        '10.0.0.5 - - [15/Jan/2024] "POST /login HTTP/1.1" 401',
-        '172.16.0.20 - devops [15/Jan/2024] "GET /dashboard HTTP/1.1" 200',
-        '192.168.1.100 - - [15/Jan/2024] "GET /missing HTTP/1.1" 404',
-        '10.0.0.8 - root [15/Jan/2024] "DELETE /api/v1 HTTP/1.1" 500',
-        'Contact: admin@company.com for access issues',
-        'Backup sent to ops@devops.org',
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("monitor.log"),
+        logging.StreamHandler(sys.stdout)
     ]
+)
+log = logging.getLogger(__name__)
 
-    with open(LOG_FILE, "w") as f:
-        for line in log_lines:
-            f.write(line + "\n")
+def get_thresholds():
+    """Load thresholds from environment or use defaults"""
+    return {
+        "cpu":    int(os.getenv("CPU_THRESHOLD",    "80")),
+        "memory": int(os.getenv("MEMORY_THRESHOLD", "85")),
+        "disk":   int(os.getenv("DISK_THRESHOLD",   "90"))
+    }
 
-    print(f"Sample log created: {LOG_FILE}")
+def check_server(server_name, cpu, memory, disk):
+    """Check server metrics against thresholds"""
+    thresholds = get_thresholds()
+    alerts = []
+    
+    if cpu > thresholds["cpu"]:
+        alerts.append(f"CPU {cpu}% > {thresholds['cpu']}%")
+    if memory > thresholds["memory"]:
+        alerts.append(f"Memory {memory}% > {thresholds['memory']}%")
+    if disk > thresholds["disk"]:
+        alerts.append(f"Disk {disk}% > {thresholds['disk']}%")
+    
+    status = "CRITICAL" if alerts else "HEALTHY"
+    return {"server": server_name, "status": status, "alerts": alerts}
 
-
-def extract_ips(log_content):
-    """Find all IP addresses in the log."""
-    pattern = r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"
-    ips     = re.findall(pattern, log_content)
-    return list(set(ips))    # unique IPs only
-
-
-def extract_emails(log_content):
-    """Find all email addresses in the log."""
-    pattern = r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"
-    emails  = re.findall(pattern, log_content)
-    return emails
-
-
-def extract_error_codes(log_content):
-    """Find lines with HTTP 4xx and 5xx error codes."""
-    pattern     = r".+(4\d\d|5\d\d).*"
-    error_lines = re.findall(pattern, log_content)
-    return error_lines
-
-
-def extract_status_codes(log_content):
-    """Count HTTP status codes."""
-    pattern = r'"[A-Z]+ .+?" (\d{3})'
-    codes   = re.findall(pattern, log_content)
-
-    count = {}
-    for code in codes:
-        count[code] = count.get(code, 0) + 1
-
-    return count
-
+def generate_report(results, output_file=None):
+    """Generate JSON report"""
+    report = {
+        "timestamp":    datetime.now().isoformat(),
+        "total_servers": len(results),
+        "healthy":       sum(1 for r in results if r["status"] == "HEALTHY"),
+        "critical":      sum(1 for r in results if r["status"] == "CRITICAL"),
+        "results":       results
+    }
+    
+    if output_file:
+        with open(output_file, "w") as f:
+            json.dump(report, f, indent=4)
+        log.info(f"Report saved to: {output_file}")
+    
+    return report
 
 def main():
-    print("=" * 40)
-    print("  Log Parser with Regex")
-    print("=" * 40)
-
-    # Create sample log
-    create_sample_log()
-
-    # Read log file
-    with open(LOG_FILE, "r") as f:
-        content = f.read()
-
-    # Extract IPs
-    ips = extract_ips(content)
-    print(f"\n--- Unique IP Addresses ({len(ips)}) ---")
-    for ip in ips:
-        print(f"  {ip}")
-
-    # Extract emails
-    emails = extract_emails(content)
-    print(f"\n--- Email Addresses ({len(emails)}) ---")
-    for email in emails:
-        print(f"  {email}")
-
-    # Status code summary
-    codes = extract_status_codes(content)
-    print(f"\n--- HTTP Status Code Summary ---")
-    for code, count in sorted(codes.items()):
-        print(f"  {code}: {count} requests")
-
+    parser = argparse.ArgumentParser(description="Server Health Monitor")
+    parser.add_argument("--output", help="Output JSON report file")
+    args = parser.parse_args()
+    
+    # Simulated server metrics (in real use, fetch via psutil or API)
+    servers = [
+        {"name": "web01",   "cpu": 45, "memory": 60,  "disk": 70},
+        {"name": "db01",    "cpu": 85, "memory": 90,  "disk": 65},
+        {"name": "cache01", "cpu": 30, "memory": 45,  "disk": 92},
+    ]
+    
+    log.info("🔍 Starting health checks...")
+    results = []
+    
+    for s in servers:
+        result = check_server(s["name"], s["cpu"], s["memory"], s["disk"])
+        results.append(result)
+        
+        if result["status"] == "CRITICAL":
+            log.warning(f"🚨 {s['name']}: {', '.join(result['alerts'])}")
+        else:
+            log.info(f"✅ {s['name']}: All metrics normal")
+    
+    report = generate_report(results, args.output)
+    
+    print(f"\n📊 Summary: {report['healthy']} healthy, {report['critical']} critical")
+    
+    # Exit with error code if any critical servers
+    sys.exit(1 if report["critical"] > 0 else 0)
 
 if __name__ == "__main__":
     main()
 ```
 
 ```bash
-python3 log_parser.py
+# Run it
+python3 monitor.py
+python3 monitor.py --output health_report.json
+
+# Check exit code (useful in CI/CD pipelines)
+echo "Exit code: $?"
 ```
 
 ---
 
-### 🏭 Program 17: Generators & Decorators — DevOps Pipeline
-
-```python
-#!/usr/bin/env python3
-"""
-Script: generators_decorators.py
-Purpose: Show generators (yield) and decorators in a simple DevOps context
-Usage:   python3 generators_decorators.py
-"""
-
-import time
-
-
-# ── DECORATOR — logs execution of any function ──
-def log_step(func):
-    """Decorator: prints when a step starts and finishes."""
-    def wrapper(*args, **kwargs):
-        print(f"  --> Starting: {func.__name__}")
-        result = func(*args, **kwargs)
-        print(f"  --> Done:     {func.__name__}")
-        return result
-    return wrapper
-
-
-# ── Apply decorator to deployment steps ──
-@log_step
-def pull_docker_image():
-    print("     Pulling latest docker image...")
-    time.sleep(0.5)
-
-@log_step
-def run_tests():
-    print("     Running unit tests...")
-    time.sleep(0.5)
-
-@log_step
-def deploy_containers():
-    print("     Starting containers...")
-    time.sleep(0.5)
-
-
-# ── GENERATOR — yield server list one by one ──
-def server_generator(count):
-    """Generate server names one at a time — memory efficient."""
-    for i in range(1, count + 1):
-        yield f"server-{i:03d}"
-
-
-# ── GENERATOR — read log lines one by one (efficient for huge files) ──
-def read_log_lines(filepath):
-    """Yield each line from a log file one at a time."""
-    with open(filepath, "r") as f:
-        for line in f:
-            yield line.strip()
-
-
-def run_pipeline():
-    """Run a simple deployment pipeline using decorators."""
-    print("\n--- Running Deployment Pipeline ---")
-    pull_docker_image()
-    run_tests()
-    deploy_containers()
-    print("Pipeline complete!\n")
-
-
-def show_generator_demo():
-    """Show generator usage."""
-    print("--- Server Generator Demo ---")
-
-    # Generator produces one item at a time
-    gen = server_generator(5)
-
-    for server in gen:
-        print(f"  Provisioning: {server}")
-
-
-def main():
-    print("=" * 40)
-    print("  Generators & Decorators Demo")
-    print("=" * 40)
-
-    # Run pipeline (uses decorators)
-    run_pipeline()
-
-    # Show generator
-    show_generator_demo()
-
-
-if __name__ == "__main__":
-    main()
-```
-
-```bash
-python3 generators_decorators.py
-```
-
----
-
-## 📌 Quick Reference Summary
-
-### All Modules Covered
-
-| Module       | Purpose                          | Simple Production Use                |
-|--------------|----------------------------------|--------------------------------------|
-| `os`         | OS interaction                   | File/directory ops, env vars         |
-| `sys`        | System parameters                | CLI args, exit codes, Python version |
-| `subprocess` | Run shell commands               | systemctl, df, ping, uptime          |
-| `shutil`     | High-level file ops              | Backup, copy, move, delete folders   |
-| `json`       | JSON read/write                  | Config files, API responses          |
-| `yaml`       | YAML read/write                  | Kubernetes, Ansible configs          |
-| `datetime`   | Date and time ops                | Log timestamps, file naming          |
-| `csv`        | CSV read/write                   | Server inventories, reports          |
-| `re`         | Regular expressions              | Log parsing, IP/email extraction     |
-| `logging`    | Structured logging               | Error logs, audit trails             |
-| `threading`  | Concurrent I/O tasks             | Parallel health checks, API calls    |
-| `multiprocessing` | Parallel CPU tasks          | Parallel log processing              |
-| `argparse`   | CLI argument parsing             | Deployment scripts, tool flags       |
-| `schedule`   | Task scheduling                  | Periodic monitoring, backups         |
-| `time`       | Time delays and measurement      | Retry delays, execution timing       |
-| `abc`        | Abstract base classes            | Cloud provider interfaces            |
-
-### Common Mistakes & Fixes 🔴
-
-| Mistake                                        | Fix                                            |
-|------------------------------------------------|------------------------------------------------|
-| Using `print()` in production scripts          | Use `logging` module instead                   |
-| Hardcoding passwords in code                   | Use `os.environ.get()` for all secrets         |
-| Not using `with open()` for files              | Always use `with open()` — auto-closes file    |
-| `yaml.load()` instead of `yaml.safe_load()`   | Always use `yaml.safe_load()` — safer          |
-| `shell=True` with subprocess + user input      | Pass commands as a list to subprocess          |
-| No exception handling in automation scripts    | Wrap all file/network ops in try/except        |
-| Forgetting increment in while loop             | Always add `count += 1` — prevents infinite loop |
-| Modifying list while looping                   | Loop over `list.copy()` instead                |
-
-### Interview Quick-Fire Answers 🎯
-
-| Question                              | Answer                                                                    |
-|---------------------------------------|---------------------------------------------------------------------------|
-| List vs Tuple?                        | List = mutable (can change); Tuple = immutable (cannot change)            |
-| Set properties?                       | Unordered + Unique (no duplicates)                                        |
-| What is `__init__`?                   | Constructor — auto-called when object is created                          |
-| `*args` vs `**kwargs`?                | `*args` = extra positional args (tuple); `**kwargs` = keyword args (dict) |
-| `yield` vs `return`?                  | `return` exits function; `yield` pauses and resumes (generator)           |
-| Threading vs Multiprocessing?         | Threading = I/O-bound; Multiprocessing = CPU-bound (no GIL)               |
-| What does `finally` do?               | Runs ALWAYS — even if exception occurs — used for cleanup                 |
-| Why use decorators?                   | Add functionality (logging, retry) without modifying the original function|
-| What is encapsulation?                | Hiding internal details using private methods/variables (`__`)            |
-| How to store secrets safely?          | `os.environ.get()` — never hardcode in scripts                            |
-| Difference: `else` vs `finally`?      | `else` = runs only when NO exception; `finally` = runs ALWAYS             |
-| What is a generator?                  | Function using `yield` — produces one value at a time, saves memory       |
-
----
-
-> 💡 **Final Advice from the Instructor:**
-> Python is a **practice-first** language. Write every example by hand, modify it, break it intentionally, then fix it. Practice questions based on these concepts especially:
-> - Exception handling with retry logic
-> - OOP with class and inheritance
-> - File handling (read/write/append)
-> - JSON/YAML parsing for configs
-> - Working with os, subprocess, and argparse modules
->
-> These are the most asked topics in DevOps Python interviews. Subscribe to the channel for more DevOps and Cloud content!
+> 📘 **Final Advice:** Python is a skill that grows with **practice**. For every concept here, write the code yourself, modify it, break it, and fix it. DevOps automation becomes second nature once you've written enough scripts. Focus on `os`, `subprocess`, `json`, `requests`, and `boto3` — these five are what you'll use 80% of the time in real DevOps work.
