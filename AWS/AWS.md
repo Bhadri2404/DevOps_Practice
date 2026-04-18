@@ -3159,6 +3159,8 @@ Route 53 Failover:
 Primary: api.myapp.com → us-east-1 ALB (health check)
 Secondary: api.myapp.com → us
 
+```
+
 
 ## 17.5 Scenario: Secure Enterprise VPC Architecture (Zero-Trust)
 
