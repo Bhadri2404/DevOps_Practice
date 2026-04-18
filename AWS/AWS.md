@@ -3158,3 +3158,1689 @@ Primary Region: us-east-1          DR Region: us-west-2
 Route 53 Failover:
 Primary: api.myapp.com → us-east-1 ALB (health check)
 Secondary: api.myapp.com → us
+
+
+## 17.5 Scenario: Secure Enterprise VPC Architecture (Zero-Trust)
+
+```
+Zero-Trust Network Architecture:
+
+"Never trust, always verify — even inside the network"
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                    ENTERPRISE VPC (10.0.0.0/16)                     │
+│                                                                       │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │                  DMZ / Public Tier                           │   │
+│  │  10.0.0.0/24 (AZ-1a)    10.0.1.0/24 (AZ-1b)               │   │
+│  │  ┌──────────────┐        ┌──────────────┐                   │   │
+│  │  │  WAF + ALB   │        │  WAF + ALB   │                   │   │
+│  │  │  NAT GW      │        │  NAT GW      │                   │   │
+│  │  └──────────────┘        └──────────────┘                   │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                       │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │                  Application Tier                            │   │
+│  │  10.0.10.0/24 (AZ-1a)   10.0.11.0/24 (AZ-1b)              │   │
+│  │  ┌──────────────┐        ┌──────────────┐                   │   │
+│  │  │  EC2/ECS     │        │  EC2/ECS     │                   │   │
+│  │  │  (App Svrs)  │        │  (App Svrs)  │                   │   │
+│  │  └──────────────┘        └──────────────┘                   │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                       │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │                  Data Tier                                   │   │
+│  │  10.0.20.0/24 (AZ-1a)   10.0.21.0/24 (AZ-1b)              │   │
+│  │  ┌──────────────┐        ┌──────────────┐                   │   │
+│  │  │  Aurora DB   │        │  Aurora      │                   │   │
+│  │  │  (Primary)   │        │  (Replica)   │                   │   │
+│  │  │  ElastiCache │        │  ElastiCache │                   │   │
+│  │  └──────────────┘        └──────────────┘                   │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                       │
+│  Security Controls:                                                  │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │  • NACL per tier (DMZ, App, Data)                            │  │
+│  │  • Security Groups: Reference-based, no CIDR where possible  │  │
+│  │  • VPC Endpoints: S3, Secrets Manager, KMS, SSM             │  │
+│  │  • VPC Flow Logs → S3 → Athena for forensics                │  │
+│  │  • GuardDuty: ML-based threat detection                     │  │
+│  │  • SSM Session Manager: No SSH/RDP ports open anywhere       │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────┘
+
+Security Group Chaining (Zero-Trust Micro-Segmentation):
+
+ALB-SG:    Allow 443 from 0.0.0.0/0 (internet users)
+App-SG:    Allow 8080 from ALB-SG ONLY (not from internet, not by IP)
+DB-SG:     Allow 3306 from App-SG ONLY (never from ALB or internet)
+Cache-SG:  Allow 6379 from App-SG ONLY
+
+Benefits:
+→ Even if attacker reaches ALB tier, cannot directly reach DB
+→ No IP-based rules = immune to IP spoofing
+→ Adding new app server auto-inherits SG membership
+→ Audit: Every rule has a clear, justified reason
+```
+
+---
+
+## 17.6 Scenario: CI/CD Pipeline Architecture
+
+```
+Enterprise CI/CD Pipeline:
+
+Developer workstation
+        │
+        │ git push
+        ▼
+CodeCommit (Source Repository)
+  → Branch: feature/xyz
+  → Pull Request created
+  → Code review by team
+  → Merge to main branch
+        │
+        │ Webhook triggers
+        ▼
+CodePipeline (Orchestrator)
+        │
+        ├──→ Stage 1: SOURCE
+        │    └── Pull latest code from CodeCommit
+        │
+        ├──→ Stage 2: BUILD (CodeBuild)
+        │    ├── Run unit tests
+        │    ├── Run SAST (Static Application Security Testing)
+        │    ├── Build Docker image
+        │    ├── Push image to ECR
+        │    ├── Run dependency vulnerability scan
+        │    └── Generate build artifact
+        │
+        ├──→ Stage 3: TEST (CodeBuild)
+        │    ├── Deploy to test environment
+        │    ├── Run integration tests
+        │    ├── Run DAST (Dynamic security scan)
+        │    ├── Run performance tests
+        │    └── Generate test reports → S3
+        │
+        ├──→ Stage 4: STAGING DEPLOY (CodeDeploy)
+        │    ├── Blue/Green deployment to staging ECS
+        │    ├── Smoke tests
+        │    ├── Manual approval gate ← QA team approves
+        │    └── Rollback if smoke tests fail
+        │
+        └──→ Stage 5: PRODUCTION DEPLOY (CodeDeploy)
+             ├── Canary deployment (5% traffic to new version)
+             ├── Monitor CloudWatch alarms for 10 minutes
+             ├── If alarms OK → shift 100% traffic
+             ├── If alarms fire → automatic rollback
+             └── Notification via SNS → Slack/Teams
+
+Deployment Strategies Explained:
+
+┌─────────────────────────────────────────────────────────────────┐
+│  ROLLING UPDATE                                                  │
+│  Replace instances one at a time                                │
+│  v1 v1 v1 v1 → v2 v1 v1 v1 → v2 v2 v1 v1 → v2 v2 v2 v2      │
+│  Risk: Mixed versions running simultaneously                    │
+│  Rollback: Slow (must deploy v1 again)                         │
+│  Downtime: Zero (if min healthy % maintained)                  │
+│  Use: Non-critical apps, low traffic windows                   │
+├─────────────────────────────────────────────────────────────────┤
+│  BLUE/GREEN DEPLOYMENT                                          │
+│  Run two identical environments simultaneously                  │
+│  Blue (v1): 100% traffic → Green (v2): 0% traffic             │
+│  Test Green → Switch ALB target group → Green: 100% traffic   │
+│  Blue kept alive for instant rollback                          │
+│  Rollback: Instant (switch back to Blue)                       │
+│  Cost: 2x infrastructure during switch window                  │
+│  Use: Production critical apps, zero-downtime requirement      │
+├─────────────────────────────────────────────────────────────────┤
+│  CANARY DEPLOYMENT                                              │
+│  Gradually shift traffic to new version                        │
+│  v1: 100% → v2: 5% + v1: 95% → v2: 25% + v1: 75% → v2: 100%│
+│  Monitor each stage for errors before proceeding               │
+│  Rollback: Shift traffic back to v1 (fast)                    │
+│  Risk: Minimal — only small % of users see new version first  │
+│  Use: High-risk changes, SaaS products, A/B testing           │
+└─────────────────────────────────────────────────────────────────┘
+
+Environment Variable Management in CI/CD:
+
+Development secrets:
+→ Parameter Store Standard (free)
+
+Production secrets:
+→ Secrets Manager with auto-rotation
+→ Never in environment variables hardcoded
+→ Never in source code / Git
+→ Never in Docker images
+→ Injected at runtime via IAM role permissions
+```
+
+---
+
+## 17.7 Scenario: Serverless Microservices with API Gateway
+
+```
+Complete Serverless API Architecture:
+
+Mobile App / Web SPA
+        │
+        │ HTTPS API calls
+        ▼
+Route 53 → api.myapp.com
+        │
+        ▼
+CloudFront (API caching for GET requests)
+        │
+        ▼
+API Gateway (Regional or Edge-optimized)
+  │
+  ├── Authorization Layer:
+  │   └── Cognito User Pool Authorizer
+  │       → Validates JWT token
+  │       → Returns IAM policy (allow/deny)
+  │
+  ├── Rate Limiting:
+  │   └── 10,000 requests/sec default (increase via support)
+  │   └── Per-user throttling via API Keys + Usage Plans
+  │
+  ├── Routes:
+  │   GET  /users/{id}      → Lambda: GetUser
+  │   POST /users           → Lambda: CreateUser
+  │   GET  /products        → Lambda: ListProducts (cached 5min)
+  │   POST /orders          → Lambda: CreateOrder
+  │   GET  /orders/{id}     → Lambda: GetOrder
+  │
+  └── Stages: dev, staging, prod (separate deployments)
+
+Lambda Function Architecture:
+
+API Gateway → Lambda: CreateOrder
+                  │
+                  ├── Validate input (Joi/Zod schema)
+                  ├── Check inventory (DynamoDB GetItem)
+                  ├── Reserve inventory (DynamoDB UpdateItem with condition)
+                  ├── Calculate pricing (internal logic)
+                  ├── Publish event to EventBridge
+                  │   "OrderCreated" event
+                  ├── Return 201 response to client
+                  └── (async downstream processing via EventBridge)
+
+EventBridge Rule: "OrderCreated" →
+  ├── Lambda: Send order confirmation email (SES)
+  ├── Lambda: Notify warehouse system (external API call)
+  ├── Lambda: Update analytics database (Redshift)
+  └── SQS: Queue for fraud detection service
+
+Lambda Performance Optimization:
+→ Provisioned Concurrency: Pre-warm N instances (eliminates cold starts)
+→ Right-size memory: 1GB memory = 2x CPU speed (test & tune)
+→ Keep dependencies minimal (smaller package = faster cold start)
+→ Connection pooling: RDS Proxy for database connections
+→ /tmp storage: 10GB for temporary files between invocations
+→ Layers: Share common libraries across functions
+```
+
+---
+
+## 17.8 Scenario: Data Lake Architecture
+
+```
+Modern Data Lake on AWS:
+
+Data Sources:
+  Applications → Kinesis Data Streams → Lambda → S3 (Raw Zone)
+  Databases    → DMS (Database Migration Service) → S3 (Raw Zone)
+  Logs         → Kinesis Firehose → S3 (Raw Zone)
+  Files        → S3 Transfer Acceleration → S3 (Raw Zone)
+
+S3 Data Lake Zones:
+┌───────────��────────────────────────────────────────────────┐
+│  Raw Zone (Bronze)         → S3 Standard                  │
+│  Exact copy of source      → Versioning enabled           │
+│  Never modified            → Object Lock for compliance   │
+├────────────────────────────────────────────────────────────┤
+│  Processed Zone (Silver)   → S3 Standard-IA              │
+│  Cleaned, validated        → Partitioned by date/region   │
+│  Converted to Parquet      → Optimized for query          │
+├────────────────────────────────────────────────────────────┤
+│  Curated Zone (Gold)       → S3 Standard-IA              │
+│  Business-ready datasets   → Aggregated metrics           │
+│  Joined across sources     → Ready for BI tools           │
+└────────────────────────────────────────────────────────────┘
+
+Processing:
+Raw → AWS Glue ETL (PySpark) → Processed
+Processed → AWS Glue ETL → Curated
+
+Cataloging:
+AWS Glue Data Catalog → Discovers schema, tracks partitions
+→ Makes data queryable by Athena, Redshift Spectrum, EMR
+
+Querying:
+Amazon Athena → SQL queries directly on S3 (serverless, $5/TB scanned)
+Amazon Redshift Spectrum → Join S3 data with Redshift tables
+Amazon QuickSight → BI dashboards connecting to Athena/Redshift
+
+Governance:
+AWS Lake Formation → Fine-grained column/row-level access control
+  → Data analyst sees only their permitted columns
+  → PII columns masked for non-privileged users
+```
+
+---
+
+# 18. ARCHITECTURE DECISION TRADE-OFF TABLES
+
+## 18.1 Compute: Lambda vs ECS vs EC2
+
+```
+┌──────────────────┬────────────────────┬────────────────────┬────────────────────┐
+│   Dimension      │      Lambda        │    ECS Fargate     │       EC2          │
+├──────────────────┼────────────────────┼────────────────────┼────────────────────┤
+│ Max runtime      │ 15 minutes         │ Unlimited          │ Unlimited          │
+│ Cold start       │ Yes (ms to sec)    │ Yes (30-60 sec)    │ Yes (minutes)      │
+│ Scaling speed    │ Instant            │ 30-60 seconds      │ 2-5 minutes        │
+│ Max memory       │ 10 GB              │ 120 GB             │ Terabytes          │
+│ State            │ Stateless only     │ Stateful possible  │ Fully stateful     │
+│ Cost model       │ Per invocation     │ Per vCPU/memory    │ Per hour/second    │
+│ OS control       │ None               │ Container only     │ Full OS access     │
+│ Idle cost        │ $0                 │ $0 (Fargate)       │ Yes (always-on)    │
+│ GPU support      │ None               │ Limited            │ Full GPU support   │
+│ Max concurrency  │ 1000 default       │ Service limits     │ No hard limit      │
+│ Deployment unit  │ Function (ZIP/img) │ Container image    │ AMI + User Data    │
+│ Networking       │ VPC optional       │ VPC required       │ VPC required       │
+│ Best for         │ Event-driven,      │ Microservices,     │ Legacy apps,       │
+│                  │ short tasks,       │ long-running,      │ custom OS, GPU,    │
+│                  │ API backends       │ containers         │ large workloads    │
+└──────────────────┴────────────────────┴────────────────────┴────────────────────┘
+
+Decision Rule:
+→ Duration < 15 min + event-driven + unpredictable traffic → Lambda
+→ Containerized app + predictable traffic + need > 15 min → ECS Fargate
+→ Legacy migration + OS control + GPU/specialized hardware → EC2
+```
+
+---
+
+## 18.2 Load Balancer: ALB vs NLB vs API Gateway
+
+```
+┌──────────────────┬────────────────────┬────────────────────┬────────────────────┐
+│   Dimension      │        ALB         │        NLB         │   API Gateway      │
+├──────────────────┼────────────────────┼────────────────────┼────────────────────┤
+│ OSI Layer        │ 7 (HTTP)           │ 4 (TCP/UDP)        │ 7 (HTTP/REST/WS)   │
+│ Protocol         │ HTTP/HTTPS/WS/gRPC │ TCP/UDP/TLS        │ HTTP/REST/WebSocket│
+│ Performance      │ High               │ Extreme (M req/s)  │ Limited (29s timeout│
+│ Routing rules    │ Advanced (content) │ Basic              │ Very advanced      │
+│ Auth integration │ Cognito, OIDC      │ None               │ Cognito, Lambda, IAM│
+│ Request transform│ None               │ None               │ Full transform     │
+│ Static IP        │ None               │ Per AZ             │ None               │
+│ PrivateLink      │ None               │ Supported          │ None               │
+│ Lambda targets   │ ✅                 │ ❌                 │ ✅ (primary use)   │
+│ Throttling       │ None               │ None               │ Built-in           │
+│ Usage plans      │ None               │ None               │ Built-in           │
+│ WebSocket mgmt   │ Basic              │ Basic              │ Full (conn tracking)│
+│ Cost             │ Medium             │ Medium             │ Medium-High        │
+│ Best for         │ HTTP microservices │ Gaming, IoT,       │ Serverless APIs,   │
+│                  │ web apps           │ financial, private │ 3rd party API      │
+│                  │                   │ link services       │ management         │
+└──────────────────┴────────────────────┴────────────────────┴────────────────────┘
+
+Decision Rule:
+→ HTTP web app, microservices routing → ALB
+→ TCP/UDP, extreme performance, static IP → NLB
+→ Serverless API, auth, throttling, transforms → API Gateway
+→ Expose service to other AWS accounts → NLB + PrivateLink
+```
+
+---
+
+## 18.3 Messaging: SQS vs SNS vs EventBridge
+
+```
+┌──────────────────┬────────────────────┬────────────────────┬────────────────────┐
+│   Dimension      │        SQS         │        SNS         │   EventBridge      │
+├──────────────────┼────────────────────┼────────────────────┼────────────────────┤
+│ Pattern          │ Queue (pull)        │ Pub/Sub (push)     │ Event bus (push)   │
+│ Consumers        │ One consumer group │ Many simultaneously│ Many simultaneously│
+│ Message replay   │ During visibility  │ No replay          │ Archive + replay   │
+│ Filtering        │ By attribute       │ Attribute filter   │ Rich content filter│
+│ Schema registry  │ None               │ None               │ Built-in           │
+│ Cross-account    │ ✅                 │ ✅                 │ ✅                 │
+│ SaaS integration │ None               │ None               │ 90+ SaaS partners  │
+│ Message ordering │ FIFO option        │ No guarantee       │ No guarantee       │
+│ Retention        │ Up to 14 days      │ No persistence     │ Up to 1 year       │
+│ Throughput       │ Unlimited          │ Unlimited          │ Default 10k/sec    │
+│ Best for         │ Task queues,       │ Fan-out, alerts,   │ Application         │
+│                  │ decoupling,        │ mobile push,       │ integration,       │
+│                  │ work distribution  │ multi-subscriber   │ SaaS events,       │
+│                  │                   │ notifications       │ audit, automation  │
+└──────────────────┴────────────────────┴────────────────────┴────────────────────┘
+
+Common Combination Patterns:
+→ SQS alone: Simple task queue (email sending, image processing)
+→ SNS → SQS (Fan-out): One event → multiple parallel queues
+→ EventBridge → Lambda: React to AWS service events automatically
+→ EventBridge → SQS → Lambda: Buffered event processing with retry
+
+Decision Rule:
+→ Decouple producer from consumer, buffering → SQS
+→ One message, many subscribers, push → SNS
+→ AWS service events, SaaS events, rich filtering → EventBridge
+→ Mixed: SNS fan-out to multiple SQS queues for parallel processing
+```
+
+---
+
+## 18.4 Database: RDS vs Aurora vs DynamoDB
+
+```
+┌──────────────────┬────────────────────┬────────────────────┬────────────────────┐
+│   Dimension      │        RDS         │      Aurora        │     DynamoDB       │
+├──────────────────┼────────────────────┼────────────────────┼────────────────────┤
+│ Type             │ Relational         │ Relational         │ NoSQL key-value    │
+│ Schema           │ Fixed              │ Fixed              │ Flexible           │
+│ Query language   │ SQL                │ SQL                │ PartiQL / SDK API  │
+│ ACID             │ ✅ Full ACID       │ ✅ Full ACID       │ ✅ (single item)   │
+│ Join support     │ ✅ Full            │ ✅ Full            │ ❌ No joins         │
+│ Max storage      │ 64 TB              │ 128 TB (auto)      │ Unlimited          │
+│ Read scaling     │ 5 replicas         │ 15 replicas        │ Unlimited          │
+│ Write scaling    │ Single primary     │ Single primary     │ Unlimited (sharded)│
+│ Latency          │ Milliseconds       │ Milliseconds       │ Single-digit ms    │
+│ Failover time    │ 60-120 seconds     │ ~30 seconds        │ Instant (serverless│
+│ Multi-region     │ Read replicas only │ Aurora Global DB   │ Global Tables      │
+│ Serverless       │ ❌                 │ ✅ Aurora Serverless│ ✅ On-demand mode │
+│ Cost             │ Medium             │ Higher than RDS    │ Variable (usage)   │
+│ Best for         │ Existing SQL apps, │ High-performance   │ High-scale,        │
+│                  │ complex queries,   │ MySQL/Postgres,    │ simple lookups,    │
+│                  │ standard workloads │ managed HA needed  │ global apps        │
+└──────────────────┴────────────────────┴────────────────────┴────────────────────┘
+
+Decision Rule:
+→ Complex SQL + existing app → RDS MySQL/PostgreSQL
+→ MySQL/PostgreSQL + need 5x perf + better HA → Aurora
+→ Known data access patterns + massive scale + flexible schema → DynamoDB
+→ Analytics/reporting on large datasets → Redshift
+→ Caching layer for any of the above → ElastiCache Redis
+
+Real Architect Scenarios:
+E-commerce product catalog → DynamoDB (high read, simple key-value)
+E-commerce order history → Aurora (ACID, complex queries)
+E-commerce analytics → Redshift (petabyte-scale queries)
+E-commerce session store → ElastiCache Redis (sub-millisecond)
+```
+
+---
+
+## 18.5 Storage: S3 vs EBS vs EFS vs FSx
+
+```
+┌──────────────────┬──────────────┬──────────────┬──────────────┬──────────────┐
+│   Dimension      │      S3      │     EBS      │     EFS      │     FSx      │
+├──────────────────┼──────────────┼──────────────┼──────────────┼──────────────┤
+│ Storage type     │ Object       │ Block        │ File (NFS)   │ File (SMB/  │
+│                  │              │              │              │ Lustre/ONTAP)│
+│ Access           │ HTTP API     │ OS mount     │ NFS mount    │ SMB/NFS mount│
+│ Multi-instance   │ ✅ Unlimited  │ ❌ (1 inst)  │ ✅ Thousands │ ✅          │
+│ Windows support  │ ✅           │ ✅           │ ❌           │ ✅ FSx Win  │
+│ Throughput       │ Very high    │ Up to 1GB/s  │ Scales auto  │ Extreme (HPC)│
+│ Max size         │ Unlimited    │ 16 TB/vol    │ Petabytes    │ Petabytes    │
+│ Pricing          │ Per GB ($0.02│ Per GB ($0.08│ Per GB ($0.30│ Per GB       │
+│                  │ Standard)    │ gp3)         │ Standard)    │ (higher)     │
+│ Use case         │ Backups,     │ OS volume,   │ Shared CMS,  │ Windows file │
+│                  │ static files,│ database,    │ ML training  │ share, HPC,  │
+│                  │ data lake    │ single server│ data, shared │ SAP, NetApp  │
+│                  │              │ apps         │ container    │ migrations   │
+└──────────────────┴──────────────┴──────────────┴──────────────┴──────────────┘
+
+Decision Rule:
+→ Backups, static website, data lake, media → S3
+→ EC2 OS volume, database, single-instance app → EBS (gp3 default)
+→ Multiple Linux instances need same files → EFS
+→ Windows shared file server migration → FSx for Windows
+→ HPC/ML training (extreme throughput) → FSx for Lustre
+```
+
+---
+
+# 19. DISASTER RECOVERY & RELIABILITY DESIGN
+
+## 19.1 DR Strategy Spectrum
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                   DISASTER RECOVERY STRATEGIES                       │
+│                                                                       │
+│     Cost ──────────────────────────────────────────────────────→    │
+│     Low                                                        High  │
+│     ◄──────────────────────────────────────────────────────────►    │
+│                                                                       │
+│  Backup &     Pilot Light    Warm Standby    Active-Active           │
+│  Restore      (Core on)      (Scaled down)   (Full capacity)         │
+│                                                                       │
+│  RTO: Hours   RTO: 10 min    RTO: Minutes    RTO: Seconds            │
+│  RPO: Hours   RPO: Minutes   RPO: Seconds    RPO: ~0                 │
+│                                                                       │
+│  Cost: $      Cost: $$       Cost: $$$       Cost: $$$$              │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 19.2 Strategy 1: Backup and Restore
+
+```
+Architecture:
+Primary Region (us-east-1)         DR Region (us-west-2)
+┌─────────────────────────┐        ┌──────────────────────────┐
+│  Production Systems     │        │  S3 Bucket               │
+│                         │        │  (Backups stored here)   │
+│  RDS → Automated        │──CRR──→│  RDS snapshots           │
+│  snapshot daily         │        │  EC2 AMIs copied         │
+│                         │        │  S3 data replicated      │
+│  EC2 → Daily AMI        │        │                          │
+│                         │        │  ⚠️ No running resources │
+│  S3 → CRR enabled       │        │  Only data stored        │
+└─────────────────────────┘        └──────────────────────────┘
+
+Disaster Occurs:
+1. Declare disaster (manual or automated via health check)
+2. Launch EC2 from copied AMI in DR region
+3. Restore RDS from snapshot
+4. Update Route 53 to point to DR region
+5. Test application functionality
+6. Communicate to users
+
+Total: 2-4 hours to be operational
+
+Use Case:
+→ Cost-sensitive applications
+→ Can tolerate hours of downtime
+→ Dev/test environments
+→ Non-critical batch workloads
+```
+
+---
+
+## 19.3 Strategy 2: Pilot Light
+
+```
+Architecture:
+Primary Region (us-east-1)         DR Region (us-west-2)
+┌─────────────────────────┐        ┌──────────────────────────┐
+│  Full Production Stack  │        │  CORE SERVICES ONLY      │
+│                         │        │  (Minimal cost, always on│
+│  EC2 ASG (running)      │        │  ┌────────────────────┐  │
+│  Aurora Primary         │──────→│  │ Aurora Replica     │  │
+│  ElastiCache            │  sync  │  │ (promoted on DR)   │  │
+│  ALB                    │        │  └────────────────────┘  │
+│                         │        │                          │
+│                         │        │  ┌────────────────────┐  │
+│                         │        │  │ EC2 AMIs stored    │  │
+│                         │        │  │ (not running)      │  │
+│                         │        │  └────────────────────┘  │
+└─────────────────────────┘        └──────────────────────────┘
+
+On Disaster:
+1. Promote Aurora Replica to Primary (1-2 minutes)
+2. Launch EC2 instances from pre-built AMIs (3-5 minutes)
+3. Scale up Auto Scaling Group (2-3 minutes)
+4. Update Route 53 DNS to DR region (1-2 minutes)
+Total: ~10 minutes RTO
+
+Use Case:
+→ Moderate criticality applications
+→ Can tolerate ~10 minutes downtime
+→ Want low DR cost but faster recovery than backup/restore
+→ Core database is the most critical component
+```
+
+---
+
+## 19.4 Strategy 3: Warm Standby
+
+```
+Architecture:
+Primary Region (us-east-1)         DR Region (us-west-2)
+┌─────────────────────────┐        ┌──────────────────────────┐
+│  Full Production Stack  │        │  SCALED-DOWN REPLICA     │
+│  ASG: min=4, max=20     │        │  ASG: min=1, max=20      │
+│  Aurora: Primary (r5.2x)│──────→│  Aurora Replica (r5.lg)  │
+│  ElastiCache: 3 nodes   │  sync  │  ElastiCache: 1 node     │
+│  ALB: full capacity     │        │  ALB: ready              │
+│                         │        │                          │
+│                         │        │  Handles 10% of traffic  │
+│                         │        │  Can scale to 100%       │
+└─────────────────────────┘        └──────────────────────────┘
+
+On Disaster:
+1. Route 53 health check fails on primary → auto-switches DNS
+2. ASG in DR scales from min=1 to production capacity
+3. Aurora Replica promoted to Primary
+4. ElastiCache scales up
+Total: ~2-5 minutes RTO
+
+Cost Trade-off:
+DR environment runs at ~20-30% of production cost continuously
+But RTO drops from hours → minutes
+
+Use Case:
+→ Business-critical applications
+→ 99.9% SLA requirement
+→ E-commerce, SaaS platforms
+→ Will spend on DR but not full active-active
+```
+
+---
+
+## 19.5 Strategy 4: Active-Active Multi-Region
+
+```
+Architecture:
+Region 1 (us-east-1)              Region 2 (eu-west-1)
+┌──────────────────────┐          ┌──────────────────────────┐
+│  FULL PRODUCTION     │          │  FULL PRODUCTION         │
+│  ASG: min=4, max=20  │◄────────►│  ASG: min=4, max=20      │
+│  Aurora Global DB    │  bidirect│  Aurora Global DB        │
+│  ElastiCache         │    sync  │  ElastiCache             │
+│  Serves US users     │          │  Serves EU users         │
+└──────────────────────┘          └──────────────────────────┘
+          │                                    │
+          └──────────────┬─────────────────────┘
+                         │
+                    Route 53
+              Latency-based routing
+              (users → nearest region)
+              Health checks on both
+              If one fails → 100% to other
+
+On Disaster:
+Route 53 detects health check failure
+→ All traffic shifts to healthy region
+→ Automatic (no human intervention)
+→ RTO: 30-60 seconds
+
+Data Conflict Resolution:
+→ Aurora Global Database: Write to primary region, propagate <1 second
+→ DynamoDB Global Tables: Multi-master, last-writer-wins
+→ Application: Write to nearest, read from local
+
+Cost:
+→ 2x infrastructure cost
+→ Data transfer between regions
+→ Reserved for: Banks, healthcare, large e-commerce
+
+Use Case:
+→ 99.99%+ availability requirement
+→ Global user base (performance benefit too)
+→ Financial systems, healthcare, critical infrastructure
+→ Zero tolerance for downtime
+```
+
+---
+
+## 19.6 AWS Backup — Centralized Backup Strategy
+
+```
+AWS Backup Architecture:
+
+┌──────────────────────────────────────────────────────────┐
+│               AWS BACKUP VAULT (Central)                  │
+│                                                            │
+│  Backed up resources:                                     │
+│  → EBS volumes (daily, 30-day retention)                  │
+│  → RDS instances (daily, 7-day retention)                 │
+│  → DynamoDB tables (daily, 35-day retention)              │
+│  → EFS file systems (daily)                               │
+│  → EC2 instances (via AMI snapshot)                       │
+│  → FSx file systems                                       │
+│  → Aurora clusters                                        │
+│  → S3 buckets (optional)                                  │
+│                                                            │
+│  Backup Vault Lock (WORM):                               │
+│  → Backups cannot be deleted before retention expires     │
+│  → Protects against ransomware                           │
+│  → Meets SEC Rule 17a-4, CFTC, FINRA                     │
+└──────────────────────────────────────────────────────────┘
+
+Cross-Region Backup Copy:
+→ Automatically copy backups to DR region
+→ Different AWS account for blast radius isolation
+→ Protect against accidental deletion in primary account
+
+Backup Plan Example (Production):
+  Rule 1 (Frequent): Every 12 hours, keep 48 hours
+  Rule 2 (Daily):    Every day at 05:00 UTC, keep 30 days
+  Rule 3 (Weekly):   Every Sunday at 06:00 UTC, keep 90 days
+  Rule 4 (Monthly):  First Sunday/month at 07:00 UTC, keep 1 year
+  Copy: All rules copy to us-west-2 (DR region)
+
+Testing Backups (Critical — Often Ignored):
+→ Schedule monthly restore tests
+→ Automated: Lambda triggers test restore, validates data, reports
+→ Document: RTO achieved during test
+→ Adjust: If RTO too slow, move to warmer DR strategy
+```
+
+---
+
+# 20. COST OPTIMIZATION STRATEGY
+
+## 20.1 Cost Optimization Pillars
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                  AWS COST OPTIMIZATION FRAMEWORK                  │
+│                                                                    │
+│  1. RIGHT-SIZE            Eliminate over-provisioning             │
+│  2. RIGHT-PRICE           Choose correct pricing model           │
+│  3. RIGHT-STORE           Use cheapest appropriate storage       │
+│  4. RIGHT-OPERATE         Eliminate waste, schedule shutdowns    │
+│  5. RIGHT-ARCHITECT       Design for cost from day 1            │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 20.2 EC2 Cost Optimization
+
+```
+Pricing Model Selection by Workload:
+
+┌─────────────────────────────────────────────────────────────────┐
+│  Workload Type         │  Pricing Model     │  Savings vs OD    │
+├────────────────────────┼────────────────────┼───────────────────┤
+│  Always-on production  │  Reserved 1yr (No  │  30-40%           │
+│  (steady traffic)      │  Upfront) or       │                   │
+│                        │  Savings Plans     │                   │
+├────────────────────────┼────────────────────┼───────────────────┤
+│  Always-on + committed │  Reserved 3yr      │  50-75%           │
+│  long-term             │  (All Upfront)     │                   │
+├────────────────────────┼────────────────────┼───────────────────┤
+│  Fault-tolerant batch  │  Spot Instances    │  70-90%           │
+│  (can be interrupted)  │                    │                   │
+├────────────────────────┼────────────────────┼───────────────────┤
+│  Mixed production ASG  │  Reserved baseline │  40-70% overall   │
+│                        │  + Spot burst      │                   │
+├────────────────────────┼────────────────────┼───────────────────┤
+│  Dev/test environments │  Schedule off-hours│  60-70%           │
+│                        │  (EventBridge +    │                   │
+│                        │  Lambda stop/start)│                   │
+└────────────────────────┴────────────────────┴───────────────────┘
+
+Right-Sizing Process:
+1. Enable detailed CloudWatch monitoring (1-minute intervals)
+2. Collect 2+ weeks of metrics (CPU, memory via CW agent, network)
+3. Use AWS Compute Optimizer recommendations
+4. Target: Average CPU 40-60% (not 5-10% = wasteful)
+5. Change instance type via stop → modify → start
+6. Use EC2 Spot for dev/test (save 70-90%)
+
+Dev/Test Schedule (saves ~65%):
+  Schedule: Start Mon-Fri 08:00 → Stop Mon-Fri 20:00 (12 hrs/day)
+  Running: 12h × 5 days = 60 hours/week
+  vs Always-on: 168 hours/week
+  Savings: 64% cost reduction
+```
+
+---
+
+## 20.3 Storage Cost Optimization
+
+```
+S3 Cost Optimization:
+
+Strategy 1: Lifecycle Policies (set and forget)
+  Day 0:   S3 Standard        ($0.023/GB/month)
+  Day 30:  S3 Standard-IA     ($0.0125/GB/month) → 46% saving
+  Day 90:  S3 Glacier Instant ($0.004/GB/month)  → 83% saving
+  Day 365: S3 Glacier Deep    ($0.00099/GB/month) → 96% saving
+  Day 730: Delete             (no more cost)
+
+Strategy 2: S3 Intelligent-Tiering (zero management)
+  AWS automatically moves objects between tiers
+  Small monitoring fee: $0.0025/1000 objects/month
+  Worth it when: Access patterns are unpredictable
+
+Strategy 3: S3 Storage Lens
+  Analyze actual access patterns across all buckets
+  Identify: Large buckets with no recent access
+  Action: Apply lifecycle policies or delete
+
+EBS Cost Optimization:
+→ Detached EBS volumes: Find via AWS Config rule → delete or snapshot+delete
+→ gp2 → gp3 migration: Same performance, 20% cheaper (zero downtime)
+→ Over-provisioned volumes: Reduce size (requires snapshot → new volume)
+→ Snapshots: Delete old, redundant snapshots via DLM
+
+Data Transfer Cost Optimization:
+→ S3 Gateway Endpoint: Free S3 access from EC2 (avoids NAT cost)
+→ CloudFront: Reduce origin requests = reduce data transfer cost
+→ VPC Endpoint: Avoid NAT Gateway for AWS services
+→ Same-AZ: Use private IPs for EC2-to-EC2 in same AZ (free)
+```
+
+---
+
+## 20.4 Database Cost Optimization
+
+```
+RDS Cost Reduction:
+→ Multi-AZ only for production (not dev/test)
+→ Reserved Instances for RDS: 30-60% savings
+→ Aurora Serverless v2 for variable workloads
+→ Read Replicas for read-heavy (cheaper than scaling primary)
+→ Automated backups: Set retention to minimum needed
+→ Stop dev RDS instances on weekends (up to 7 days stop)
+
+DynamoDB Cost Optimization:
+→ Capacity Mode:
+   Known steady traffic → Provisioned (cheaper at scale)
+   Unpredictable/spiky → On-Demand
+→ DynamoDB Accelerator (DAX):
+   Reduces DynamoDB read costs if same items read repeatedly
+   DAX cache hit → no DynamoDB read charge
+→ TTL: Auto-expire old items (no storage charge after deletion)
+→ Compress attributes: Store compressed JSON, smaller item = less cost
+
+ElastiCache Cost:
+→ Reserved Nodes: 30-50% savings for steady-state cache
+→ Right-size: Monitor memory usage, reduce node type if headroom
+→ Reserved for Redis cluster: Largest node savings with 3yr
+```
+
+---
+
+## 20.5 Architecture-Level Cost Savings
+
+```
+High-Impact Architectural Decisions:
+
+1. Serverless for Variable Workloads
+   EC2 t3.medium (always on): $33/month
+   Lambda (1M requests, 200ms avg): ~$2/month
+   Savings: 94%
+
+2. CloudFront Caching
+   Without CloudFront: 1M requests → EC2/ALB �� $200/month compute
+   With CloudFront: 950K cache hits + 50K origin = $10/month
+   Savings: 95% on compute costs
+
+3. S3 + Lambda vs EC2 for Static Workloads
+   EC2 web server (always on): $50+/month
+   S3 static + Lambda: $2-5/month
+   Savings: 90-96%
+
+4. NAT Gateway Alternative for S3
+   Without VPC Endpoint: 1TB/month NAT = $45 (NAT) + $20 (transfer) = $65
+   With S3 Gateway Endpoint: $0 (free endpoint, free data transfer)
+   Savings: 100% for S3 traffic
+
+5. Spot Instances for Batch Processing
+   c5.4xlarge On-Demand: $0.68/hr × 1000 hours = $680
+   c5.4xlarge Spot: $0.14/hr × 1000 hours = $140
+   Savings: 79%
+
+Monthly Cost Dashboard (Example 100-user SaaS):
+  EC2 (Reserved): $200/month
+  RDS Aurora Serverless: $80/month
+  ElastiCache (Reserved): $60/month
+  ALB: $25/month
+  CloudFront: $10/month
+  S3: $5/month
+  Route 53: $1/month
+  Data Transfer: $30/month
+  Total: ~$411/month (vs $800+ without optimization)
+```
+
+---
+
+# 21. TROUBLESHOOTING & DEBUGGING GUIDE
+
+## 21.1 Debugging EC2 Connectivity Issues
+
+```
+Problem: Cannot SSH/RDP to EC2 instance
+
+Step-by-Step Diagnosis:
+
+1. Is instance in RUNNING state?
+   → Console → EC2 → Instances → Check status
+   → Status checks: 2/2 checks passed?
+   → If failed: Instance may need Stop → Start (moves to new host)
+
+2. Is Security Group open on correct port?
+   → SSH = port 22, RDP = port 3389
+   → Source must include YOUR IP (not 0.0.0.0/0 is blocked?)
+   → Check: aws ec2 describe-security-groups --group-ids sg-xxx
+
+3. Is NACL blocking traffic?
+   → NACLs are stateless — check BOTH inbound AND outbound
+   → SSH: Allow port 22 inbound + ephemeral ports (1024-65535) outbound
+   → Rule order matters: Check for DENY rules with lower numbers
+
+4. Does instance have Public IP?
+   → Public subnet: Should auto-assign if enabled
+   → Elastic IP: Is it associated?
+   → Private subnet: Need VPN/Direct Connect/Bastion
+
+5. Is route table correct?
+   → Public subnet route table: 0.0.0.0/0 → IGW
+   → Verify subnet association in VPC console
+
+6. Is user/key correct?
+   → Amazon Linux 2: ec2-user
+   → Ubuntu: ubuntu
+   → RHEL: ec2-user
+   → Wrong key pair? Cannot recover — must create AMI → new instance
+
+7. Is instance initialized?
+   → New instance: Wait 2-3 minutes for full boot
+   → Check system log: EC2 → Instance → Actions → Get System Log
+
+Modern Solution: Use SSM Session Manager (no SSH needed)
+→ No security group port 22 needed
+→ No key pair needed
+→ Works through private subnet
+→ Audit trail in CloudTrail
+```
+
+---
+
+## 21.2 Debugging ALB Health Check Failures
+
+```
+Problem: EC2 instances showing as "unhealthy" in target group
+
+Step-by-Step Diagnosis:
+
+1. Check health check configuration
+   → Target Group → Health checks tab
+   → Protocol/Port/Path correct? (e.g., HTTP:80:/health)
+   → Success codes: Is your app returning 200? (not 301/302)
+   → Threshold: 3 consecutive failures = unhealthy
+
+2. Is EC2 application actually running?
+   → SSH to instance
+   → curl localhost:80/health
+   → systemctl status httpd / nginx / your-app
+   → Check app logs: /var/log/httpd/error_log
+
+3. Is Security Group allowing ALB to reach EC2?
+   → EC2 Security Group must allow traffic FROM ALB Security Group
+   → Port must match health check port
+   → Rule: Allow HTTP (80) from sg-alb-security-group-id
+
+4. Is application listening on correct port?
+   → netstat -tlnp | grep :80
+   → Should show process listening on 0.0.0.0:80 (not 127.0.0.1)
+   → If 127.0.0.1 only: App bound to localhost, ALB can't reach it
+
+5. Is /health endpoint responding?
+   → Must return HTTP 200 within timeout (default 5 seconds)
+   → Check: Is /health endpoint implemented in application code?
+   → Alternative: Use /index.html or / if no /health endpoint
+
+6. Check ALB access logs (if enabled)
+   → S3 bucket with ALB logs
+   → Look for 4xx/5xx responses from EC2 to ALB
+   → Identify specific error code
+
+Common Fix: Add security group rule
+  EC2-SG Inbound: Allow TCP port 80 from ALB-SG
+  NOT from 0.0.0.0/0 (too permissive for production)
+```
+
+---
+
+## 21.3 Debugging Auto Scaling Not Triggering
+
+```
+Problem: CPU is high but Auto Scaling not adding instances
+
+Step-by-Step Diagnosis:
+
+1. Is scaling policy configured correctly?
+   → ASG → Automatic scaling tab
+   → Verify CloudWatch alarm linked to policy
+   → CloudWatch → Alarms → Is alarm in ALARM state?
+
+2. Is CloudWatch alarm actually firing?
+   → CloudWatch → Alarms → [your alarm]
+   → Check: Metric is "Average CPU > 70% for 2 data points"
+   → Is it actually breaching threshold?
+   → Missing data: BREACHING vs IGNORE vs MISSING
+
+3. Are you hitting maximum capacity?
+   → ASG → Max capacity setting
+   → If current instances = max → cannot scale further
+   → Fix: Increase max capacity limit
+
+4. Is cooldown period active?
+   → Recent scale event? Cooldown prevents rapid scaling
+   → Default: 300 seconds after last scaling activity
+   → Check: Last scaling activity timestamp
+
+5. Are instances launching but failing health checks?
+   → ASG Activity tab → Recent activities
+   → Instance launches but fails ELB health check?
+   → Immediately terminated → looks like "not scaling"
+   → Fix: Debug health check issue first (see 21.2)
+
+6. Is Launch Template/Configuration valid?
+   → Can you manually launch instance using same config?
+   → Check: AMI still exists? Key pair still exists?
+   → Check: Instance type available in AZ?
+
+7. Is there a Service Quota limit?
+   → AWS limits per account per region
+   → Check: Service Quotas console → EC2 → Running instances
+   → Request increase if near limit
+```
+
+---
+
+## 21.4 Debugging Lambda Issues
+
+```
+Problem: Lambda function timing out or failing
+
+Step-by-Step Diagnosis:
+
+1. Check CloudWatch Logs
+   → Lambda → Monitor → View logs in CloudWatch
+   → Look for error messages, stack traces
+   → Duration: Is it close to timeout limit?
+
+2. Lambda Timeout
+   → Default: 3 seconds (max: 15 minutes)
+   → Increase timeout in function configuration
+   → But: Identify WHY it's slow (fix root cause)
+
+3. Lambda Cold Start Investigation
+   → Cold start: First invocation after idle period
+   → Check logs: Init duration in Lambda report
+   → Fix options:
+     a) Provisioned Concurrency: Pre-warm N instances (eliminates cold start, costs money)
+     b) Reduce package size: Smaller = faster cold start
+     c) Use Graviton2 (arm64): ~34% better price/performance
+     d) Optimize imports: Load only needed modules at global scope
+
+4. Memory/CPU Issues
+   → Lambda: CPU scales proportionally with memory
+   → 128MB memory → minimal CPU
+   → 1769MB memory → 1 full vCPU
+   → 10240MB memory → max CPU
+   → Test: Increase memory, measure duration (often total cost drops)
+
+5. Database Connection Exhaustion
+   → Lambda: Can launch thousands of concurrent instances
+   → Each instance opens DB connection
+   → 1000 Lambda instances × 1 connection = 1000 connections
+   → RDS max connections: ~hundreds
+   → Fix: Use RDS Proxy (connection pooling for Lambda)
+
+6. VPC Cold Start
+   → Lambda in VPC: ~10-15 second cold start (creates ENI)
+   → Modern VPCs: Improved (shared ENIs, faster)
+   → Fix: Use Provisioned Concurrency if in VPC
+   → Question: Does Lambda actually need VPC? (only if accessing private resources)
+
+7. Throttling
+   → Default: 1000 concurrent executions per region
+   → Error: TooManyRequestsException
+   → Fix: Request concurrency limit increase
+   → Or: Add SQS queue in front (absorbs burst, processes sequentially)
+```
+
+---
+
+## 21.5 Debugging IAM Permission Denied Errors
+
+```
+Problem: AccessDenied or UnauthorizedOperation error
+
+Step-by-Step Diagnosis:
+
+1. Get the exact error message
+   → Error: User arn:aws:iam::123456789:user/john is not authorized
+     to perform: s3:PutObject on resource: arn:aws:s3:::my-bucket/file
+   → Note: Principal, Action, Resource — these three are your search targets
+
+2. Check IAM policies attached to principal
+   → IAM → Users/Roles → [user/role] → Permissions tab
+   → Does any policy allow the required action?
+   → Check all sources: inline, managed, group-level
+
+3. Check for explicit DENY
+   → SCPs (AWS Organizations) can deny regardless of IAM
+   → Permission Boundaries can deny regardless of policies
+   → Resource-based policies (S3 bucket policy) can deny
+
+4. Use IAM Policy Simulator
+   → IAM → Policy Simulator
+   → Select principal + action + resource
+   → See exact allow/deny decision with reason
+
+5. Check Resource-Based Policy
+   → S3 bucket policy: Does it explicitly deny this user?
+   → KMS key policy: Does it allow this role?
+   → SQS queue policy: Cross-account access configured?
+
+6. Check Condition Elements
+   → Policy may require MFA: "Condition": {"Bool": {"aws:MultiFactorAuthPresent": "true"}}
+   → Policy may restrict region: "Condition": {"StringEquals": {"aws:RequestedRegion": "us-east-1"}}
+   → Is request missing required condition?
+
+7. Check Trust Policy (for Roles)
+   → Role has two policies: Permission Policy + Trust Policy
+   → Trust Policy: Who is ALLOWED to assume this role?
+   → If trust policy doesn't include the service/user → cannot assume role
+
+Common Quick Fixes:
+→ Add specific action to policy: s3:PutObject (not just s3:GetObject)
+→ Fix resource ARN: arn:aws:s3:::my-bucket/* (note the /* for objects)
+→ Remove condition causing failure
+→ Add role to trust policy of target role
+
+CloudTrail for Permission Debugging:
+  CloudTrail → Event history → Filter by event name "AccessDenied"
+  → Full request details, exact policy evaluation result
+  → Most reliable source of truth for IAM debugging
+```
+
+---
+
+## 21.6 Debugging VPC Connectivity Issues
+
+```
+Problem: EC2 instance cannot connect to internet or other service
+
+Systematic Diagnosis Checklist:
+
+For OUTBOUND internet from private subnet:
+□ NAT Gateway exists in PUBLIC subnet?
+□ Route table for PRIVATE subnet has 0.0.0.0/0 → NAT Gateway?
+□ Security Group outbound allows traffic?
+□ NACL outbound allows traffic + inbound allows return (ephemeral ports)?
+□ NAT Gateway has Elastic IP attached?
+
+For INBOUND from internet to public subnet:
+□ Internet Gateway attached to VPC?
+□ Route table for PUBLIC subnet has 0.0.0.0/0 → IGW?
+□ EC2 has Public IP or Elastic IP?
+□ Security Group inbound allows traffic on correct port?
+□ NACL allows both inbound + outbound (stateless)?
+
+For EC2-to-RDS in same VPC:
+□ RDS Security Group allows inbound from EC2 Security Group?
+□ RDS in private subnet (no need for internet)?
+□ Using correct endpoint (RDS endpoint, not IP)?
+□ Database port open (MySQL=3306, PostgreSQL=5432)?
+□ Database credentials correct?
+
+For EC2-to-S3 (if using VPC endpoint):
+□ S3 Gateway Endpoint exists in VPC?
+□ Route table includes route for S3 prefix list?
+□ S3 bucket policy allows access from VPC endpoint?
+
+Debugging Tool — VPC Reachability Analyzer:
+→ VPC Console → Reachability Analyzer
+→ Source: EC2 instance
+→ Destination: RDS endpoint / EC2 / Gateway
+→ AWS analyzes all hops: SGs, NACLs, route tables
+→ Shows exactly where connectivity breaks
+→ No actual traffic sent (static analysis)
+
+Debugging Tool — VPC Flow Logs:
+→ Enable on VPC/subnet/ENI
+→ Filter for REJECT entries
+→ Identifies which rule is blocking
+→ Destination: CloudWatch Logs or S3 + Athena
+```
+
+---
+
+# 22. INTERVIEW-FOCUSED ARCHITECTURE QUESTIONS
+
+## 22.1 Q: Design Netflix-Scale Video Streaming Platform on AWS
+
+```
+Requirements:
+→ 200M+ users globally
+→ Upload: 100,000 hours of video per day
+→ Stream: Millions of concurrent viewers
+→ 99.99% availability
+→ Multiple video quality (4K, 1080p, 720p, 480p)
+
+Architecture Answer:
+
+CONTENT INGESTION:
+  Content Team → S3 (raw video upload, multi-part)
+  → S3 Event → SQS → Lambda → MediaConvert
+  → MediaConvert: Transcode to HLS format
+     → Output: 4K, 1080p, 720p, 480p versions
+  → Transcoded segments → S3 (processed bucket)
+  → DynamoDB: Content metadata (title, duration, cast)
+  → Elasticsearch: Search catalog
+
+CONTENT DELIVERY:
+  S3 → CloudFront (Global CDN, 400+ edge locations)
+  → OAI: Only CloudFront can access S3
+  → Signed URLs: Time-limited, user-specific access
+  → Origin Shield: Additional caching layer before S3
+  → Edge Functions: A/B test video players, personalization
+
+AUTHENTICATION & PERSONALIZATION:
+  User → ALB → ECS (Auth Service) → Cognito
+  → DynamoDB: User preferences, watch history
+  → SageMaker: ML recommendations ("What to watch next")
+  → ElastiCache Redis: Session store, rate limiting
+
+GLOBAL ARCHITECTURE:
+  Route 53: Latency-based routing → nearest region
+  Deployed: us-east-1, eu-west-1, ap-southeast-1 (minimum)
+  Aurora Global Database: User data sync across regions
+  DynamoDB Global Tables: Watch progress sync globally
+
+AVAILABILITY:
+  Multi-AZ in each region
+  Multi-Region active-active
+  CloudFront: Absorbs DDoS, serves from cache if origin down
+  S3: 11-nines durability (video files never lost)
+
+COST OPTIMIZATION:
+  S3 Intelligent-Tiering: Old content auto-tiers
+  Reserved capacity: CloudFront + S3 for committed volume
+  Spot Instances: Video encoding (fault-tolerant batch work)
+  Lambda: Per-invocation (no idle cost)
+
+MONITORING:
+  CloudWatch: All service metrics
+  X-Ray: Trace streaming latency across services
+  Real User Monitoring: Video startup time, buffering rate
+  CloudTrail: Security audit
+```
+
+---
+
+## 22.2 Q: Design a Serverless Image Processing System
+
+```
+Requirements:
+→ Users upload photos from mobile app
+→ Generate thumbnails (100x100, 300x300, 600x600)
+→ Run face detection and label recognition
+→ Store results in database
+→ Notify users when processing complete
+
+Architecture Answer:
+
+UPLOAD FLOW:
+  Mobile App
+    → API Gateway (POST /upload-url)
+    → Lambda: Generate S3 Pre-signed URL (no file through API)
+    → App uploads directly to S3 (bypass API Gateway size limits)
+    → S3: Puts raw image in "uploads/" prefix
+
+PROCESSING TRIGGER:
+  S3 Event → SNS Topic "NewImageUploaded"
+    → SQS Queue: ThumbnailQueue
+    → SQS Queue: RekognitionQueue
+    → Lambda: UpdateMetadata (direct, fast)
+
+THUMBNAIL GENERATION:
+  SQS (ThumbnailQueue) → Lambda (ThumbnailFunction)
+    → Read original from S3
+    → Generate 3 thumbnail sizes (Lambda Layers: Pillow library)
+    → Write thumbnails to S3 "thumbnails/" prefix
+    → Update DynamoDB: image status + thumbnail URLs
+
+REKOGNITION PROCESSING:
+  SQS (RekognitionQueue) → Lambda (RekognitionFunction)
+    → Call Amazon Rekognition: DetectFaces, DetectLabels
+    → Results: {faces: [{confidence: 99.8, emotions: "HAPPY"}]}
+    → Store in DynamoDB: image metadata table
+
+NOTIFICATION:
+  DynamoDB Stream → Lambda (NotificationFunction)
+    → When status = "COMPLETED"
+    → SNS → Apple/Google Push Notification
+    → Email via SES: "Your photo is ready!"
+
+DATABASE DESIGN (DynamoDB):
+  Table: images
+  PK: imageId (UUID)
+  Attributes: userId, status, originalUrl, thumbnails{},
+              faces[], labels[], uploadedAt, processedAt
+
+  GSI: userId-index (query all images by user)
+  GSI: status-index (find all pending processing)
+
+ERROR HANDLING:
+  SQS DLQ: Failed messages after 3 attempts → DLQ
+  Lambda DLQ: Unprocessed events → SQS DLQ
+  Alarm: CloudWatch on DLQ message count → SNS alert
+
+COST:
+  Lambda: ~$0 (free tier: 1M requests)
+  S3: $0.023/GB/month
+  Rekognition: $1/1000 images
+  DynamoDB: On-demand ($0)
+  API Gateway: $3.50/million API calls
+  Total: ~$10-50/month for moderate usage
+```
+
+---
+
+## 22.3 Q: Design a Scalable Chat Application
+
+```
+Requirements:
+→ Real-time messaging (< 100ms delivery)
+→ 10 million concurrent users
+→ Group chats (up to 1000 members)
+→ Message history (90 days)
+→ Online presence indicators
+→ Push notifications for offline users
+
+Architecture Answer:
+
+REAL-TIME MESSAGING:
+  WebSocket connections → API Gateway (WebSocket API)
+    → Max 500 connections per Lambda (serverless)
+  OR
+  WebSocket connections → NLB (TCP, extreme scale)
+    → ECS Fargate: WebSocket server (Node.js/Go)
+    → Horizontal scaling with NLB
+
+  Message Flow:
+  User A sends message:
+    → WebSocket to server
+    → Server validates user/permissions
+    → Publish to ElastiCache Redis Pub/Sub (channel = roomId)
+    → All servers subscribed to that channel
+    → Each server pushes to connected users
+
+PRESENCE SYSTEM:
+  User connects → Redis HSET presence:{userId} {status: "online", lastSeen: timestamp}
+  Redis TTL: 30 seconds (heartbeat refreshes)
+  User disconnects or TTL expires → status = "offline"
+  Check presence: Redis HGET → O(1) lookup
+
+MESSAGE STORAGE:
+  DynamoDB: Perfect for chat messages
+  Table: messages
+  PK: roomId
+  SK: timestamp#messageId (allows range queries by time)
+  GSI: userId-index (find messages by user)
+  
+  Query: "Last 50 messages in room" = DynamoDB Query on PK=roomId, LIMIT=50, ScanIndexForward=False
+
+PUSH NOTIFICATIONS (Offline Users):
+  Message arrives for offline user
+    → Lambda checks Redis presence → offline
+    → Publish to SNS (mobile push)
+    → APNs (iOS) or FCM (Android)
+
+GROUP CHAT FANOUT:
+  Group message to 1000 members:
+  → Store message once in DynamoDB (not 1000 copies)
+  → SQS FIFO Queue per group
+  → Lambda reads group member list
+  → Batch push to online members via Redis Pub/Sub
+  → Batch push notifications to offline members
+
+ARCHITECTURE CHOICES:
+  API Gateway WebSocket: Simpler, serverless, but higher latency
+  NLB + ECS: Lower latency, more control, operational overhead
+  
+  Decision: NLB + ECS Fargate for < 50ms latency requirement
+            API Gateway if < 100ms is acceptable and want serverless simplicity
+
+HISTORY AND SEARCH:
+  DynamoDB → DynamoDB Streams → Lambda → Elasticsearch
+  Search: "Find messages containing 'meeting' in room 123"
+  Elasticsearch query → message IDs → DynamoDB batch fetch
+
+SCALING:
+  WebSocket servers: ECS Fargate, auto-scale based on connection count
+  Redis: ElastiCache Cluster Mode (16 shards × 6 nodes = massive scale)
+  DynamoDB: On-demand capacity (instant scale)
+  API Gateway: Managed, scales automatically
+```
+
+---
+
+## 22.4 Q: Design Secure Enterprise VPC with Hybrid Cloud
+
+```
+Requirements:
+→ Connect on-premises data center to AWS
+→ 3-tier web application
+→ PCI-DSS compliance (payment processing)
+→ All traffic must be encrypted
+→ No public internet access for backend systems
+→ Centralized logging for compliance
+
+Architecture Answer:
+
+CONNECTIVITY (On-Premises → AWS):
+  Option A: Site-to-Site VPN
+  → IPSec encrypted tunnel over internet
+  → Redundant: 2 tunnels (2 AZs)
+  → Speed: Up to 1.25 Gbps
+  → Cost: $0.05/hour + data transfer
+  → Setup: Hours
+  → Use: Lower data volume, cost-sensitive
+
+  Option B: AWS Direct Connect (Recommended for PCI)
+  → Dedicated private fiber connection
+  → Speeds: 1 Gbps to 100 Gbps
+  → Consistent latency (not internet-dependent)
+  → Cost: Port hour + data transfer (higher)
+  → Setup: Weeks-months (physical cabling)
+  → PCI advantage: Traffic never traverses internet
+
+  For PCI-DSS: Direct Connect + VPN as backup
+  Direct Connect Primary → VPN Secondary (automatic failover)
+
+VPC DESIGN (PCI-DSS Zones):
+
+  VPC: 10.0.0.0/16
+  ┌────────────────────────────────────────────────────────┐
+  │ DMZ Subnets (10.0.1.0/24, 10.0.2.0/24)                │
+  │ → WAF + ALB only                                        │
+  │ → No application logic                                  │
+  │ → Strictly inbound from internet, outbound to App tier │
+  ├────────────────────────────────────────────────────────┤
+  │ App Subnets (10.0.11.0/24, 10.0.12.0/24)              │
+  │ → Application servers (ECS/EC2)                        │
+  │ → No internet access (private)                         │
+  │ → Outbound: VPC Endpoints only (no NAT for compliance) │
+  ├────────────────────────────────────────────────────────┤
+  │ PCI Zone Subnets (10.0.21.0/24, 10.0.22.0/24)         │
+  │ → Payment processing only                              │
+  │ → Strictest security group rules                       │
+  │ → Dedicated NACL with explicit deny rules              │
+  │ → Separate route table: no default route               │
+  ├────────────────────────────────────────────────────────┤
+  │ Data Subnets (10.0.31.0/24, 10.0.32.0/24)             │
+  │ → Aurora PostgreSQL (encrypted, KMS)                   │
+  │ → Only accessible from App + PCI subnets               │
+  └────────────────────────────────────────────────────────┘
+
+ENCRYPTION (PCI Requirement):
+  In Transit:
+  → TLS 1.2+ minimum on ALB (TLS 1.3 preferred)
+  → Direct Connect: MACsec encryption (layer 2)
+  → VPN: IPSec (AES-256)
+  → Internal: Enforce HTTPS between all tiers
+  
+  At Rest:
+  → EBS: KMS Customer-Managed Key (CMK)
+  → RDS: KMS CMK
+  → S3: SSE-KMS with CMK
+  → CloudWatch Logs: KMS encrypted
+  → Backups: KMS encrypted
+
+  Key Management:
+  → Separate KMS keys per environment
+  → Key rotation: Annual (or on-demand)
+  → CloudHSM: For highest key security (FIPS 140-2 Level 3)
+
+NO-INTERNET ACCESS (VPC Endpoints):
+  All service calls via VPC Interface Endpoints:
+  → com.amazonaws.us-east-1.secretsmanager
+  → com.amazonaws.us-east-1.kms
+  → com.amazonaws.us-east-1.ssm
+  → com.amazonaws.us-east-1.logs
+  → com.amazonaws.us-east-1.s3 (Gateway, free)
+  
+  Result: EC2 instances can access AWS services
+          without any internet gateway or NAT
+
+CENTRALIZED LOGGING (PCI):
+  All EC2/ECS → CloudWatch Logs Agent → Log Groups
+  → CloudWatch Logs subscription filter → Kinesis Firehose
+  → Kinesis → S3 (Central Log Archive Account)
+  → S3 Bucket: Object Lock (Compliance mode, 1 year retention)
+  → KMS encrypted
+  → Access: Read-only for security team, no delete permissions
+  
+  CloudTrail: Enabled all regions, all accounts
+  → Stored in central S3 (separate security account)
+  → Log file validation enabled (integrity verification)
+
+COMPLIANCE MONITORING:
+  AWS Config: 
+  → Rule: ec2-instances-in-vpc → COMPLIANT
+  → Rule: encrypted-volumes → COMPLIANT
+  → Rule: rds-storage-encrypted → COMPLIANT
+  → Rule: s3-bucket-public-read-prohibited → COMPLIANT
+  
+  Security Hub:
+  → PCI DSS compliance standard enabled
+  → Aggregates findings from Config, GuardDuty, Inspector
+  → Dashboard: All controls and their status
+```
+
+---
+
+## 22.5 Q: Design Auto-Scaling Architecture for Flash Sale (10x Traffic Spike)
+
+```
+Requirements:
+→ Normal: 1,000 users/second
+→ Flash sale: 10,000 users/second (10x spike, 30 minutes duration)
+→ Zero downtime during spike
+→ Product pages must load within 2 seconds
+→ Orders must not be lost even if backend is overloaded
+
+Architecture Answer:
+
+PRE-WARM STRATEGY (Before spike):
+  → 1 hour before sale: Scale up manually to 5x capacity
+  → Why not wait for Auto Scaling? → Scale takes 2-3 minutes
+     → First wave of customers hits underpowered system
+  → Pre-warm: CloudFront, ElastiCache, RDS read replicas
+  → Notify ASG: Set desired capacity to 5x manually
+
+TRAFFIC LAYER:
+  Route 53 → CloudFront → WAF → ALB
+  
+  CloudFront Strategy:
+  → Cache product catalog pages (TTL: 60 seconds)
+  → "Everything not in cart/checkout is cacheable"
+  → Cache hit ratio goal: 85%+
+  → Result: 8,500 of 10,000 req/sec served from edge
+  → Only 1,500 req/sec reach origin
+  
+  WAF Rate Limiting:
+  → 1,000 requests/5 minutes per IP
+  → Bot detection (block scraper bots)
+  → Geographic restrictions if needed
+
+COMPUTE LAYER:
+  ALB → ASG (Web Tier)
+  → Scale policy: CPU > 60% → add 3 instances
+  → Pre-warmed: 20 instances ready
+  → Max: 50 instances
+  → Launch Template: Pre-baked AMI (30-second boot)
+  
+  Application tier:
+  → ECS Fargate (faster scaling than EC2)
+  → Scale metric: ALB request count per target
+  → Target: 500 requests/target/minute
+
+DATABASE LAYER (Most Critical):
+  ElastiCache Redis Cluster:
+  → Cache product details, inventory counts
+  → TTL: 30 seconds (inventory freshness)
+  → Hit ratio target: 90%+ for reads
+  → Only 150k req/min reach database
+  
+  Aurora Read Replicas:
+  → 5 read replicas active before sale
+  → ALL product browsing → read replicas
+  → Route 53 weighted policy: 
+     → 5% primary, 95% read replicas
+  
+  RDS Proxy:
+  → Connection pooling
+  → Surge: 5000 Lambda/App connections → 100 DB connections
+  → Prevents database connection exhaustion
+
+ORDER PROCESSING (Critical — No Order Loss):
+  User clicks "Buy" → API Gateway → Lambda
+  → NOT: Directly write to database
+  → YES: Write to SQS FIFO Queue (message = order details)
+  → Return "Order Received" to user immediately
+  
+  SQS Queue → Lambda (Order Processor)
+  → Process 1 order at a time per FIFO group
+  → Write to Aurora (primary, low volume = writes only)
+  → Send confirmation email via SES
+  → Update inventory (DynamoDB atomic counter)
+  
+  Why SQS? If database is slow during peak:
+  → Orders queue in SQS (never lost)
+  → Processed as fast as database allows
+  → Users see "Order Received" immediately
+  → Database catches up within minutes
+
+INVENTORY MANAGEMENT:
+  DynamoDB atomic operations:
+  Inventory = 100 items
+  User buys 1 → UpdateItem with condition:
+    "ConditionExpression": "inventory > 0"
+    "UpdateExpression": "SET inventory = inventory - 1"
+  → Atomic: No overselling
+  → If fails (inventory=0): Return "Sold Out"
+  
+  Cache sync strategy:
+  → DynamoDB update → DynamoDB Stream → Lambda → Update Redis cache
+  → Lag: < 1 second
+  → Acceptable: Rare case user sees "In Stock" for 1 second after sell-out
+
+POST-SALE SCALE-DOWN:
+  30 minutes after sale ends:
+  → Set ASG desired back to normal (gradual)
+  → Keep RDS read replicas (traffic still elevated)
+  → Scale down over 1 hour (cooldown between each)
+
+MONITORING DURING SALE:
+  CloudWatch Dashboard:
+  → ALB: Request count, 5xx errors, response time (P99)
+  → ASG: Instance count, CPU utilization
+  → ElastiCache: Cache hit ratio, connections
+  → RDS: IOPS, connections, replication lag
+  → SQS: Queue depth (order backlog)
+  → DynamoDB: Consumed capacity, throttled requests
+  
+  Alarms: PagerDuty on:
+  → 5xx error rate > 1% → wake on-call engineer
+  → SQS depth > 10,000 messages → order processor needs help
+  → P99 latency > 3 seconds → performance degradation
+```
+
+---
+
+# 📊 FINAL SUMMARY: ARCHITECT PRINCIPLES
+
+## Core Architecture Principles
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│           10 GOLDEN RULES OF AWS SOLUTIONS ARCHITECTURE              │
+│                                                                       │
+│  1. DESIGN FOR FAILURE                                               │
+│     "Everything fails. Design so it doesn't matter."                │
+│     → Multi-AZ, Multi-Region, Auto Scaling, Circuit Breakers        │
+│                                                                       │
+│  2. DECOUPLE COMPONENTS                                              │
+│     "Tight coupling is the enemy of scalability."                   │
+│     → SQS, SNS, EventBridge between services                        │
+│                                                                       │
+│  3. IMPLEMENT ELASTICITY                                             │
+│     "Scale out horizontally, not up vertically."                    │
+│     → ASG, ECS, Lambda over larger instance types                   │
+│                                                                       │
+│  4. THINK PARALLEL                                                   │
+│     "Parallelize everything that can be parallelized."              │
+│     → Fan-out with SNS, parallel Lambda, distributed processing     │
+│                                                                       │
+│  5. KEEP DYNAMIC DATA CLOSE                                          │
+│     "Cache aggressively at every layer."                            │
+│     → CloudFront, ElastiCache, DAX, HTTP caching headers            │
+│                                                                       │
+│  6. SECURITY AT EVERY LAYER                                          │
+│     "Defense in depth. Never trust, always verify."                 │
+│     → IAM, SG, NACL, WAF, KMS, Secrets Manager                     │
+│                                                                       │
+│  7. USE MANAGED SERVICES                                             │
+│     "Undifferentiated heavy lifting = managed service."             │
+│     → RDS > self-managed MySQL, Lambda > self-managed servers       │
+│                                                                       │
+│  8. AUTOMATE EVERYTHING                                              │
+│     "If you do it twice, automate it."                              │
+│     → CloudFormation, CodePipeline, AWS Config remediation          │
+│                                                                       │
+│  9. MEASURE BEFORE OPTIMIZING                                        │
+│     "Premature optimization is the root of all evil."               │
+│     → CloudWatch, X-Ray, Cost Explorer before changes               │
+│                                                                       │
+│  10. RIGHT TOOL FOR THE JOB                                          │
+│      "DynamoDB is not always the answer."                           │
+│      → Match service to access pattern, not familiarity             │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Common Beginner Mistakes Summary ⚠️
+
+```
+❌ Putting RDS in public subnet
+   ✅ Fix: Always in private subnet, connect via app tier
+
+❌ One NAT Gateway for all AZs
+   ✅ Fix: One NAT Gateway per AZ for high availability
+
+❌ Wildcard IAM permissions (*:*)
+   ✅ Fix: Specific actions and resources, least privilege
+
+❌ S3 bucket with public access
+   ✅ Fix: Block Public Access + bucket policy + OAI with CloudFront
+
+❌ No encryption anywhere
+   ✅ Fix: Enable encryption at rest (KMS) + in transit (TLS) by default
+
+❌ Manual deployments to production
+   ✅ Fix: CI/CD pipeline with automated testing and rollback
+
+❌ No monitoring until something breaks
+   ✅ Fix: CloudWatch alarms from day 1
+
+❌ Same account for all environments
+   ✅ Fix: Separate AWS accounts for prod/staging/dev (AWS Organizations)
+
+❌ Large EC2 instances for all workloads
+   ✅ Fix: Lambda for event-driven, containers for microservices
+
+❌ No backup testing
+   ✅ Fix: Monthly restore tests, document achieved RTO
+
+❌ Storing credentials in application code or S3
+   ✅ Fix: Secrets Manager with auto-rotation + IAM Roles
+
+❌ Not tagging resources
+   ✅ Fix: Tag everything (environment, owner, project, cost-center)
+      → Required for cost allocation, compliance, automation
+```
+
+---
+
+*This document covers all topics from the uploaded transcript, expanded to Solutions Architect Professional level. Use this as your complete reference for AWS certifications (SAA-C03 and SAP-C02), architecture reviews, and production system design.*
