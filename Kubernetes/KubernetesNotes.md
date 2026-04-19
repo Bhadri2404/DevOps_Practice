@@ -3331,11 +3331,4 @@ affinity:
 
 ---
 
-## 25. Taints/Tolerations vs Node Affinity
 
-### The Comparison
-
-```
-Taints + Tolerations:
-✓ Nodes REPEL pods (node-centric control)
-✓ Prevent unwanted pods from landing on a node
