@@ -2787,3 +2787,2857 @@ EOF
 
 ---
 
+## 19. Operator Framework
+
+### 🔷 What Is the Operator Framework?
+
+The **Operator Framework** is a toolkit that packages a **Custom Resource Definition (CRD)** and a **Custom Controller** together into a single deployable unit called an **Operator**. It encodes human operational knowledge — installation, upgrades, backups, failover, and scaling — into software that runs natively inside Kubernetes using the same reconciliation loop that powers Deployments, StatefulSets, and ReplicaSets.
+
+Think of it this way:
+- A **Deployment controller** knows how to keep N replicas of a generic pod running
+- An **Operator** knows how to keep a **PostgreSQL cluster**, **Kafka broker**, or **etcd cluster** fully healthy — including all complex Day-2 operational tasks a DBA or platform engineer would normally perform manually
+
+The Operator pattern represents the **highest form of Kubernetes automation** — moving from infrastructure-as-code to **operations-as-code**.
+
+---
+
+### 🔷 Why Do We Need It?
+
+**Without Operators:**
+- CRDs and Controllers must be deployed separately — coordination overhead, error-prone
+- Day-2 operations such as backup, restore, failover, and rolling upgrades require **manual human intervention**
+- Every team needs deep specialized knowledge about each stateful application
+- No standardized Kubernetes-native interface for full application lifecycle management
+- Scaling a database cluster means manual SSH and command execution on nodes
+
+**With Operators:**
+- CRD and Controller are **packaged and deployed as a single atomic unit**
+- Operational knowledge is **automated and codified** inside Go, Ansible, or Helm logic
+- Teams interact using simple Kubernetes YAML — the Operator handles all complexity underneath
+- Self-healing, self-scaling, and self-upgrading applications become achievable
+- Consistent behavior enforced across dev, staging, and production environments
+
+---
+
+### 🔷 Core Components
+
+| Component | Role |
+|---|---|
+| **CRD (Custom Resource Definition)** | Defines the new resource type schema in the Kubernetes API |
+| **Custom Controller** | Watches CR objects and runs reconciliation business logic |
+| **Operator Lifecycle Manager (OLM)** | Manages Operator install, upgrade, and dependency resolution |
+| **OperatorHub.io** | Public catalog of 300+ community and vendor Operators |
+| **Operator SDK** | Framework to build Operators in Go, Ansible, or Helm |
+| **ClusterServiceVersion (CSV)** | Operator metadata — RBAC permissions, owned CRDs, description |
+| **Subscription** | OLM object that tracks desired Operator channel and update strategy |
+
+---
+
+### 🔷 Internal Working — Step-by-Step Flow
+
+```
+Step 1:  Admin installs OLM on cluster
+Step 2:  Admin applies Operator YAML or installs from OperatorHub
+Step 3:  OLM creates CRD and deploys Controller as a Pod/Deployment
+Step 4:  User creates a Custom Resource object
+         Example: PostgresCluster with 3 replicas, 100Gi storage
+Step 5:  kube-apiserver validates CR against CRD schema and stores in etcd
+Step 6:  Controller Informer/Watcher detects new CR via kube-apiserver Watch API
+Step 7:  CR event placed onto Controller internal work queue
+Step 8:  Worker goroutine dequeues item and runs Reconcile() function
+Step 9:  Reconcile() reads desired state from CR .spec
+Step 10: Reconcile() queries actual cluster state (StatefulSets, Pods, Services, PVCs)
+Step 11: Reconcile() computes diff and creates/updates/deletes resources to close the gap
+Step 12: Controller updates CR .status subresource with current observed state
+Step 13: Loop runs continuously — any drift immediately triggers re-reconciliation
+Step 14: On failure → Controller auto-heals by restarting pods,
+         promoting replica to primary, or triggering backup restore
+```
+
+---
+
+### 🔷 Architecture Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                           Control Plane                             │
+│                                                                     │
+│  ┌──────────────────┐  ┌���─────────────────┐  ┌──────────────────┐  │
+│  │  kube-apiserver  │  │      etcd         │  │       OLM        │  │
+│  │                  │◄─►  (stores all CR   │  │  (manages        │  │
+│  │  Validates CR    │  │   objects and     │  │   Operator       │  │
+│  │  against CRD     │  │   desired state)  │  │   lifecycle)     │  │
+│  └────────┬─────────┘  └──────────────────┘  └──────────────────┘  │
+│           │                                                          │
+│           │  Watch API (Informer — long-lived HTTP connection)       │
+│           ▼                                                          │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │              Custom Controller Pod                            │   │
+│  │                                                              │   │
+│  │  Informer → Delta FIFO Queue → Worker → Reconcile()          │   │
+│  │                                              │               │   │
+│  │                               Read CR spec   │               │   │
+│  │                               Query cluster  │               │   │
+│  │                               Compute diff   │               │   │
+│  │                               Apply changes  │               │   │
+│  └──────────────────────────────────────────────┬──────────────┘   │
+└─────────────────────────────────────────────────┼───────────────────┘
+                                                  │
+                    Creates/Updates/Deletes        │
+                                                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                           Worker Nodes                              │
+│                                                                     │
+│  StatefulSet Pods   Services   PersistentVolumeClaims   Secrets     │
+│  (Managed Application — PostgreSQL, Kafka, etcd, etc.)              │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 🔷 How Operator Integrates With Other Kubernetes Components
+
+- **etcd** — stores all CR objects and their desired state persistently
+- **kube-apiserver** — receives all CR CRUD operations; Controller watches via Informer
+- **kubelet** — runs both the Controller pods and the managed application pods on worker nodes
+- **RBAC** — Operator requires ClusterRole/ClusterRoleBinding to watch, create, update resources
+- **PersistentVolumes** — Operator provisions, expands, and manages storage for stateful apps
+- **Secrets** — Operator creates, rotates, and manages application credentials automatically
+- **OLM** — manages the Operator's own lifecycle: install, upgrade, conflict detection
+- **Prometheus** — Operators expose metrics endpoints; Prometheus scrapes for observability
+
+---
+
+### 🔷 Real-World Production Scenario
+
+**Application Type:** Production-grade PostgreSQL database cluster on Kubernetes
+
+**Infrastructure:**
+- AWS EKS, 3 master nodes, 6 worker nodes across 3 Availability Zones
+- Operator Used: Crunchy Data PostgreSQL Operator (PGO)
+- Storage: EBS CSI driver with gp3 StorageClass
+
+**Deployment Flow:**
+1. Install OLM on EKS cluster using official install script
+2. Create a namespace `postgres-operator` for Operator isolation
+3. Deploy PostgreSQL Operator from OperatorHub via a Subscription object
+4. OLM installs CSV, creates CRDs: PostgresCluster, PGUpgrade, PGBackup
+5. Create a `PostgresCluster` CR specifying replicas, storage size, backup schedule
+6. Operator creates Primary StatefulSet, Replica StatefulSets, PGBouncer Deployment
+7. PVCs backed by EBS gp3 volumes provisioned per pod via CSI driver
+8. Operator creates Secrets for superuser, replication user, app user credentials
+9. Operator configures pgBackRest for S3-backed continuous WAL archiving
+
+**Security Considerations:**
+- Operator ClusterRole scoped to only PostgreSQL-related resources
+- All credentials in Kubernetes Secrets encrypted at rest via AWS KMS
+- Network Policies restrict direct pod communication — only app pods reach PostgreSQL Service
+- TLS enforced between app and PostgreSQL using auto-rotated certificates
+
+**Scaling Strategy:**
+- Update `replicas` field in PostgresCluster CR
+- Operator detects change, creates new Replica StatefulSet, waits for sync
+- Load balancer Service updated to include new replica in read pool
+
+**Monitoring and Alerting:**
+- Operator sidecar exports PostgreSQL metrics via postgres_exporter
+- Prometheus scrapes metrics endpoint
+- Grafana dashboard shows replication lag, connection pool saturation, transaction rate
+- PagerDuty alert fires if replication lag exceeds 30 seconds
+
+**Failure and Recovery:**
+- Primary pod crashes → Operator detects within seconds via Watch API
+- Operator promotes the most up-to-date replica to new primary
+- Updates Service endpoints to point to new primary
+- Sends notification via webhook → Slack alert to on-call team
+- Accidental data deletion → Operator restores from latest S3 WAL backup using pgBackRest
+
+---
+
+### 🔷 YAML Example — CRD, CR, and Operator Deployment
+
+```yaml
+# Step 1: Custom Resource Definition
+# Tells Kubernetes about the new PostgresCluster resource type
+# Must be applied BEFORE any PostgresCluster CR objects are created
+# Error without CRD: "no matches for kind PostgresCluster"
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: postgresclusters.postgres-operator.crunchydata.com
+spec:
+  group: postgres-operator.crunchydata.com
+  scope: Namespaced
+  names:
+    plural: postgresclusters
+    singular: postgrescluster
+    kind: PostgresCluster
+    shortNames:
+    - pgc
+  versions:
+  - name: v1beta1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              postgresVersion:
+                type: integer
+                minimum: 13
+              instances:
+                type: array
+              backups:
+                type: object
+
+---
+# Step 2: Custom Resource (CR)
+# User creates this to request a PostgreSQL cluster
+# Operator watches for this and acts on it
+# CrashLoopBackOff on Operator pod → check RBAC permissions
+# kubectl describe pod <operator-pod> -n postgres-operator
+apiVersion: postgres-operator.crunchydata.com/v1beta1
+kind: PostgresCluster
+metadata:
+  name: production-pg
+  namespace: databases
+spec:
+  postgresVersion: 15
+
+  instances:
+  - name: primary
+    replicas: 3
+    # Missing resource limits → OOMKilled risk under heavy query load
+    # Check: kubectl describe pod production-pg-primary-0
+    resources:
+      requests:
+        memory: "2Gi"
+        cpu: "1000m"
+      limits:
+        memory: "4Gi"
+        cpu: "2000m"
+    dataVolumeClaimSpec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 100Gi
+      storageClassName: ebs-gp3
+
+  backups:
+    pgbackrest:
+      repos:
+      - name: repo1
+        s3:
+          bucket: "prod-pg-backups"
+          endpoint: "s3.amazonaws.com"
+          region: "us-east-1"
+
+---
+# Step 3: OLM Subscription
+# Tells OLM to install and keep the Operator updated
+# channel: stable → production-safe releases only
+# installPlanApproval: Manual → require human approval before upgrades
+# Automatic → Operator upgrades without approval (risky in production)
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: postgresql-operator
+  namespace: postgres-operator
+spec:
+  channel: v5
+  name: postgresql
+  source: operatorhubio-catalog
+  sourceNamespace: olm
+  installPlanApproval: Manual
+```
+
+---
+
+### 🔷 Benefits
+
+- Encapsulates complex operational knowledge into reusable, shareable software
+- Dramatically reduces human error during Day-2 operations
+- Enables truly self-healing infrastructure for stateful applications
+- Provides a declarative management interface using standard Kubernetes YAML
+- Operators are reusable across teams, clusters, and environments
+- Reduces mean time to recovery (MTTR) through automated failure response
+
+---
+
+### 🔷 Common Use Cases
+
+- Database management — PostgreSQL, MySQL, MongoDB, CockroachDB, Cassandra
+- Message queue management — Kafka, RabbitMQ, NATS
+- Monitoring stacks — Prometheus Operator, Grafana Operator, Alertmanager
+- Service mesh lifecycle — Istio Operator, Linkerd
+- Certificate management — cert-manager Operator
+- etcd cluster management — etcd Operator
+- Elasticsearch cluster management — ECK (Elastic Cloud on Kubernetes)
+
+---
+
+### 🔷 Common Mistakes
+
+- Installing an Operator **without installing OLM first** — Operator pod creation fails silently
+- Not granting sufficient RBAC permissions to Operator — reconciliation loop fails with Forbidden errors
+- Running **multiple conflicting versions** of the same Operator — CRD schema conflicts
+- Deleting an Operator **without cleaning up CRDs** — orphaned CR objects remain in cluster indefinitely
+- Ignoring Operator upgrade paths — breaking changes in CRD schema between major versions cause data loss
+- Using `installPlanApproval: Automatic` in production — unexpected Operator upgrades break running applications
+- Not monitoring Operator controller logs — silent failures go undetected
+
+---
+
+### 🔷 Debugging and Troubleshooting
+
+```bash
+# Check if OLM is installed and healthy
+kubectl get pods -n olm
+
+# Check Operator pod status and restart count
+kubectl get pods -n <operator-namespace>
+
+# Read Operator controller logs for reconciliation errors
+kubectl logs -n <operator-namespace> <operator-pod-name> -f
+
+# Check all CRDs registered by the Operator
+kubectl get crd | grep <operator-group>
+
+# Check CR object status and events
+kubectl describe <custom-resource-kind> <cr-name> -n <namespace>
+
+# Check RBAC permissions granted to Operator ServiceAccount
+kubectl get clusterrolebinding | grep <operator-name>
+kubectl describe clusterrolebinding <operator-rolebinding>
+
+# Check OLM ClusterServiceVersion install status
+kubectl get csv -n <operator-namespace>
+kubectl describe csv <csv-name> -n <operator-namespace>
+
+# Check OLM InstallPlan status
+kubectl get installplan -n <operator-namespace>
+kubectl describe installplan <installplan-name> -n <operator-namespace>
+
+# Check Subscription for update channel and approval status
+kubectl get subscription -n <operator-namespace>
+```
+
+---
+
+### 🔷 CKA Exam Tips
+
+- Understand the core relationship clearly: **CRD defines the type, Controller acts on it, Operator packages both**
+- Know how to **create a CRD from YAML** and **apply a CR object**
+- Understand that **OLM manages Operator lifecycle** — it is not part of the Operator itself
+- Know that Operators require **RBAC ClusterRole/ClusterRoleBinding** to function
+- Be comfortable reading `kubectl describe` output on CR objects to identify status issues
+- Exam scenarios often ask you to create a CRD, create a CR, and verify the CR is accepted
+- Know the difference between `served: true` and `storage: true` fields in CRD versions
+
+---
+
+### 🔷 Production Best Practices
+
+- Always use **OLM** for Operator lifecycle management in production clusters
+- Pin Operator versions using specific channel subscriptions — avoid uncontrolled auto-upgrades
+- Monitor Operator controller logs via centralized logging using ELK, Loki, or Splunk
+- Scope Operator RBAC to **minimum required permissions** — avoid cluster-admin for Operators
+- Test every Operator upgrade path in staging environment before promoting to production
+- Document every CR field — application teams use CRs as their primary operational interface
+- Use `installPlanApproval: Manual` in production for controlled Operator upgrades
+- Regularly audit `kubectl get csv` to ensure all Operators are in Succeeded phase
+
+---
+
+### 📌 Topic Summary — Operator Framework
+
+- An **Operator = CRD + Custom Controller** packaged together as a deployable unit
+- Operators automate **Day-2 operations** — backup, restore, upgrade, failover, scaling
+- The **Operator Lifecycle Manager (OLM)** handles Operator installation and version management
+- **OperatorHub.io** provides a catalog of 300+ production-ready Operators for all major applications
+- Operators use Kubernetes' native **reconciliation loop** to continuously maintain desired state
+- **RBAC is mandatory** — Operators need ClusterRole permissions to watch and manage cluster resources
+- `installPlanApproval: Manual` should be used in **production** to prevent unexpected upgrades
+- Production use cases include databases, message queues, monitoring stacks, and service meshes
+- **Interview phrasing:** *"An Operator extends Kubernetes with domain-specific operational knowledge, automating complex stateful application management through CRDs and custom controllers that run the same reconciliation loop as native Kubernetes controllers"*
+- **Production takeaway:** Operators are not just deployment tools — they are **automated site reliability engineers** for your stateful applications
+
+---
+
+# 🗄️ PART II: Kubernetes Storage
+
+---
+
+## 20. Storage in Docker
+
+### 🔷 What Is Storage in Docker?
+
+Docker manages container data through a **layered filesystem architecture** backed by **storage drivers**. Every container image is composed of multiple **read-only layers** stacked on top of each other. When a container runs, a thin **writable layer** is added on top. Understanding this model is foundational to understanding how Kubernetes manages container storage, since Kubernetes container runtimes (containerd, CRI-O) follow the exact same layered storage model.
+
+---
+
+### 🔷 Why Do We Need to Understand It?
+
+- Every container in Kubernetes is built on the same layered image system used by Docker
+- Understanding layers helps optimize **image sizes and CI/CD build times** in production pipelines
+- Understanding volumes and bind mounts explains how **Kubernetes PVs and PVCs** work at the runtime level
+- Debugging storage-related issues in Kubernetes pods requires understanding underlying container storage mechanics
+- Node disk space management in production requires understanding how image layers accumulate on worker nodes
+
+---
+
+### 🔷 Core Storage Concepts
+
+**1. Image Layers — Read-Only and Immutable**
+
+Each instruction in a Dockerfile creates a new immutable read-only layer containing only the changes from the previous layer.
+
+```
+Layer 5: ENTRYPOINT instruction           ← App startup, smallest layer
+Layer 4: COPY app.py /opt/source-code     ← Application source code
+Layer 3: RUN pip install flask            ← Python packages installed
+Layer 2: RUN apt-get install python       ← OS packages (~300MB)
+Layer 1: FROM ubuntu                      ← Base OS image (~120MB)
+```
+
+**Why this matters in production:**
+- Multiple images sharing the same base layers — massive **disk savings** on nodes
+- Changing only Layer 4 (application code) → Docker rebuilds only Layers 4 and 5
+- Results in **fast CI/CD pipelines** — only changed layers are rebuilt and pushed
+
+**2. Container Writable Layer — Copy-on-Write**
+
+When a container starts, Docker adds a thin **writable layer** on top of read-only image layers. All runtime changes — log files, temporary files, modified configs — go into this writable layer.
+
+```
+┌────────────────────────────────────┐
+│   Writable Container Layer         │  ← Created when container starts
+│   (all runtime changes go here)    │  ← DELETED when container is removed
+├────────────────────────────────────┤
+│   Read-Only Image Layer 5          │
+│   Read-Only Image Layer 4          │  ← Shared across ALL containers
+│   Read-Only Image Layer 3          │     using this same image
+│   Read-Only Image Layer 2          │
+│   Read-Only Image Layer 1          │
+└────────────────────────────────────┘
+```
+
+**Copy-on-Write mechanism:**
+- Container wants to modify `app.py` from Layer 4
+- Docker **copies** `app.py` into the writable layer first
+- Container modifies the **copy** — original Layer 4 remains completely untouched
+- Multiple containers can safely share the same image layers simultaneously
+
+---
+
+### 🔷 Docker Storage Drivers
+
+Storage drivers manage how layers are stored on disk and how the copy-on-write mechanism operates.
+
+| Storage Driver | OS Support | Production Status |
+|---|---|---|
+| **overlay2** | Ubuntu, CentOS/RHEL 8+, Debian | ✅ Recommended for all modern systems |
+| **aufs** | Ubuntu (older kernels) | ⚠️ Legacy, being phased out |
+| **devicemapper** | CentOS/RHEL (older) | ⚠️ Requires direct-lvm mode for production |
+| **btrfs** | SUSE Linux | ✅ Supported, native filesystem features |
+| **zfs** | Ubuntu with ZFS | ✅ Supported, snapshot capabilities |
+
+**Production standard:** `overlay2` is the default and recommended storage driver for all modern Kubernetes deployments. It delivers the best performance and stability across Ubuntu and CentOS/RHEL 8+.
+
+---
+
+### 🔷 Volume Types — Persistence Options
+
+| Type | Storage Location | Managed By | Persistence | Production Use Case |
+|---|---|---|---|---|
+| **Volume** | `/var/lib/docker/volumes/` | Docker | Survives container lifecycle | Databases, persistent logs |
+| **Bind Mount** | Any host filesystem path | User/Admin | Host-dependent | Dev environments, config injection |
+| **tmpfs** | Host RAM | Docker | Lost on container stop | Sensitive temp data, tokens |
+
+---
+
+### 🔷 Internal Working — Volume Mount Flow in Kubernetes Context
+
+```
+Kubernetes Pod Creation Requested
+              │
+              ▼
+Container Runtime (containerd) pulls image layers
+              │
+              ├──► overlay2 driver stacks read-only layers
+              │    at /var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/
+              │
+              ├──► Creates writable container layer on top of image layers
+              │
+              ├──► kubelet calls CSI NodePublishVolume for PVC-backed volumes
+              │    CSI driver mounts block device at staging path on node
+              │    Then bind-mounts from staging to container target path
+              │
+              └──► Container starts with:
+                       - Read-only image layers (shared, efficient)
+                       - Writable container layer (ephemeral)
+                       - Mounted persistent volumes (durable)
+```
+
+---
+
+### 🔷 Architecture Flow
+
+```
+Developer pushes code → CI/CD builds Docker image
+                │
+                ▼
+        Image layers cached at each build stage
+        Only changed layers rebuilt and pushed to registry
+                │
+                ▼
+Kubernetes pulls image to worker node
+        overlay2 stores layers at /var/lib/containerd/
+                │
+                ├──► Multiple pods use same image → layers shared on node
+                │    (disk efficient — 10 pods using same image = 1 copy of layers)
+                │
+                ├──► Each running pod gets own thin writable layer
+                │
+                └──► PVC volumes mounted separately by CSI driver
+                     (persists beyond pod lifecycle)
+```
+
+---
+
+### 🔷 Real-World Production Scenario
+
+**Problem encountered:** A Node.js application container was writing large access logs inside the container writable layer. When the pod was restarted due to a node failure, all logs were permanently lost. The team had no visibility into what happened before the restart.
+
+**Root cause:** Logs written to `/var/log/app` inside the container — this path was in the ephemeral writable layer, not a mounted volume.
+
+**Solution implemented:**
+- Mount a Kubernetes PersistentVolumeClaim at `/var/log/app` inside the pod
+- Logs now persist across pod restarts and node rescheduling
+- Added a Fluentd sidecar container that reads from the same mounted volume
+- Fluentd ships logs to Elasticsearch in real time
+- Even if the application pod crashes, logs from the volume are still accessible
+
+**Production lesson:** Never store any data you want to retain inside the container writable layer. Always use mounted volumes for logs, databases, uploads, and any stateful data.
+
+---
+
+### 🔷 YAML Example — Understanding Container Layer vs Volume
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: storage-demo-pod
+  namespace: production
+spec:
+  containers:
+  - name: app
+    image: myapp:2.1.0
+    
+    # Resource limits — critical in production
+    # Without memory limits → container may consume all node memory
+    # OOMKilled: kernel terminates container when memory limit exceeded
+    # Symptom: kubectl describe pod shows "OOMKilled" in Last State
+    # Fix: increase memory limit or optimize application memory usage
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "250m"
+      limits:
+        memory: "512Mi"   # OOMKilled if app exceeds this
+        cpu: "500m"       # CPU throttled if app exceeds this (not killed)
+    
+    volumeMounts:
+    # This path IS persisted — backed by PVC
+    # Data survives container restart and pod rescheduling
+    - name: app-data
+      mountPath: /data/app
+    
+    # This path IS persisted — backed by PVC
+    # Logs available even after pod crash for debugging
+    - name: app-logs
+      mountPath: /var/log/app
+    
+    # This path is NOT persisted — inside container writable layer
+    # /tmp data is lost on container restart
+    # For shared temp data between containers, use emptyDir instead
+    
+  volumes:
+  # PVC-backed volume — data persists beyond pod lifecycle
+  - name: app-data
+    persistentVolumeClaim:
+      claimName: app-data-pvc
+  
+  # PVC-backed volume for logs — enables post-mortem log access
+  - name: app-logs
+    persistentVolumeClaim:
+      claimName: app-logs-pvc
+```
+
+---
+
+### 🔷 Debugging Storage Issues on Nodes
+
+```bash
+# Check disk usage on worker node
+df -h /var/lib/containerd
+
+# Check overlay2 layer sizes consuming disk
+du -sh /var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/
+
+# Check which images are cached on node
+crictl images
+
+# Check containerd storage driver
+containerd config dump | grep snapshotter
+
+# List image layers for a specific image
+docker history <image-name>
+
+# Clean up unused image layers to recover disk space
+crictl rmi --prune
+
+# Check pod storage usage
+kubectl exec -it <pod-name> -- df -h
+```
+
+---
+
+### 🔷 Common Mistakes
+
+- Storing persistent application data inside the container writable layer — **data lost on restart**
+- Using `devicemapper` in loopback mode (default) in production — severe I/O performance degradation
+- Not cleaning up dangling image layers on nodes — disk space exhaustion causes pod eviction
+- Using bind mounts in multi-node Kubernetes — host paths differ per node causing scheduling inconsistency
+- Building fat Docker images with all layers in a single RUN command — loses layer caching benefits
+- Running containers as root — writable layer owned by root creates security vulnerabilities
+
+---
+
+### 🔷 CKA Exam Tips
+
+- Understand that **container writable layer is ephemeral** — lost when container is removed
+- Know the difference between **volumes** (persistent), **bind mounts** (host path), and **tmpfs** (RAM)
+- Know that `overlay2` is the default storage driver for modern Kubernetes nodes
+- Understand how **PVCs connect to persistent storage** at the container runtime level
+- Be able to explain why data in `/tmp` inside a container is lost on restart
+
+---
+
+### 🔷 Production Best Practices
+
+- Always mount volumes for any data that must survive container restarts
+- Use `overlay2` storage driver on all production Kubernetes worker nodes
+- Implement image layer cache optimization in CI/CD pipelines — sort Dockerfile instructions from least to most frequently changed
+- Monitor node disk usage with Prometheus node_exporter — alert at 70% disk usage threshold
+- Regularly prune unused images from nodes using `crictl rmi --prune`
+- Never write sensitive data to container writable layer — use tmpfs volumes or Secrets instead
+- Set explicit resource limits on all containers to prevent unbounded disk and memory usage
+
+---
+
+### 📌 Topic Summary — Storage in Docker
+
+- Docker uses a **layered read-only image architecture** with a thin ephemeral **writable container layer** on top
+- **Copy-on-Write** ensures all containers sharing the same image layers do so safely without modification conflicts
+- **overlay2** is the default and recommended storage driver for all modern production Kubernetes worker nodes
+- Container writable layer is **completely ephemeral** — any data stored there is permanently lost on container removal
+- **Volumes** provide persistence — data survives the full container lifecycle
+- In Kubernetes, containerd follows the exact same layered model — **PVs and PVCs** replace Docker volumes as the persistence mechanism
+- Node disk space management requires awareness of image layer accumulation — regular pruning is necessary
+- **Interview phrasing:** *"Docker's layered storage model enables efficient image sharing and fast container startup. The container writable layer is ephemeral — any data requiring persistence must be stored in mounted volumes, not inside the container filesystem"*
+- **Production takeaway:** Treat the container writable layer as completely disposable — design every application assuming the container can be deleted and recreated at any moment
+
+---
+
+## 21. Volume Driver Plugins in Docker
+
+### 🔷 What Are Volume Driver Plugins?
+
+**Volume driver plugins** are extensions that allow Docker to create and manage volumes on **external storage systems** beyond the local host filesystem. They completely decouple **where data is physically stored** from **how the container runtime operates**, enabling containers to access persistent storage that survives beyond the lifecycle of any single host machine.
+
+---
+
+### 🔷 Why Do We Need Them?
+
+The default Docker `local` volume driver stores data only on the node running the container. In a Kubernetes cluster with multiple nodes this creates a critical problem:
+
+- Pod on Node A writes application data to Node A local disk
+- Pod gets rescheduled to Node B due to node failure or scaling event
+- Pod on Node B **cannot access data** written on Node A
+- Application crashes or starts with empty state — **data effectively lost**
+
+Volume driver plugins solve this by storing data on **shared external storage** that is accessible from any node in the cluster, making data location transparent to the container.
+
+---
+
+### 🔷 Common Volume Driver Plugins
+
+| Plugin | Storage Backend | Cloud/Platform | Enterprise Use |
+|---|---|---|---|
+| **local** | Host filesystem | Any | Dev/Test only |
+| **Rex-Ray/EBS** | AWS EBS | AWS | Production EC2/EKS |
+| **Rex-Ray/GCE** | Google Persistent Disk | GCP | Production GKE |
+| **Rex-Ray/Azure** | Azure Managed Disk | Azure | Production AKS |
+| **Portworx** | Multi-cloud distributed storage | Any | Enterprise multi-cloud |
+| **Convoy** | NFS, EBS, VFS | Multiple | Multi-provider abstraction |
+| **NetApp Trident** | NetApp ONTAP | On-premises | Enterprise data center |
+| **GlusterFS** | Gluster Distributed FS | On-premises | Distributed on-prem storage |
+| **VMware vSphere** | vSAN | VMware environments | On-premises VMware |
+
+---
+
+### 🔷 Internal Working — How Volume Plugins Operate
+
+```
+Container Start Requested with External Volume
+              │
+              ▼
+Docker Engine identifies volume-driver in run command
+              │
+              ▼
+Docker calls Volume Driver Plugin RPC: Mount()
+              │
+              ▼
+Volume Driver Plugin calls External Storage API
+Example: AWS SDK → CreateVolume() if volume doesn't exist
+Example: AWS SDK → AttachVolume() to attach EBS to current EC2 instance
+              │
+              ▼
+External storage provisioned and attached to host node
+at /dev/xvdf or similar block device path
+              │
+              ▼
+Docker formats and mounts block device at volume path
+/var/lib/docker/volumes/<volume-name>/_data
+              │
+              ▼
+Volume bind-mounted into container at specified mountPath
+              │
+              ▼
+Container reads/writes — data goes to external storage transparently
+              │
+              ▼
+On container stop → Volume Driver calls Unmount() and DetachVolume()
+EBS volume detaches from EC2 but DATA PERSISTS on EBS
+```
+
+---
+
+### 🔷 Architecture Flow
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                        Docker Host                           │
+│                                                              │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │  Docker Engine                                       │    │
+│  │                                                      │    │
+│  │  Container Runtime ──► Volume Plugin API             │    │
+│  │                              │                       │    │
+│  └──────────────────────────────┼───────────────────────┘    │
+│                                 │                             │
+└─────────────────────────────────┼─────────────────────────────┘
+                                  │  RPC: Create/Mount/Unmount/Delete
+                                  ▼
+┌──────────────────────────────────────────────────────────────┐
+│              Volume Driver Plugin (Rex-Ray/EBS)              │
+│                                                              │
+│  Translates Docker volume API calls to storage API calls     │
+└──────────────────────────────┬───────────────────────────────┘
+                               │  AWS SDK API calls
+                               ▼
+┌──────────────────────────────────────────────────────────────┐
+│                    AWS EBS Service                           │
+│                                                              │
+│  CreateVolume → AttachVolume → DetachVolume → DeleteVolume   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 🔷 Connection to Kubernetes CSI
+
+The Docker volume plugin model was the **direct conceptual predecessor** to Kubernetes CSI. The evolution:
+
+```
+Docker Volume Plugins (2015)
+        │
+        ▼ Kubernetes needed a standardized version
+Container Storage Interface - CSI (2018)
+        │
+        ▼ CSI became the universal standard
+CSI drivers for all major storage systems (2019 onwards)
+        │
+        ▼ In-tree plugins deprecated
+All storage managed exclusively via CSI drivers (Kubernetes 1.24+)
+```
+
+In modern Kubernetes:
+- Docker volume plugins are **not used** directly
+- **StorageClasses** with CSI provisioners replace them entirely
+- The concepts are identical — only the implementation and standardization differ
+
+---
+
+### 🔷 YAML Example — Using External Storage via Volume Driver
+
+```yaml
+# Docker run command using Rex-Ray EBS volume driver
+# This is the Docker-level concept — in Kubernetes use CSI StorageClass instead
+
+# Docker CLI equivalent:
+# docker run -it \
+#   --name mysql-prod \
+#   --volume-driver rexray/ebs \
+#   --mount src=mysql-data-vol,target=/var/lib/mysql \
+#   mysql:8.0
+
+# In Kubernetes, this translates to:
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-data-pvc
+  namespace: databases
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: ebs-gp3     # CSI StorageClass replaces volume driver plugin
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mysql-pod
+  namespace: databases
+spec:
+  containers:
+  - name: mysql
+    image: mysql:8.0
+    
+    # OOMKilled risk: MySQL buffer pool defaults to 128MB
+    # Set innodb_buffer_pool_size appropriately via env var
+    # If container hits memory limit → OOMKilled
+    # kubectl describe pod mysql-pod → check "OOMKilled" in Last State
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
+    
+    env:
+    - name: MYSQL_ROOT_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: mysql-secret
+          key: root-password
+          # CrashLoopBackOff if secret 'mysql-secret' does not exist
+          # Fix: kubectl get secret mysql-secret -n databases
+    
+    volumeMounts:
+    - name: mysql-data
+      mountPath: /var/lib/mysql
+    
+  volumes:
+  - name: mysql-data
+    persistentVolumeClaim:
+      claimName: mysql-data-pvc
+      # PVC backed by EBS CSI driver
+      # Volume persists when pod is deleted or rescheduled
+      # EBS volume detaches from old node, reattaches to new node automatically
+```
+
+---
+
+### 🔷 Debugging Volume Plugin Issues
+
+```bash
+# Check if volume plugin is registered
+docker plugin ls
+
+# Check plugin logs
+journalctl -u docker -f | grep volume
+
+# In Kubernetes — check CSI driver pod status (CSI replaces plugins)
+kubectl get pods -n kube-system | grep csi
+
+# Check VolumeAttachment status (shows attach/detach state)
+kubectl get volumeattachment
+
+# Describe failing PVC
+kubectl describe pvc <pvc-name> -n <namespace>
+
+# Check events for storage issues
+kubectl get events -n <namespace> --sort-by='.lastTimestamp'
+```
+
+---
+
+### 📌 Topic Summary — Volume Driver Plugins in Docker
+
+- Volume driver plugins enable Docker to use **external storage systems** beyond the local node disk
+- Critical for **multi-node environments** where pods can be rescheduled to any node at any time
+- Key plugins for cloud: **Rex-Ray/EBS** (AWS), **Rex-Ray/GCE** (GCP), **Portworx** (multi-cloud)
+- Plugins translate Docker volume API calls into **external storage API calls** transparently
+- The Docker volume plugin model is the **direct conceptual predecessor** to Kubernetes CSI drivers
+- In modern production Kubernetes, **CSI drivers fully replace** Docker volume plugins
+- Understanding this history explains **why CSI was designed** the way it is
+- **Interview phrasing:** *"Docker volume driver plugins externalize storage to shared systems accessible from any node. In Kubernetes, this concept is standardized and evolved into the Container Storage Interface, which provides a vendor-agnostic way to integrate any storage system"*
+- **Production takeaway:** Never design stateful Kubernetes workloads assuming data stays on a specific node — always use network-attached storage via CSI drivers
+
+---
+
+## 22. Container Storage Interface (CSI)
+
+### 🔷 What Is CSI?
+
+The **Container Storage Interface (CSI)** is an **open industry standard specification** that defines a common API for container orchestrators (Kubernetes, Cloud Foundry, Mesos, Nomad) to interact with storage systems. It allows storage vendors to write a **single plugin** that works across all supported orchestrators without any modification.
+
+Before CSI, Kubernetes had storage drivers **embedded directly in its core source code** — called in-tree plugins. Adding a new storage vendor required modifying and recompiling the Kubernetes binary itself, creating a slow, tightly-coupled, unmaintainable architecture.
+
+---
+
+### 🔷 Why Was CSI Created?
+
+**Problems with in-tree storage plugins:**
+- Every new storage vendor required a **Kubernetes core code change** and a full release cycle
+- Bug fixes in storage drivers could only ship with the next Kubernetes version — months of delay
+- Storage vendor teams had no control over their plugin release cadence or quality
+- The Kubernetes binary grew increasingly large with each added storage plugin
+- Testing a storage plugin required running the entire Kubernetes test suite
+
+**CSI Solution:**
+- Storage plugins are **out-of-tree** — completely separate from Kubernetes core
+- Storage vendors own their plugin development, testing, and release cycle independently
+- Any CSI-compliant plugin works with any CSI-compliant orchestrator
+- Kubernetes core stays lean — no more storage vendor code in the main binary
+- Plugins can be installed, updated, and removed without touching Kubernetes itself
+
+---
+
+### 🔷 Core Components
+
+| Component | Type | Role |
+|---|---|---|
+| **CSI Driver** | Plugin | Implements the CSI spec for a specific storage system |
+| **Identity Service** | gRPC service | Returns plugin capabilities and health status |
+| **Controller Service** | gRPC service | Handles volume provisioning, attachment, deletion |
+| **Node Service** | gRPC service | Handles volume mounting/unmounting on individual nodes |
+| **external-provisioner** | Sidecar container | Watches PVCs and calls CreateVolume on CSI driver |
+| **external-attacher** | Sidecar container | Watches VolumeAttachments and calls ControllerPublish |
+| **external-resizer** | Sidecar container | Watches PVCs for resize requests, calls ControllerExpandVolume |
+| **node-driver-registrar** | Sidecar container | Registers CSI driver with kubelet on each node |
+
+---
+
+### 🔷 Internal Working — CSI Volume Provisioning Flow
+
+```
+Step 1:  User creates PVC with storageClassName: ebs-gp3
+Step 2:  kube-apiserver stores PVC in etcd with status: Pending
+Step 3:  external-provisioner sidecar watches for new unbound PVCs
+Step 4:  external-provisioner calls CSI CreateVolume RPC on controller service
+Step 5:  CSI controller plugin calls AWS EBS API: CreateVolume()
+Step 6:  EBS volume created in AWS with requested size and type
+Step 7:  CSI driver returns volume_id back to external-provisioner
+Step 8:  external-provisioner creates a PV object bound to the PVC
+Step 9:  PVC status changes from Pending to Bound
+Step 10: Pod scheduler places pod on node (respecting zone constraints)
+Step 11: kubelet on node detects pod needs CSI volume
+Step 12: external-attacher calls CSI ControllerPublishVolume RPC
+Step 13: CSI controller calls AWS EBS API: AttachVolume() to EC2 instance
+Step 14: Volume appears as block device /dev/xvdf on node
+Step 15: kubelet calls CSI NodeStageVolume RPC (format + mount to staging path)
+Step 16: kubelet calls CSI NodePublishVolume RPC (bind-mount to pod target path)
+Step 17: Container starts and can read/write the mounted volume
+```
+
+---
+
+### 🔷 Architecture Flow
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│                          Kubernetes Control Plane                  │
+│                                                                    │
+│  kube-apiserver                                                    │
+│       │                                                            │
+│       ├── PVC created ──► external-provisioner sidecar watches    │
+│       │                          │                                 │
+│       │                          ▼                                 │
+│       │                   CSI CreateVolume RPC                     │
+│       │                          │                                 │
+│       │                          ▼                                 │
+│       │              CSI Controller Service Pod                    │
+│       │              (StatefulSet/Deployment)                      │
+│       │                          │                                 │
+│       │                          ▼                                 │
+│       │              External Storage API                          │
+│       │              (AWS EBS, Azure Disk, GCE PD)                 │
+│       │                                                            │
+│       └── VolumeAttachment ──► external-attacher sidecar watches  │
+└──────────────────────────────────────┬─────────────────────────────┘
+                                       │
+                     ControllerPublishVolume RPC
+                                       │
+                                       ▼
+┌────────────────────────────────────────────────────────────────────┐
+│                          Worker Node                               │
+│                                                                    │
+│  kubelet                                                           │
+│       │                                                            │
+│       ├── Calls NodeStageVolume RPC ──► CSI Node Plugin DaemonSet │
+│       │         (mounts to /var/lib/kubelet/plugins/csi-staging/)  │
+│       │                                                            │
+│       └── Calls NodePublishVolume RPC ──► CSI Node Plugin          │
+│                 (bind-mounts to /var/lib/kubelet/pods/<pod>/volumes)│
+│                                                                    │
+│  Container accesses volume at mountPath specified in Pod spec      │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 🔷 CSI RPC Methods Reference
+
+| RPC Method | Service | Description |
+|---|---|---|
+| `GetPluginInfo` | Identity | Returns plugin name, version, and capabilities |
+| `GetPluginCapabilities` | Identity | Lists what the plugin supports |
+| `Probe` | Identity | Health check for the plugin |
+| `CreateVolume` | Controller | Provisions a new volume on external storage |
+| `DeleteVolume` | Controller | Deletes a provisioned volume |
+| `ControllerPublishVolume` | Controller | Attaches volume to a specific node |
+| `ControllerUnpublishVolume` | Controller | Detaches volume from a node |
+| `ControllerExpandVolume` | Controller | Expands volume size |
+| `NodeStageVolume` | Node | Mounts volume to global staging path on node |
+| `NodeUnstageVolume` | Node | Unmounts volume from global staging path |
+| `NodePublishVolume` | Node | Bind-mounts volume from staging to pod target path |
+| `NodeUnpublishVolume` | Node | Unmounts volume from pod target path |
+
+---
+
+### 🔷 Popular CSI Drivers in Production
+
+| CSI Driver | Storage Backend | Provisioner Name | Cloud/Platform |
+|---|---|---|---|
+| AWS EBS CSI Driver | Amazon EBS | `ebs.csi.aws.com` | AWS |
+| Azure Disk CSI Driver | Azure Managed Disk | `disk.csi.azure.com` | Azure |
+| GCE Persistent Disk CSI | Google Persistent Disk | `pd.csi.storage.gke.io` | GCP |
+| NFS CSI Driver | NFS Server | `nfs.csi.k8s.io` | Any |
+| Portworx CSI | Portworx storage | `pxd.portworx.com` | Multi-cloud |
+| Ceph RBD CSI | Ceph cluster | `rbd.csi.ceph.com` | On-premises |
+| OpenEBS | Local/network storage | `openebs.io/local` | Any |
+| Longhorn | Distributed block storage | `driver.longhorn.io` | On-premises |
+
+---
+
+### 🔷 YAML Example — StorageClass Using CSI Driver
+
+```yaml
+# StorageClass backed by AWS EBS CSI Driver
+# Enables dynamic volume provisioning — no manual PV creation needed
+# Production-grade configuration with encryption and performance tuning
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ebs-gp3-encrypted
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+    # Set as default StorageClass — PVCs without storageClassName use this
+
+provisioner: ebs.csi.aws.com
+# provisioner must exactly match installed CSI driver name
+# Wrong name: PVC stays Pending forever
+# Fix: kubectl get csidrivers to see registered driver names
+
+volumeBindingMode: WaitForFirstConsumer
+# WaitForFirstConsumer: volume created only when pod is scheduled
+# This ensures EBS volume is created in SAME AZ as pod
+# Without this: EBS volume might be in us-east-1a but pod on us-east-1b
+# Result: ControllerPublishVolume fails → pod stuck in ContainerCreating
+
+reclaimPolicy: Retain
+# Retain: PV persists after PVC deletion
+# Administrator must manually delete PV and EBS volume
+# Use Retain for production databases — prevents accidental data loss
+# Delete: automatically deletes PV and EBS volume with PVC
+# Use Delete for ephemeral workloads like CI/CD build caches
+
+allowVolumeExpansion: true
+# Allows resizing PVC storage without recreating pod
+# User updates PVC spec.resources.requests.storage
+# CSI driver calls ControllerExpandVolume then NodeExpandVolume
+
+parameters:
+  type: gp3
+  # gp3: Latest generation EBS — better baseline IOPS/throughput than gp2
+  # gp2: Legacy, IOPS tied to volume size (3 IOPS/GB)
+  # io2: High-performance for databases needing >16,000 IOPS
+  
+  iops: "3000"
+  # Baseline IOPS for gp3 — can set up to 16,000 without extra cost up to 3000
+  
+  throughput: "125"
+  # Throughput in MiB/s — gp3 baseline is 125 MiB/s
+  
+  encrypted: "true"
+  # Always encrypt storage in production
+  # Required for PCI-DSS, HIPAA, SOC2 compliance
+  
+  kmsKeyId: "arn:aws:kms:us-east-1:123456789012:key/mrk-xxx"
+  # Use dedicated KMS key per environment for audit trail
+  # Allows per-key rotation policy and access control
+
+---
+# PersistentVolumeClaim using the StorageClass above
+# User creates this — StorageClass handles PV creation automatically
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data-pvc
+  namespace: databases
+spec:
+  accessModes:
+  - ReadWriteOnce
+  # ReadWriteOnce: single node read-write (EBS limitation)
+  # ReadWriteMany: multi-node read-write (EFS, NFS, Ceph)
+  # ReadOnlyMany: multi-node read-only
+  
+  storageClassName: ebs-gp3-encrypted
+  # Must match StorageClass name exactly
+  # Wrong name: PVC stays Pending
+  # Fix: kubectl get storageclass to list available classes
+  
+  resources:
+    requests:
+      storage: 100Gi
+  # Request 100GB
+  # With allowVolumeExpansion: true, can be increased later
+  # Cannot be decreased — EBS does not support volume shrink
+```
+
+---
+
+### 🔷 Real-World Production Scenario
+
+**Application:** Kafka cluster on EKS requiring high-throughput persistent storage with zone awareness
+
+**Problem encountered:** Initial deployment used `Immediate` binding mode in StorageClass. Kafka broker PVCs provisioned EBS volumes in `us-east-1a`. Pods were scheduled in `us-east-1b` due to node anti-affinity rules. EBS attachment failed — pod stuck in ContainerCreating for 15 minutes.
+
+**Fix applied:**
+- Changed StorageClass `volumeBindingMode` to `WaitForFirstConsumer`
+- EBS volumes now created only after pod is scheduled — always in correct AZ
+- Kafka brokers deployed across 3 AZs with 3 separate StatefulSets
+- Each StatefulSet uses node affinity to pin to a specific AZ
+
+**Scaling result:**
+- Adding Kafka broker = updating StatefulSet replicas
+- CSI driver provisions new EBS volume in correct AZ automatically
+- No manual storage provisioning required
+
+**Monitoring:**
+- `ebs_volume_read_ops_total` and `ebs_volume_write_ops_total` tracked in Prometheus
+- CloudWatch EBS metrics correlated with application latency
+- Alert fires when IOPS consistently above 80% of provisioned capacity
+
+---
+
+### 🔷 Debugging CSI Issues
+
+```bash
+# List all registered CSI drivers in cluster
+kubectl get csidrivers
+
+# Check CSI driver pods are running
+kubectl get pods -n kube-system | grep csi
+
+# Check CSI controller logs for provisioning errors
+kubectl logs -n kube-system <ebs-csi-controller-pod> \
+  -c ebs-plugin --tail=50
+
+# Check CSI node plugin logs for mount errors
+kubectl logs -n kube-system <ebs-csi-node-pod-on-failing-node> \
+  -c ebs-plugin --tail=50
+
+# Check PVC events for provisioning failure details
+kubectl describe pvc <pvc-name> -n <namespace>
+
+# Check PV details and CSI handle
+kubectl describe pv <pv-name>
+
+# Check VolumeAttachment status
+kubectl get volumeattachment
+kubectl describe volumeattachment <va-name>
+
+# Check CSINode for driver registration on specific node
+kubectl describe csinode <node-name>
+
+# Events for storage-related failures
+kubectl get events -n <namespace> \
+  --field-selector reason=FailedMount \
+  --sort-by='.lastTimestamp'
+```
+
+---
+
+### 📌 Topic Summary — Container Storage Interface (CSI)
+
+- CSI is an **open standard** that defines how orchestrators communicate with storage systems via gRPC RPCs
+- CSI replaced **in-tree storage plugins** eliminating the need to modify Kubernetes core for new storage vendors
+- Core RPC categories: **Identity** (plugin info), **Controller** (provision/attach), **Node** (mount/unmount)
+- CSI drivers deployed as **DaemonSet** (node plugin running on every node) + **Deployment** (controller plugin)
+- `WaitForFirstConsumer` binding mode is **critical for zone-aware storage** like EBS and Azure Disk
+- `allowVolumeExpansion: true` enables **live storage resize** without recreating pods
+- Always use `reclaimPolicy: Retain` for **production databases** to prevent accidental data loss
+- **Interview phrasing:** *"CSI decouples storage provider plugins from Kubernetes core, enabling storage vendors to independently develop and release drivers that work with any CSI-compliant orchestrator through a standardized gRPC API"*
+- **Production takeaway:** Every production Kubernetes cluster should have a well-configured default StorageClass backed by a CSI driver with encryption, appropriate binding mode, and reclaim policy matching data retention requirements
+
+---
+
+## 23. Volumes in Kubernetes
+
+### 🔷 What Are Kubernetes Volumes?
+
+A **Kubernetes Volume** is a storage abstraction defined at the **Pod level** that provides storage accessible to containers within that pod. Unlike container-level storage (which disappears on container restart), a Volume exists for the **entire lifetime of the pod** that defines it. Multiple containers within the same pod can access and share the same volume simultaneously.
+
+The critical distinction in the storage hierarchy:
+- **Container filesystem** — lost when the container restarts
+- **Kubernetes Volume** — survives container restarts within the same pod
+- **PersistentVolume** — survives pod deletion entirely and can be rebound to new pods
+
+---
+
+### 🔷 Why Do We Need Volumes?
+
+- Containers are designed to be stateless and ephemeral — their local filesystem resets on restart
+- Applications need to share data between containers in the same pod (sidecar pattern)
+- Configuration files and secrets need to be injected into containers at runtime
+- Log files need to persist beyond container crashes for post-mortem debugging
+- Stateful applications (databases, message queues) need durable storage that outlives pods
+
+---
+
+### 🔷 Volume Types Reference
+
+| Volume Type | Persistence | Use Case | Production Suitable |
+|---|---|---|---|
+| `emptyDir` | Pod lifetime only | Shared temp space between containers, caching | ✅ Yes for temp use |
+| `hostPath` | Node filesystem | Node-level access (logging agents, monitoring) | ⚠️ Limited/risky |
+| `configMap` | ConfigMap lifetime | Config file injection into containers | ✅ Yes |
+| `secret` | Secret lifetime | Credential injection into containers | ✅ Yes |
+| `persistentVolumeClaim` | PV lifetime | All production persistent storage | ✅ Yes — primary choice |
+| `projected` | Combined sources | Combined token + config + secret mounts | ✅ Yes |
+| `emptyDir (Memory)` | Pod lifetime (RAM) | Sensitive temporary data, high-speed scratch | ✅ Yes for specific use |
+| `nfs` | NFS server lifetime | Shared storage across multiple pods | ✅ Yes with caution |
+| `downwardAPI` | Pod lifetime | Expose pod metadata to containers | ✅ Yes |
+
+---
+
+### 🔷 Internal Working — Volume Mount Flow
+
+```
+Step 1:  Pod spec submitted to kube-apiserver
+Step 2:  kube-scheduler assigns pod to a worker node
+Step 3:  kubelet on the worker node receives pod spec
+Step 4:  kubelet processes each volume in spec.volumes[]:
+
+         emptyDir   → kubelet creates temp directory on node
+         configMap  → kubelet fetches from kube-apiserver,
+                      writes keys as files in tmpfs mount
+         secret     → kubelet fetches from kube-apiserver,
+                      decodes base64, writes as files in tmpfs mount
+         PVC        → kubelet calls CSI NodePublishVolume RPC,
+                      CSI driver mounts block device to target path
+
+Step 5:  kubelet passes volume mount specifications to container runtime
+Step 6:  Container runtime creates container with volume bind-mounts
+Step 7:  Container starts — volumes accessible at specified mountPaths
+Step 8:  Container restarts → volumes remounted, previous data accessible
+Step 9:  Pod deleted → emptyDir cleaned up, PVC released per reclaim policy
+```
+
+---
+
+### 🔷 Architecture Flow
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                         Control Plane                            │
+│                                                                  │
+│  kube-apiserver stores Pod spec with volume definitions in etcd  │
+│  ConfigMap and Secret data stored in etcd (encrypted at rest)    │
+└─────────────────────────────────┬────────────────────────────────┘
+                                  │
+                    kubelet reads pod spec
+                                  │
+                                  ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                         Worker Node                              │
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  kubelet                                                │    │
+│  │                                                         │    │
+│  │  ┌──────────────┐  ┌─────────────┐  ┌──────────────┐  │    │
+│  │  │  emptyDir    │  │ configMap   │  │ PVC via CSI  │  │    │
+│  │  │  → /tmp/dir  │  │ → tmpfs     │  │ → block dev  │  │    │
+│  │  │  on node     │  │ → files     │  │ → mount path │  │    │
+│  │  └──────────────┘  └─────────────┘  └──────────────┘  │    │
+│  │                                                         │    │
+│  └─────────────────────────┬───────────────────────────────┘    │
+│                             │ Bind-mount into container          │
+│  ┌──────────────────────────▼──────────────────────────────┐    │
+│  │  Container                                              │    │
+│  │  /tmp/processing   → emptyDir                           │    │
+│  │  /etc/config       → configMap files                    │    │
+│  │  /data/app         → PVC-backed persistent storage      │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 🔷 YAML Example — Pod With Multiple Volume Types
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: multi-volume-production-pod
+  namespace: production
+  labels:
+    app: myapp
+    tier: backend
+spec:
+  
+  # Use a non-root service account — principle of least privilege
+  serviceAccountName: myapp-sa
+  
+  # Prevent privilege escalation at pod level
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 2000      # All volume files owned by group 2000
+  
+  containers:
+  - name: app
+    image: myapp:3.1.0
+    
+    # Resource limits — mandatory in production
+    # OOMKilled: app exceeds memory limit → kernel kills container
+    # Symptom: kubectl describe pod → Last State: OOMKilled
+    # Fix: increase memory limit OR fix memory leak in application
+    # CPU throttling: app exceeds CPU limit → kernel throttles (not killed)
+    # Symptom: high latency, slow responses despite low CPU usage
+    # Fix: increase CPU limit OR optimize CPU-intensive code paths
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "500m"
+      limits:
+        memory: "1Gi"
+        cpu: "1000m"
+    
+    volumeMounts:
+    
+    # Persistent application data — survives pod deletion
+    - name: app-persistent-data
+      mountPath: /data/app
+    
+    # Application config from ConfigMap — injected as files
+    # CrashLoopBackOff if ConfigMap 'app-config' doesn't exist
+    # or if expected key is missing from ConfigMap
+    # Debug: kubectl get configmap app-config -n production
+    - name: app-config-volume
+      mountPath: /etc/app/config
+      readOnly: true
+    
+    # Database credentials from Secret — injected as files
+    # CrashLoopBackOff if Secret 'db-credentials' doesn't exist
+    # or if application fails to read expected file paths
+    # Debug: kubectl get secret db-credentials -n production
+    - name: db-credentials-volume
+      mountPath: /etc/app/secrets
+      readOnly: true
+    
+    # Temporary processing space — shared with sidecar
+    # All data lost when pod is deleted — do not store anything permanent here
+    - name: shared-temp
+      mountPath: /tmp/processing
+    
+    # Downward API — inject pod metadata as files
+    # Useful for logging pod name/namespace in application logs
+    - name: pod-info
+      mountPath: /etc/podinfo
+      readOnly: true
+  
+  # Sidecar: ships logs to centralized logging system
+  - name: log-shipper
+    image: fluentd:v1.16
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "256Mi"
+        cpu: "200m"
+    volumeMounts:
+    # Reads app logs from shared emptyDir volume
+    - name: shared-temp
+      mountPath: /tmp/processing
+      readOnly: true
+  
+  volumes:
+  
+  # PVC-backed persistent storage — primary storage for production data
+  - name: app-persistent-data
+    persistentVolumeClaim:
+      claimName: app-data-pvc
+      # PVC must exist before pod creation
+      # Pod stays Pending if PVC doesn't exist or is not Bound
+      # Debug: kubectl get pvc app-data-pvc -n production
+  
+  # ConfigMap volume — each key becomes a separate file
+  - name: app-config-volume
+    configMap:
+      name: app-config
+      # Optional items to mount only specific keys
+      items:
+      - key: app.properties
+        path: app.properties
+      - key: logging.xml
+        path: logging.xml
+      defaultMode: 0444   # Read-only for all users
+  
+  # Secret volume — base64 decoded automatically by kubelet
+  - name: db-credentials-volume
+    secret:
+      secretName: db-credentials
+      defaultMode: 0400   # Owner read-only — critical for credential security
+      # Group readable would be 0440, world readable 0444 (never do this)
+  
+  # emptyDir — temporary shared space between containers
+  - name: shared-temp
+    emptyDir:
+      medium: ""          # "" = disk-backed
+      sizeLimit: "500Mi"  # Prevents temp data from filling node disk
+      # medium: "Memory" = RAM-backed tmpfs (faster but uses node RAM)
+      # Use Memory medium for sensitive data like tokens (no disk writes)
+  
+  # Downward API volume — exposes pod metadata as files
+  - name: pod-info
+    downwardAPI:
+      items:
+      - path: "pod-name"
+        fieldRef:
+          fieldPath: metadata.name
+      - path: "namespace"
+        fieldRef:
+          fieldPath: metadata.namespace
+      - path: "pod-ip"
+        fieldRef:
+          fieldPath: status.podIP
+```
+
+---
+
+### 🔷 emptyDir Deep Dive — Production Use Cases
+
+```
+Use Case 1: Sidecar Log Shipper Pattern
+  Main container writes logs to /var/log/app (emptyDir)
+  Log-shipper sidecar reads from /var/log/app and ships to Elasticsearch
+  Both containers share the same emptyDir volume
+  
+Use Case 2: Git-Sync Init Container Pattern
+  Init container clones Git repo into emptyDir at /repo
+  Main container reads application code from /repo
+  emptyDir shared between init and main container
+  
+Use Case 3: Temporary File Processing
+  Main container downloads large file to emptyDir at /tmp/downloads
+  Processing sidecar reads from /tmp/downloads and processes chunks
+  Processed output written to PVC-backed volume
+  Temporary download deleted when processing complete
+  
+Use Case 4: Prometheus Multi-target Data Collection
+  Multiple target scraper containers each write metrics to emptyDir
+  Aggregator container reads all metric files and exposes unified endpoint
+```
+
+---
+
+### 🔷 Real-World Production Scenario
+
+**Application:** Microservices-based e-commerce platform running on GKE
+
+**Volume strategy per service tier:**
+
+| Service | Volume Type | Justification |
+|---|---|---|
+| PostgreSQL (orders DB) | PVC → Persistent Disk CSI | Durable transactional data |
+| Redis (session cache) | PVC → Persistent Disk CSI | Session data must survive restarts |
+| Application pods | ConfigMap + Secret volumes | Config and credentials injection |
+| Log aggregator | emptyDir shared with fluentd | Temporary log buffering before shipping |
+| Prometheus | PVC → Persistent Disk CSI | Metrics must survive Prometheus restarts |
+| Build agents (CI/CD) | emptyDir medium: "" | Ephemeral build cache, deleted after build |
+
+**Security enforcement:**
+- All Secret volumes mounted with `defaultMode: 0400` — only container user can read
+- ConfigMap volumes mounted with `defaultMode: 0444` — readable but not writable
+- No `hostPath` volumes in any production namespace — enforced via OPA Gatekeeper policy
+- All PVC-backed volumes encrypted at rest via KMS
+
+---
+
+### 🔷 Common Mistakes
+
+- Using `hostPath` for persistent data in multi-node clusters — pod rescheduling causes data loss
+- Mounting entire Secret as volume when only one key is needed — exposes unnecessary credentials
+- Not setting `sizeLimit` on emptyDir — single container fills node disk causing pod evictions
+- Using `emptyDir` for data that must survive pod restarts — all data lost on pod deletion
+- Not setting `readOnly: true` on config/secret mounts — container can inadvertently modify configs
+- Using `defaultMode: 0777` on Secret volumes — all users in container can read credentials
+- Forgetting to create ConfigMap or Secret before pod — pod stuck in Init or CrashLoopBackOff
+
+---
+
+### 🔷 Debugging Volume Issues
+
+```bash
+# Check pod status and volume mount errors
+kubectl describe pod <pod-name> -n <namespace>
+# Look for: "MountVolume.SetUp failed" in Events section
+
+# Check if ConfigMap exists
+kubectl get configmap <cm-name> -n <namespace>
+
+# Check if Secret exists
+kubectl get secret <secret-name> -n <namespace>
+
+# Verify volume is mounted inside container
+kubectl exec -it <pod-name> -n <namespace> -- ls -la /etc/app/config/
+kubectl exec -it <pod-name> -n <namespace> -- cat /etc/app/config/app.properties
+
+# Check PVC binding status
+kubectl get pvc -n <namespace>
+
+# Check emptyDir usage inside pod
+kubectl exec -it <pod-name> -n <namespace> -- df -h /tmp/processing
+
+# Check events for volume-related failures
+kubectl get events -n <namespace> \
+  --field-selector reason=FailedMount \
+  --sort-by='.lastTimestamp'
+```
+
+---
+
+### 🔷 CKA Exam Tips
+
+- Know **all common volume types** and when to use each one
+- Understand that `emptyDir` is **pod-scoped** — lost when pod is deleted
+- Know that `hostPath` should be avoided — exam may test security awareness
+- Understand that `configMap` and `secret` volumes inject data as **files** (not environment variables)
+- Know how to mount a **specific key** from a ConfigMap using `items` field
+- Understand `defaultMode` for setting **file permissions** on mounted volumes
+- Be able to troubleshoot `MountVolume.SetUp failed` errors using `kubectl describe pod`
+
+---
+
+### 🔷 Production Best Practices
+
+- Use **PVC-backed volumes** for all production persistent data — never hostPath or emptyDir
+- Always set `sizeLimit` on `emptyDir` volumes to prevent disk exhaustion
+- Mount Secrets with `defaultMode: 0400` — no group or world read permissions
+- Mount ConfigMaps as read-only (`readOnly: true`) to prevent accidental modification
+- Use the `downwardAPI` volume to inject pod metadata for better application observability
+- Enforce no-hostPath policy using OPA Gatekeeper or Kyverno admission controllers
+- Always create ConfigMaps and Secrets **before** pods that depend on them in deployment manifests
+
+---
+
+### 📌 Topic Summary — Volumes in Kubernetes
+
+- Kubernetes Volumes exist at the **Pod level** and survive **container restarts** within the same pod
+- `emptyDir` provides temporary pod-scoped storage — **lost when pod is deleted**, ideal for sidecars
+- `configMap` and `secret` volumes inject Kubernetes objects as **files** into the container filesystem
+- `persistentVolumeClaim` is the **primary volume type for production** persistent storage
+- Setting appropriate `defaultMode` permissions on Secret volumes is a **critical security practice**
+- Missing ConfigMap or Secret results in **CrashLoopBackOff or Init:Error** — always create dependencies first
+- emptyDir `sizeLimit` must always be set to **prevent disk exhaustion** on worker nodes
+- **Interview phrasing:** *"Kubernetes volumes extend storage beyond the container lifecycle within a pod. For data that must outlast pods entirely, PersistentVolumeClaims bound to PersistentVolumes backed by CSI drivers are the correct solution"*
+- **Production takeaway:** Every volume type has a specific purpose — using the wrong type (emptyDir for permanent data, hostPath in multi-node clusters) is one of the most common and costly mistakes in Kubernetes deployments
+
+---
+
+## 24. Persistent Volumes (PV)
+
+### 🔷 What Are Persistent Volumes?
+
+A **PersistentVolume (PV)** is a piece of storage in the Kubernetes cluster that has been **provisioned by an administrator** or **dynamically provisioned by a StorageClass**. It is a cluster-level resource — not namespaced — representing a physical or virtual storage unit that exists independently of any individual pod or namespace.
+
+PVs abstract away the underlying storage infrastructure details from application developers. An administrator provisions storage with specific characteristics, and developers claim portions of that storage through PersistentVolumeClaims without needing to know what backend storage is being used.
+
+---
+
+### 🔷 Why Do We Need PVs?
+
+**Without PersistentVolumes:**
+- Storage configuration is duplicated in every Pod spec
+- Every developer needs to know AWS EBS volume IDs, NFS server paths, or GCE disk names
+- No central governance of available storage in the cluster
+- Changing storage backend requires updating every Pod definition
+
+**With PersistentVolumes:**
+- Administrators define and manage storage centrally
+- Developers request storage via PVCs — backend details hidden
+- Storage can be pre-provisioned or dynamically provisioned
+- Consistent access control and reclaim policies enforced cluster-wide
+- Storage lifecycle (create, bind, release, delete) managed by Kubernetes
+
+---
+
+### 🔷 PV Lifecycle States
+
+```
+Available  →  Bound  →  Released  →  Available/Deleted
+   │             │           │
+   │             │           └── After PVC deleted:
+   │             │               Retain: Released state, admin reclaims
+   │             │               Delete: PV and storage deleted
+   │             │               Recycle: Data scrubbed, back to Available
+   │             │
+   └─────────────┴── PVC created matching PV specs → Bound
+```
+
+---
+
+### 🔷 PV Access Modes
+
+| Access Mode | Short Name | Description | Storage Support |
+|---|---|---|---|
+| `ReadWriteOnce` | RWO | One node read-write | EBS, Azure Disk, GCE PD |
+| `ReadOnlyMany` | ROX | Multiple nodes read-only | NFS, CephFS, EFS |
+| `ReadWriteMany` | RWX | Multiple nodes read-write | NFS, CephFS, EFS, GlusterFS |
+| `ReadWriteOncePod` | RWOP | Single pod read-write (Kubernetes 1.22+) | CSI drivers supporting it |
+
+**Critical production note:** EBS and Azure Disk only support `ReadWriteOnce`. Applications needing multi-pod write access must use NFS, CephFS, or Amazon EFS with `ReadWriteMany`.
+
+---
+
+### 🔷 Internal Working — Static PV Provisioning Flow
+
+```
+Step 1:  Administrator provisions physical storage
+         (creates EBS volume, NFS export, GCE PD, etc.)
+Step 2:  Administrator creates PV manifest referencing the storage
+Step 3:  PV applied to cluster → kube-apiserver stores in etcd
+Step 4:  PV status: Available (not yet bound to any PVC)
+Step 5:  Developer creates PVC requesting specific capacity and access mode
+Step 6:  kube-controller-manager PersistentVolumeController finds best matching PV
+Step 7:  PVC and PV bound together → both show status: Bound
+Step 8:  Pod references PVC → volume mounted to container
+Step 9:  PVC deleted → PV transitions to Released state
+Step 10: Reclaim policy determines what happens next:
+         Retain  → PV stays Released, admin manually reclaims
+         Delete  → PV and underlying storage deleted automatically
+         Recycle → Data scrubbed, PV returns to Available
+```
+
+---
+
+### 🔷 Architecture Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Control Plane                              │
+│                                                                 │
+│  kube-apiserver: PV and PVC objects stored in etcd              │
+│                                                                 │
+│  PersistentVolumeController (part of kube-controller-manager)  │
+│       │                                                         │
+│       ├── Watches for new PVCs in Available state              │
+│       ├── Scans Available PVs for matching candidate           │
+│       │   Match criteria: capacity, accessModes, storageClass  │
+│       └── Binds PVC to best matching PV                        │
+│                                                                 │
+│  AttachDetachController (part of kube-controller-manager)      │
+│       │                                                         │
+│       └── Manages volume attachment to nodes                   │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      Worker Node                                │
+│                                                                 │
+│  kubelet receives pod spec with PVC reference                   │
+│       │                                                         │
+│       ├── Calls CSI NodeStageVolume (format + global mount)    │
+│       └── Calls CSI NodePublishVolume (bind-mount to pod path) │
+│                                                                 │
+│  Container accesses storage at mountPath                       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 🔷 YAML Example — Static PV Provisioning
+
+```yaml
+# Static PersistentVolume — manually provisioned by administrator
+# Use case: pre-existing EBS volume with data that must be migrated
+# Administrator creates PV explicitly pointing to existing storage
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: postgres-pv-prod
+  labels:
+    # Labels allow PVC to use labelSelector for specific PV binding
+    app: postgres
+    environment: production
+    tier: database
+  annotations:
+    # Document storage details for operations team
+    storage.company.com/provisioned-by: "platform-team"
+    storage.company.com/ticket: "INFRA-12345"
+spec:
+  
+  # Capacity of this PV
+  capacity:
+    storage: 100Gi
+  
+  # Access mode must match what the application needs
+  # EBS only supports ReadWriteOnce — single node at a time
+  # Trying ReadWriteMany with EBS → PV never binds to PVC
+  accessModes:
+  - ReadWriteOnce
+  
+  # Reclaim policy — what happens when PVC is deleted
+  # Retain: RECOMMENDED for production databases
+  # PV stays in Released state, data preserved, admin must manually clean up
+  # Delete: PV and EBS volume automatically deleted with PVC
+  # Never use Delete for production databases — risk of accidental data loss
+  persistentVolumeReclaimPolicy: Retain
+  
+  # StorageClass binding — empty string means no dynamic provisioning
+  # PVC must explicitly select this PV via selector or storageClassName: ""
+  storageClassName: ""
+  
+  # Volume mode: Filesystem (default) or Block
+  # Filesystem: formatted and mounted as directory (default for most apps)
+  # Block: raw block device, used by databases needing direct block access
+  volumeMode: Filesystem
+  
+  # The actual storage backend — EBS volume
+  # This is what the PV points to physically
+  awsElasticBlockStore:
+    volumeID: vol-0a1b2c3d4e5f67890
+    # Volume ID must match an existing EBS volume in same AZ and region
+    # Wrong volume ID: pod stuck in ContainerCreating
+    # Volume in wrong AZ: ControllerPublishVolume fails
+    fsType: ext4
+    # ext4: most common, good performance
+    # xfs: better for large files, used by many databases
+
+---
+# PV backed by NFS — supports ReadWriteMany for multi-pod access
+# Use case: shared content storage, media files, shared config
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: shared-content-pv
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes:
+  - ReadWriteMany    # Multiple pods across multiple nodes can write
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs-storage
+  nfs:
+    server: 10.100.1.50    # NFS server IP address
+    path: /exports/shared-content
+    # NFS server must be reachable from all worker nodes
+    # Check: mount -t nfs 10.100.1.50:/exports/shared-content /mnt/test
+    readOnly: false
+
+---
+# PV backed by local storage (high-performance, zone-pinned)
+# Use case: databases needing low-latency local SSD access
+# WARNING: pod must be scheduled on the specific node where local disk exists
+# Requires node affinity — pod cannot move to another node
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: fast-local-ssd-pv
+spec:
+  capacity:
+    storage: 200Gi
+  accessModes:
+  - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: local-ssd
+  volumeMode: Filesystem
+  local:
+    path: /mnt/local-ssd    # Path to local SSD mounted on this specific node
+  nodeAffinity:
+    # MANDATORY for local volumes — ties PV to specific node
+    # Without nodeAffinity: local PV cannot be used correctly
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - worker-node-3   # Exact node where local SSD is mounted
+```
+
+---
+
+### 🔷 PV Binding Criteria
+
+When a PVC is created, Kubernetes evaluates PVs for binding using:
+
+```
+1. storageClassName must match (or both empty for manual binding)
+2. accessModes must satisfy PVC request (PV must support requested modes)
+3. capacity must be >= PVC requested storage (smallest sufficient PV is chosen)
+4. volumeMode must match (Filesystem vs Block)
+5. selector labels must match (if PVC uses labelSelector)
+6. If multiple PVs qualify → smallest sufficient one is selected
+```
+
+**Important:** If a 500Gi PV exists and a 10Gi PVC is created with no other matching PV, the 10Gi PVC will bind to the 500Gi PV — **remaining 490Gi is wasted and unavailable to other PVCs**. Dynamic provisioning with StorageClasses prevents this by provisioning exactly the requested size.
+
+---
+
+### 🔷 Real-World Production Scenario
+
+**Application:** Elasticsearch cluster requiring high-performance local NVMe storage
+
+**Architecture:**
+- 3 Elasticsearch data nodes each requiring 2TB NVMe SSD local storage
+- Local storage provides 10x better IOPS than network-attached storage
+- Each data node pinned to a specific worker node with local NVMe
+- PersistentVolumeReclaimPolicy: Retain — data preserved if pod fails
+
+**Static PV provisioning workflow:**
+1. Platform team provisions 3 worker nodes each with 2TB NVMe SSD
+2. NVMe formatted and mounted at `/mnt/nvme` on each node
+3. Platform team creates 3 PVs — one per node — with `local` storage type and `nodeAffinity`
+4. Each Elasticsearch StatefulSet pod gets its own PVC that binds to its dedicated PV
+5. Pods cannot be rescheduled to other nodes — this is acceptable for Elasticsearch data nodes
+
+**Monitoring:**
+- Node disk usage tracked via Prometheus node_exporter
+- Elasticsearch index size vs PV capacity tracked via custom metric
+- Alert at 80% PV capacity — triggers manual capacity expansion
+
+---
+
+### 🔷 Debugging PV Issues
+
+```bash
+# List all PersistentVolumes and their status
+kubectl get pv
+# Key columns: STATUS (Available/Bound/Released/Failed), CLAIM, RECLAIM POLICY
+
+# Describe specific PV for details and events
+kubectl describe pv <pv-name>
+
+# Check why PV is stuck in Released (not reusable)
+# When PV has claimRef — it remembers previous PVC and won't rebind
+kubectl get pv <pv-name> -o yaml | grep claimRef
+# Fix: remove claimRef to make PV Available again
+kubectl patch pv <pv-name> -p \
+  '{"spec":{"claimRef": null}}'
+
+# Check PVC binding status
+kubectl get pvc -n <namespace>
+
+# Describe PVC for binding failure details
+kubectl describe pvc <pvc-name> -n <namespace>
+# Look for: "no persistent volumes available" or "matches found but access modes don't match"
+
+# Check volume attachment
+kubectl get volumeattachment
+
+# Events related to PV/PVC issues
+kubectl get events --field-selector reason=FailedMount \
+  --sort-by='.lastTimestamp'
+```
+
+---
+
+### 🔷 CKA Exam Tips
+
+- Know the **4 PV lifecycle states**: Available → Bound → Released → (Deleted/Available/Failed)
+- Know all **3 reclaim policies** and when to use each: `Retain`, `Delete`, `Recycle`
+- Know the **4 access modes**: RWO, ROX, RWX, RWOP and which storage backends support which
+- Understand **binding criteria** — capacity, accessModes, storageClassName must all match
+- Know how to **manually reclaim** a Released PV by removing the `claimRef` field
+- Understand the difference between **static provisioning** (admin creates PV) and **dynamic provisioning** (StorageClass creates PV automatically)
+- Be able to identify why a PVC is in `Pending` state — access mode mismatch, no matching PV, wrong storageClassName
+
+---
+
+### 🔷 Production Best Practices
+
+- Always set `persistentVolumeReclaimPolicy: Retain` for production database PVs
+- Document PV purpose using labels and annotations for operational visibility
+- Use **dynamic provisioning via StorageClasses** for all new deployments — manual PV creation doesn't scale
+- Reserve static PV provisioning for **pre-existing data migration** scenarios
+- Monitor PV usage and alert at 75-80% capacity before applications start failing
+- Never use `Recycle` reclaim policy — it is deprecated and unreliable
+- For local PVs, always set `nodeAffinity` — without it the pod may not be able to access the volume
+
+---
+
+### 📌 Topic Summary — Persistent Volumes (PV)
+
+- PV is a **cluster-scoped resource** representing a piece of physical or virtual storage provisioned for the cluster
+- PV **lifecycle states**: Available → Bound → Released → Deleted/Available depending on reclaim policy
+- **Reclaim policies**: `Retain` (data safe, admin reclaims), `Delete` (auto-delete), `Recycle` (deprecated)
+- **Access modes** define how many nodes can access the volume and in what mode — EBS only supports RWO
+- Static PV provisioning is for **pre-existing storage** — dynamic provisioning via StorageClass is preferred for new workloads
+- If a small PVC binds to a large PV, the **unused capacity is wasted** — dynamic provisioning solves this
+- **Interview phrasing:** *"A PersistentVolume is a cluster-scoped storage abstraction provisioned by an administrator that exists independently of pods, allowing storage to survive pod lifecycle events and be managed centrally"*
+- **Production takeaway:** Use `Retain` reclaim policy for all production stateful workloads — the small operational overhead of manual PV reclamation is vastly outweighed by the protection against accidental data loss
+
+---
+
+## 25. Persistent Volume Claims (PVC)
+
+### 🔷 What Are PVCs?
+
+A **PersistentVolumeClaim (PVC)** is a **request for storage** made by a user or application in Kubernetes. It is the mechanism through which applications claim portions of the storage pool managed by administrators via PersistentVolumes. PVCs are **namespaced resources** — they belong to a specific namespace and can only be used by pods in the same namespace.
+
+The PVC is the developer's interface to storage. The developer specifies **what they need** (how much storage, what access mode) without knowing **where it comes from** (which storage backend, which datacenter, which cloud region). This separation of concerns is the fundamental design principle of Kubernetes storage.
+
+---
+
+### 🔷 Why Do We Need PVCs?
+
+- Provides a **clean separation** between storage administration (PVs) and application consumption (PVCs)
+- Developers don't need to know storage infrastructure details — just request what they need
+- Kubernetes handles the **binding logic** — finds the right PV automatically
+- PVCs make storage **portable** — same PVC definition works across dev, staging, and production
+- PVCs serve as the **glue** between pods and PersistentVolumes
+- With StorageClasses, PVCs trigger **dynamic provisioning** automatically
+
+---
+
+### 🔷 Internal Working — PVC Lifecycle
+
+```
+Step 1:  Developer creates PVC manifest with storage requirements
+Step 2:  kube-apiserver validates and stores PVC in etcd
+Step 3:  PVC status: Pending
+Step 4:  PersistentVolumeController scans for matching PV:
+         - For static provisioning: finds best existing matching PV
+         - For dynamic provisioning: triggers StorageClass provisioner
+Step 5:  Static: PV found → PVC and PV mutually bound → status: Bound
+         Dynamic: StorageClass creates new PV → PVC bound → status: Bound
+Step 6:  Pod references PVC in spec.volumes
+Step 7:  kubelet uses bound PV information to mount storage to container
+Step 8:  Application uses storage via mountPath
+Step 9:  Pod deleted → volume unmounted, PVC still exists → data preserved
+Step 10: PVC deleted → PV transitions to Released state
+         - Retain: data preserved, admin must manually clean up
+         - Delete: PV and underlying storage automatically deleted
+```
+
+---
+
+### 🔷 Architecture Flow
+
+```
+Developer creates PVC
+        │
+        ▼
+kube-apiserver validates PVC spec
+        │
+        ▼
+PersistentVolumeController evaluates PVs
+        │
+        ├── Static: Finds matching PV in Available state
+        │          Checks: storageClassName, accessModes,
+        │          capacity, volumeMode, selector labels
+        │          Best match bound to PVC
+        │
+        └── Dynamic: No matching PV found
+                   StorageClass provisioner invoked
+                   CSI driver creates new volume
+                   New PV created and bound to PVC
+        │
+        ▼
+PVC status: Bound  ←  PV status: Bound
+        │
+        ▼
+Pod references PVC in spec.volumes[].persistentVolumeClaim
+        │
+        ▼
+kubelet mounts bound PV storage to container via CSI
+        │
+        ▼
+Container accesses storage at mountPath
+```
+
+---
+
+### 🔷 YAML Example — PVC with Dynamic Provisioning
+
+```yaml
+# PersistentVolumeClaim — developer's storage request
+# With dynamic provisioning, this automatically creates a PV
+# No manual PV creation needed when StorageClass is configured
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data-pvc
+  namespace: databases
+  labels:
+    app: postgres
+    environment: production
+  annotations:
+    # Document for operations team
+    storage.company.com/requested-by: "data-platform-team"
+    storage.company.com/purpose: "PostgreSQL primary data directory"
+spec:
+  
+  accessModes:
+  - ReadWriteOnce
+  # ReadWriteOnce: Single node can mount read-write
+  # Required for EBS — EBS cannot be attached to multiple nodes
+  # For multi-pod shared write access: use ReadWriteMany with NFS/EFS/CephFS
+  # PVC stuck in Pending if requested access mode not supported by available PVs
+  
+  storageClassName: ebs-gp3-encrypted
+  # Must exactly match an existing StorageClass name
+  # Wrong name: PVC stays Pending forever
+  # Check: kubectl get storageclass
+  # If storageClassName: "" → only binds to PVs with no StorageClass (static binding)
+  # If storageClassName omitted → uses cluster default StorageClass
+  
+  volumeMode: Filesystem
+  # Filesystem (default): mounted as directory, formatted automatically
+  # Block: raw block device, used by databases like Cassandra or Oracle
+  
+  resources:
+    requests:
+      storage: 100Gi
+      # Request exactly what you need
+      # Dynamic provisioning creates volume of exactly this size
+      # Static binding: PV must have capacity >= this value
+      # Cannot decrease storage after PVC creation
+      # Can increase if StorageClass has allowVolumeExpansion: true
+  
+  # Optional: bind to specific PV using label selector
+  # Use when you want to explicitly select a pre-existing PV
+  # selector:
+  #   matchLabels:
+  #     app: postgres
+  #     environment: production
+
+---
+# StatefulSet using PVC template — creates individual PVC per replica
+# This is the correct pattern for stateful applications like databases
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-statefulset
+  namespace: databases
+spec:
+  serviceName: postgres-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15
+        
+        # OOMKilled: PostgreSQL shared_buffers default 128MB
+        # In production: set to 25% of container memory limit
+        # If app runs out of memory → OOMKilled
+        # kubectl describe pod → check Last State: OOMKilled
+        # Fix: tune PostgreSQL memory params OR increase memory limit
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        
+        env:
+        - name: PGDATA
+          value: /data/pgdata
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: password
+              # CrashLoopBackOff if secret doesn't exist
+              # Fix: kubectl get secret postgres-secret -n databases
+        
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /data
+        
+        # Liveness probe to detect hung PostgreSQL process
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3
+  
+  # PVC template — creates one PVC per StatefulSet replica
+  # postgres-statefulset-0 gets postgres-data-postgres-statefulset-0
+  # postgres-statefulset-1 gets postgres-data-postgres-statefulset-1
+  # postgres-statefulset-2 gets postgres-data-postgres-statefulset-2
+  # Each pod gets its own isolated storage — critical for databases
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-data
+      labels:
+        app: postgres
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      storageClassName: ebs-gp3-encrypted
+      resources:
+        requests:
+          storage: 100Gi
+```
+
+---
+
+### 🔷 PVC Expansion (Resizing Storage)
+
+```bash
+# Resize PVC after initial creation (requires allowVolumeExpansion: true in StorageClass)
+
+# Step 1: Edit PVC to increase storage
+kubectl edit pvc postgres-data-pvc -n databases
+# Change: spec.resources.requests.storage from 100Gi to 200Gi
+
+# Step 2: CSI driver calls ControllerExpandVolume to expand backend volume
+# Step 3: If pod is running: NodeExpandVolume called to expand filesystem online
+# Step 4: For some drivers: pod must be restarted for filesystem expansion to complete
+
+# Check PVC expansion status
+kubectl describe pvc postgres-data-pvc -n databases
+# Look for: "Resizing" condition or successful "FilesystemResizePending" → gone
+
+# Verify new size inside container
+kubectl exec -it <pod-name> -n databases -- df -h /data
+```
+
+---
+
+### 🔷 Debugging PVC Issues
+
+```bash
+# Check PVC status — key field is STATUS
+kubectl get pvc -n <namespace>
+# Pending: no matching PV found or dynamic provisioning failed
+# Bound: successfully bound to PV
+# Lost: bound PV no longer exists
+
+# Describe PVC for detailed failure reason
+kubectl describe pvc <pvc-name> -n <namespace>
+# Common messages:
+# "no persistent volumes available for this claim" → no matching PV
+# "storageclass not found" → wrong storageClassName
+# "access mode mismatch" → PV doesn't support requested access mode
+
+# Check StorageClass exists
+kubectl get storageclass
+
+# Check PV availability
+kubectl get pv
+# Look for PV in Available state with matching storageClassName and accessModes
+
+# Check CSI provisioner logs for dynamic provisioning failures
+kubectl logs -n kube-system \
+  $(kubectl get pod -n kube-system -l app=ebs-csi-controller -o name) \
+  -c csi-provisioner
+
+# Check events
+kubectl get events -n <namespace> \
+  --field-selector involvedObject.name=<pvc-name>
+```
+
+---
+
+### 🔷 CKA Exam Tips
+
+- Know that PVCs are **namespaced** while PVs are **cluster-scoped**
+- Understand PVC **binding algorithm** — capacity, accessModes, storageClassName, selector must match
+- Know how to identify why a PVC is **Pending** — wrong storageClass, no matching PV, access mode issue
+- Understand **VolumeClaimTemplates** in StatefulSets — creates individual PVC per replica
+- Know how to **resize** a PVC (requires `allowVolumeExpansion: true` in StorageClass)
+- Be able to write a complete **PVC YAML** from memory — accessModes, storageClassName, resources
+
+---
+
+### 🔷 Production Best Practices
+
+- Always use **StorageClasses with dynamic provisioning** — manual PV creation doesn't scale
+- Use **StatefulSet VolumeClaimTemplates** for stateful applications — never share PVCs across StatefulSet replicas
+- Monitor PVC capacity usage and alert before applications fill storage — use Prometheus PV metrics
+- Set appropriate storage requests — over-provisioning wastes money, under-provisioning causes crashes
+- Use `kubectl get pvc -A` regularly in production to find Pending or Lost PVCs
+- Document PVC purpose using labels and annotations for operational clarity
+- Test PVC expansion in staging before enabling `allowVolumeExpansion` in production StorageClass
+
+---
+
+### 📌 Topic Summary — Persistent Volume Claims (PVC)
+
+- PVC is a **namespaced developer-facing request** for storage that binds to a cluster-scoped PV
+- Kubernetes **PersistentVolumeController** automatically binds PVCs to matching PVs based on capacity, accessModes, storageClass, and selectors
+- PVC status: `Pending` (waiting for PV), `Bound` (successfully bound), `Lost` (PV deleted)
+- **Dynamic provisioning** via StorageClass creates PV on-demand — eliminates manual PV management
+- **StatefulSet VolumeClaimTemplates** create individual PVCs per replica — critical for database StatefulSets
+- PVC storage can be **expanded** if StorageClass has `allowVolumeExpansion: true`
+- **Interview phrasing:** *"A PVC is a developer's declarative request for storage that abstracts away infrastructure details. Kubernetes binds it to the best matching PV, and with dynamic provisioning via StorageClasses, the entire provisioning process is automated"*
+- **Production takeaway:** Every stateful application should use its own dedicated PVC — sharing PVCs between pods or StatefulSet replicas is a common mistake that leads to data corruption
+
+---
+
+## 26. Storage Classes
+
+### 🔷 What Are Storage Classes?
+
+A **StorageClass** is a Kubernetes object that defines a **storage profile** — a named configuration that describes a type of storage available in the cluster. It acts as a template for dynamically provisioning PersistentVolumes. When a PVC references a StorageClass, Kubernetes automatically provisions the right type of storage without any manual PV creation.
+
+StorageClasses enable **dynamic provisioning** — the most important storage feature in modern production Kubernetes clusters. Instead of administrators manually creating PVs ahead of time, StorageClasses allow Kubernetes to create exactly the right storage at exactly the right time.
+
+---
+
+### 🔷 Why Do We Need Storage Classes?
+
+**Problems with static provisioning:**
+- Administrators must pre-create PVs before developers can use them
+- Easy to mismatch sizes — small PVC binds to large PV, wasting expensive storage
+- No automation — every new storage request requires manual administrator action
+- Hard to enforce storage policies (encryption, performance tier, replication) consistently
+- Time-consuming in fast-moving development environments
+
+**StorageClass solutions:**
+- Fully automated provisioning — no manual PV creation needed
+- Exact-size volumes provisioned matching PVC request
+- Storage policies (encryption, performance, replication) enforced at class level
+- Multiple tiers of storage offered (fast SSD, standard HDD, replicated, local)
+- Default StorageClass handles all PVCs that don't specify a class
+
+---
+
+### 🔷 Core Components of a StorageClass
+
+| Field | Description | Impact |
+|---|---|---|
+| `provisioner` | CSI driver name that provisions volumes | Must match installed CSI driver |
+| `volumeBindingMode` | When to provision: Immediate or WaitForFirstConsumer | Critical for zone-aware storage |
+| `reclaimPolicy` | What happens to PV when PVC deleted: Retain or Delete | Data safety critical choice |
+| `allowVolumeExpansion` | Can PVC be resized after creation | Important for growing workloads |
+| `parameters` | Storage-specific configuration (type, IOPS, encryption) | Performance and compliance |
+| `mountOptions` | Filesystem mount options | Performance tuning |
+
+---
+
+### 🔷 Internal Working — Dynamic Provisioning Flow
+
+```
+Step 1:  StorageClass created in cluster by administrator
+Step 2:  Developer creates PVC referencing StorageClass name
+Step 3:  PVC stored in etcd with status: Pending
+Step 4:  external-provisioner sidecar (part of CSI controller pod) watches for new PVCs
+Step 5:  external-provisioner sees PVC referencing its StorageClass
+Step 6:  external-provisioner calls CSI CreateVolume RPC with PVC parameters
+Step 7:  CSI driver calls underlying storage API
+         (AWS: CreateVolume → EBS API)
+         (Azure: CreateDisk → Azure Disk API)
+         (GCP: create → GCE PD API)
+Step 8:  Storage volume created with requested size and parameters
+Step 9:  CSI driver returns volume_handle to external-provisioner
+Step 10: external-provisioner creates PV object bound to the PVC
+Step 11: PVC status changes: Pending → Bound
+Step 12: Pod can now use the PVC — kubelet mounts the provisioned volume
+```
+
+---
+
+### 🔷 Architecture Flow
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│                      Kubernetes Cluster                            │
+│                                                                    │
+│  StorageClass (administrator-defined storage profile)              │
+│       provisioner: ebs.csi.aws.com                                 │
+│       parameters: type=gp3, encrypted=true                         │
+│       reclaimPolicy: Retain                                        │
+│       volumeBindingMode: WaitForFirstConsumer                      │
+│                │                                                   │
+│                │  Referenced by                                    │
+│                ▼                                                   │
+│  PVC (developer creates with storageClassName)                     │
+│       status: Pending                                              │
+│                │                                                   │
+│                │  Watched by                                       │
+│                ▼                                                   │
+│  external-provisioner (CSI controller sidecar)                     │
+│                │                                                   │
+│                │  CreateVolume RPC                                 │
+│                ▼                                                   │
+│  CSI Controller Driver                                             │
+│                │                                                   │
+│                │  Storage API call                                 │
+│                ▼                                                   │
+│  External Storage (AWS EBS, Azure Disk, GCE PD, etc.)             │
+│                │                                                   │
+│                │  Volume created → PV created → PVC Bound         │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 🔷 YAML Example — Multiple Storage Classes for Different Use Cases
+
+```yaml
+# StorageClass 1: Standard production workloads
+# Balanced performance and cost with automatic encryption
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: standard-encrypted
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+    # Default class: PVCs without storageClassName use this automatically
+    # Only ONE StorageClass should have is-default-class: "true"
+    # Multiple defaults cause PVC provisioning failures
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+# WaitForFirstConsumer: delays volume creation until pod is scheduled
+# Ensures EBS volume is in same AZ as pod — critical for EBS
+# Immediate: creates volume immediately when PVC is created
+# Use Immediate only for storage NOT tied to specific AZ (NFS, EFS)
+reclaimPolicy: Delete
+# Delete: PV and EBS volume auto-deleted when PVC deleted
+# Suitable for stateless workloads and non-critical data
+allowVolumeExpansion: true
+parameters:
+  type: gp3
+  encrypted: "true"
+  throughput: "125"
+  iops: "3000"
+
+---
+# StorageClass 2: High-performance for databases
+# Maximum IOPS for transactional workloads
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: high-performance-database
+  annotations:
+    # NOT the default class — must be explicitly requested
+    description: "High-performance io2 EBS for production databases"
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+# Retain: data preserved when PVC deleted
+# MANDATORY for production databases — prevents accidental data loss
+# Admin must manually clean up Released PVs after intentional deletion
+allowVolumeExpansion: true
+parameters:
+  type: io2
+  # io2: Highest performance EBS type
+  # Up to 64,000 IOPS per volume
+  # Use for PostgreSQL, MySQL, MongoDB primary data volumes
+  iops: "16000"
+  # 16,000 IOPS baseline — good for most production databases
+  # For extreme workloads: up to 64,000 IOPS
+  encrypted: "true"
+  kmsKeyId: "arn:aws:kms:us-east-1:123456789012:key/db-key"
+  # Dedicated KMS key for database storage — separate audit trail
+  throughput: "1000"
+  # High throughput for bulk data operations and backups
+
+---
+# StorageClass 3: Shared ReadWriteMany storage via NFS CSI
+# Use case: content management systems, shared config, logs
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: shared-nfs
+  annotations:
+    description: "NFS-backed shared storage for multi-pod read-write access"
+provisioner: nfs.csi.k8s.io
+# NFS CSI driver — supports ReadWriteMany for multi-pod access
+# Pods across multiple nodes can mount same volume simultaneously
+volumeBindingMode: Immediate
+# Immediate: NFS is not zone-specific — volume can bind immediately
+# WaitForFirstConsumer not needed for network-attached shared storage
+reclaimPolicy: Retain
+allowVolumeExpansion: false
+# NFS does not support online volume expansion
+parameters:
+  server: "10.100.1.50"
+  share: "/exports/kubernetes"
+  mountPermissions: "0755"
+mountOptions:
+- hard
+# hard: NFS mount retries indefinitely on server unavailability
+# soft: returns error after timeout — risk of data corruption under load
+- nfsvers=4.1
+# NFSv4.1: supports parallel NFS (pNFS) for better performance
+- timeo=600
+# Timeout in 0.1 seconds — 60 seconds before retry
+
+---
+# StorageClass 4: Local SSD for ultra-low latency workloads
+# Use case: Redis, Kafka, Elasticsearch index data
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-nvme-ssd
+  annotations:
+    description: "Local NVMe SSD — lowest latency, node-pinned"
+provisioner: kubernetes.io/no-provisioner
+# no-provisioner: no dynamic provisioning — admin manually creates PVs
+# Local volumes cannot be dynamically provisioned
+# Admin creates PV for each local disk on each node
+volumeBindingMode: WaitForFirstConsumer
+# WaitForFirstConsumer: MANDATORY for local storage
+# Without this: PVC might bind to PV on a different node than where pod lands
+reclaimPolicy: Delete
+allowVolumeExpansion: false
+```
+
+---
+
+### 🔷 Static vs Dynamic Provisioning Comparison
+
+| Aspect | Static Provisioning | Dynamic Provisioning |
+|---|---|---|
+| **PV Creation** | Manual by admin | Automatic by StorageClass |
+| **Timing** | Before PVC creation | On PVC creation |
+| **Size matching** | Manual — can waste space | Exact — provisions requested size |
+| **Scale** | Poor — doesn't scale | Excellent — fully automated |
+| **Use case** | Pre-existing storage migration | All new workloads |
+| **Effort** | High admin overhead | Low admin overhead |
+| **StorageClass required** | Optional | Required |
+
+---
+
+### 🔷 Default StorageClass Behavior
+
+```bash
+# Check which StorageClass is marked as default
+kubectl get storageclass
+# Look for "(default)" annotation next to a StorageClass name
+
+# PVC without storageClassName uses default StorageClass
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: auto-class-pvc
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 20Gi
+  # No storageClassName field → uses cluster default StorageClass
+
+# Set a StorageClass as default
+kubectl patch storageclass gp2 \
+  -p '{"metadata": {"annotations": \
+  {"storageclass.kubernetes.io/is-default-class": "true"}}}'
+
+# Remove default annotation from a StorageClass
+kubectl patch storageclass old-default \
+  -p '{"metadata": {"annotations": \
+  {"storageclass.kubernetes.io/is-default-class": "false"}}}'
+```
+
+---
+
+### 🔷 Real-World Production Scenario
+
+**Organization:** Financial services firm running Kubernetes on AWS EKS
+
+**Storage class strategy:**
+
+| StorageClass | Backend | Use Case | Reclaim Policy |
+|---|---|---|---|
+| `standard-encrypted` (default) | EBS gp3 | General workloads, web apps | Delete |
+| `database-io2` | EBS io2 | PostgreSQL, MySQL primaries | Retain |
+| `archive-sc1` | EBS sc1 | Cold storage, audit log archive | Retain |
+| `shared-efs` | AWS EFS | Shared file storage, content | Retain |
+| `fast-local` | Local NVMe | Kafka, Redis, Elasticsearch | Delete |
+
+**Compliance enforcement:**
+- All StorageClasses have `encrypted: "true"` — enforced by OPA admission controller
+- KMS key rotation policy applied to all keys — automated via AWS KMS
+- `database-io2` StorageClass only available in `databases` namespace — RBAC-enforced
+- Storage class usage audited monthly — unused PVCs deleted after review
+
+---
+
+### 🔷 Debugging StorageClass Issues
+
+```bash
+# List all storage classes
+kubectl get storageclass
+kubectl describe storageclass <sc-name>
+
+# Check which PVCs use a specific StorageClass
+kubectl get pvc -A \
+  -o custom-columns=\
+  'NAMESPACE:.metadata.namespace,NAME:.metadata.name,CLASS:.spec.storageClassName,STATUS:.status.phase'
+
+# Check if CSI driver is registered for provisioner
+kubectl get csidrivers | grep <provisioner-name>
+
+# Check external-provisioner logs for provisioning failures
+kubectl logs -n kube-system \
+  $(kubectl get pod -n kube-system \
+    -l app=ebs-csi-controller -o name | head -1) \
+  -c csi-provisioner --tail=50
+
+# Check for multiple default StorageClasses (causes PVC issues)
+kubectl get storageclass \
+  -o jsonpath='{range .items[?(@.metadata.annotations.storageclass\.kubernetes\.io/is-default-class=="true")]}{.metadata.name}{"\n"}{end}'
+```
+
+---
+
+### 🔷 CKA Exam Tips
+
+- Know the difference between `Immediate` and `WaitForFirstConsumer` binding modes clearly
+- Know that **only one** StorageClass should be default — multiple defaults cause PVC issues
+- Understand that `provisioner: kubernetes.io/no-provisioner` means **no dynamic provisioning**
+- Know how to make a StorageClass the **default** using annotation
+- Be able to write a complete **StorageClass YAML** from memory
+- Know that `reclaimPolicy` in StorageClass determines PV behavior — defaults to `Delete`
+- Understand `allowVolumeExpansion` — required for resizing PVCs after creation
+
+---
+
+### 🔷 Production Best Practices
+
+- Define **multiple StorageClasses** for different performance tiers — not one size fits all
+- Set `WaitForFirstConsumer` for all cloud-backed storage — prevents zone mismatches
+- Set `reclaimPolicy: Retain` for any StorageClass used by databases or critical data
+- Enable `allowVolumeExpansion: true` on all StorageClasses — growing workloads will need it
+- Use dedicated KMS keys per storage tier — better audit trail and key rotation control
+- Enforce encryption via StorageClass `parameters.encrypted: "true"` for all production classes
+- Regularly audit StorageClass usage — remove unused classes to reduce complexity
+
+---
+
+### 📌 Topic Summary — Storage Classes
+
+- StorageClass is a **storage profile** that enables automatic dynamic PV provisioning
+- `provisioner` field specifies which **CSI driver** handles volume creation
+- `volumeBindingMode: WaitForFirstConsumer` is **critical for zone-aware storage** like EBS and Azure Disk
+- `reclaimPolicy: Retain` must be set on StorageClasses used by **production databases**
+- Only **one default StorageClass** should exist in a cluster — multiple defaults cause PVC provisioning failures
+- Multiple StorageClasses enable **storage tiering** — fast SSD for databases, standard HDD for general use
+- `allowVolumeExpansion: true` enables **online storage resize** without recreating pods
+- **Interview phrasing:** *"A StorageClass defines a type of storage with specific characteristics — performance, encryption, binding behavior — and enables dynamic PV provisioning so developers can request storage without manual administrator intervention"*
+- **Production takeaway:** Good StorageClass design is the foundation of storage reliability in Kubernetes. Define classes for each performance tier, set appropriate reclaim policies, enforce encryption, and always use WaitForFirstConsumer for cloud-backed storage to avoid zone-related failures
+
+---
+
+# 🌐 PART III: Kubernetes Networking
+
+---
+
+## 27. Linux Networking — Switching, Routing & Gateways
+
+### 🔷 What Is Linux Networking in Kubernetes Context?
+
+Linux networking fundamentals — **switching**, **routing**, **gateways**, and **IP forwarding** — form the bedrock on which Kubernetes networking is built. Every Kubernetes cluster runs on Linux nodes, and all container networking (pod-to-pod, pod-to-service, external traffic) is ultimately implemented using Linux kernel networking primitives. Understanding these fundamentals is essential for troubleshooting Kubernetes network issues at the deepest level.
+
+---
+
+### 🔷 Why Do We Need to Understand It?
+
+- Kubernetes networking errors often trace back to **Linux routing table issues**, **iptables rules**, or **IP forwarding settings**
+- CNI plugins (Flannel, Calico, Weave) implement pod networking using Linux bridges, veth pairs, and routing
+- Troubleshooting node-level network failures requires comfort with `ip route`, `ip link`, and `netstat`
+- Understanding Linux IP forwarding explains **why kubeadm requires it enabled** before cluster initialization
+- Network Policy implementation relies on Linux **iptables/eBPF rules** on each node
+
+---
+
+### 🔷 Core Networking Concepts
+
+**1. Network Interface**
+
+Every Linux host has one or more network interfaces (physical or virtual). Each interface connects the host to a network segment.
+
+```bash
+# List all network interfaces and their state
+ip link
+
+# Sample output on a Kubernetes worker node
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536
+    inet 127.0.0.1/8 scope host lo
+2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500
+    inet 192.168.56.101/24 scope global eth0
+3: docker0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500
+    inet 172.17.0.1/16 scope global docker0
+4: cni0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500
+    inet 10.244.0.1/24 scope global cni0    ← Kubernetes pod network bridge
+```
+
+**2. Switching — Same Network Communication**
+
+Two hosts on the same subnet communicate directly through a switch. No router needed. The switch uses MAC addresses to forward frames.
+
+```bash
+# Add IP address to interface
+ip addr add 192.168.1.10/24 dev eth0
+
+# Bring interface up
+ip link set eth0 up
+
+# Test connectivity on same subnet
+ping 192.168.1.11
+```
+
+**3. Routing — Cross-Network Communication**
+
+To communicate between different subnets, traffic must pass through a **router**. The router has one interface in each subnet.
+
+```bash
+# View current routing table
+ip route
+# or
+route
+
+# Example routing table on a worker node
+# Destination     Gateway         Genmask         Iface
+# 10.244.0.0      0.0.0.0         255.255.255.0   cni0     ← local pod subnet
+# 10.244.1.0      192.168.56.11   255.255.255.0   eth0     ← pods on master node
+# 10.244.2.0      192.168.56.12   255.255.255.0   eth0     ← pods on worker-2
+# 0.0.0.0         192.168.56.1    0.0.0.0         eth0     ← default gateway
+
+# Add route to reach another pod subnet via specific gateway
+ip route add 10.244.2.0/24 via 192.168.56.12
+
+# Add default gateway (all traffic not matching specific routes)
+ip route add default via 192.168.56.1
+```
+
+**4. IP Forwarding — Critical for Kubernetes**
+
+By default, Linux does **not forward packets** between network interfaces for security reasons. Kubernetes nodes must have IP forwarding enabled because every node acts as a router — forwarding pod traffic between interfaces.
+
+```bash
+# Check current IP forwarding status
+cat /proc/sys/net/ipv4/ip_forward
+# 0 = disabled, 1 = enabled
+
+# Enable temporarily (lost on reboot)
+echo 1 > /proc/sys/net/ipv4/ip_forward
+
+# Enable permanently (survives reboot)
+echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
+sysctl -p
+
+# kubeadm prerequisite check includes this
+# Cluster initialization FAILS if IP forwarding is not enabled
+```
+
+---
+
+### 🔷 How This Maps to Kubernetes Networking
+
+```
+Linux Network Component → Kubernetes Usage
+──────────────────────────────────────────────────────────
+Network interfaces       → Node's eth0, pod's eth0 via veth
+Routing table            → Pod-to-pod cross-node routing
+IP forwarding            → Mandatory — nodes route pod traffic
+Linux bridge             → CNI creates bridge (cni0, cbr0) for pod connectivity
+iptables rules           → kube-proxy implements Service load balancing
+ip route                 → CNI installs routes for pod subnet reachability
+veth pairs               → Connect pod network namespace to node bridge
+```
+
+---
+
+### 🔷 Architecture Flow — Packet Path in Kubernetes
+
+```
+Pod A on Node 1 sends packet to Pod B on Node 2
+            │
+            ▼
+Pod A's eth0 (veth pair end inside pod namespace)
+            │ via veth pair
+            ▼
+Node 1's cni0 bridge (Linux bridge, pod subnet gateway)
+            │ routing table lookup: 10.244.2.0/24 via 192.168.56.12
+            ▼
+Node 1's eth0 (node's physical/VM NIC)
+            │ across physical/virtual network
+            ▼
+Node 2's eth0
+            │ routing table lookup: 10.244.2.0 local to cni0
+            ▼
+Node 2's cni0 bridge
+            │ ARP resolution → veth pair for Pod B
+            ▼
+Pod B's eth0 (veth pair end inside Pod B's network namespace)
+            │
+            ▼
+Pod B receives the packet
+```
+
+---
+
+### 🔷 YAML Example — kubeadm Node Preparation Network Settings
+
+```bash
+# Required Linux network settings before kubeadm init
+# These must be configured on ALL nodes (master and workers)
+
+# Step 1: Load required kernel modules
+cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+EOF
+
+# overlay: required by containerd for overlay filesystem
+# br_netfilter: required for bridge traffic to pass through iptables
+# Without br_netfilter: pod-to-service traffic via iptables BROKEN
+
+sudo modprobe overlay
+sudo modprobe br_netfilter
+
+# Step 2: Set required sysctl parameters
+cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward                 = 1
+EOF
+
+# bridge-nf-call-iptables: bridge traffic passes through iptables
+# Required for kube-proxy iptables rules to work with CNI bridge
+# Without this: Services don't work between pods on same node
+
+sudo sysctl --system
+
+# Verify settings applied
+sysctl net.ipv4.ip_forward
+sysctl net.bridge.bridge-nf-call-iptables
+```
+
+---
+
+### 🔷 Key Commands for Kubernetes Network Debugging
+
+```bash
+# Check all network interfaces on a node
+ip link
+ip addr
+
+# Check routing table
+ip route
+route -n
+
+# Check if specific route exists
+ip route get 10.244.2.5
+# Shows exact path a packet takes to reach that IP
+
+# Check ARP table (MAC-to-IP mappings)
+arp -n
+ip neigh
+
+# Check listening ports on node
+netstat -tlnp
+ss -tlnp
+
+# Check active connections
+netstat -anp | grep <port>
+
+# Check iptables rules (kube-proxy rules)
+iptables -L -n -t nat | grep -i kube
+iptables -L -n -t nat | grep KUBE-SVC
+
+# Trace packet path through iptables rules
+iptables -t nat -L PREROUTING -n -v
+
+# Check IPVS rules (if kube-proxy uses IPVS mode)
+ipvsadm -L -n
+```
+
+---
+
+### 🔷 Common Mistakes
+
+- Not enabling IP forwarding on nodes before kubeadm init — cluster initialization fails
+- Not loading `br_netfilter` module — pods on same node cannot communicate via Services
+- Incorrect subnet configuration — pod CIDR overlaps with node network, causing routing conflicts
+- Firewall blocking inter-node traffic on port 10250 (kubelet) or pod network ports
+- Not configuring static routes for pod subnets in on-premises environments without CNI auto-routing
+
+---
+
+### 📌 Topic Summary — Linux Networking: Switching, Routing & Gateways
+
+- Linux networking primitives — **bridges, routing tables, veth pairs, iptables** — are the foundation of all Kubernetes networking
+- **IP forwarding** must be enabled on every Kubernetes node — nodes act as packet routers for pod traffic
+- `br_netfilter` kernel module is **mandatory** for kube-proxy iptables rules to work with CNI bridges
+- Linux routing table determines **how packets travel** between pod subnets across nodes
+- `ip route`, `ip link`, `ip addr`, `iptables` are the **essential debugging tools** for Kubernetes network issues
+- **Interview phrasing:** *"Kubernetes networking is built entirely on Linux kernel primitives. Understanding routing tables, IP forwarding, veth pairs, and iptables is essential for diagnosing and resolving complex network issues in production clusters"*
+- **Production takeaway:** Before deploying a Kubernetes cluster, verify all nodes have IP forwarding enabled, br_netfilter loaded, and no network policy or firewall blocking inter-node communication on required ports
+
+---
+
+## 28. DNS Prerequisites
+
+### 🔷 What Is DNS in the Kubernetes Context?
+
+**DNS (Domain Name System)** is the system that translates human-readable hostnames into IP addresses. In Kubernetes, DNS is foundational to **service discovery** — how pods find and communicate with services without hardcoding IP addresses. Understanding DNS at the Linux system level is a prerequisite for understanding how Kubernetes CoreDNS works and how to troubleshoot DNS resolution failures inside pods.
+
+---
+
+### 🔷 Core DNS Concepts for Kubernetes
+
+**1. /etc/hosts — Local Name Resolution**
+
+The first place Linux checks for hostname resolution. Kubernetes pods have their own `/etc/hosts` injected by the kubelet containing the pod's own hostname and IP.
+
+```bash
+# View a pod's /etc/hosts (injected by kubelet)
+kubectl exec -it <pod-name> -- cat /etc/hosts
+# 127.0.0.1   localhost
+# 10.244.1.5  my
+
