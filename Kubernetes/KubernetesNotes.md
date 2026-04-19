@@ -6675,58 +6675,1147 @@ kubectl drain node01 --ignore-daemonsets --dry-run
 
 ```
 Component version constraints:
-├── kube-apiserver:        vX.Y.Z
-├── kube-controller-manager: vX.Y.Z or vX.(Y-1).Z  (1 minor version behind max)
-├── kube-scheduler:        vX.Y.Z or vX.(Y-1).Z
-├── kubelet:               vX.Y.Z to vX.(Y-2).Z     (2 minor versions behind max)
-├── kube-proxy:            same as kubelet
-└── kubectl:               vX.(Y+1).Z to vX.(Y-1).Z (1 ahead or behind)
+┌─────────────────────────────────────────────────────────────────────┐
+│  kube-apiserver            → vX.Y.Z       (anchor component)        │
+│  kube-controller-manager   → vX.Y.Z or    vX.(Y-1).Z  (max 1 minor)│
+│  kube-scheduler            → vX.Y.Z or    vX.(Y-1).Z  (max 1 minor)│
+│  kubelet                   → vX.Y.Z to    vX.(Y-2).Z  (max 2 minor)│
+│  kube-proxy                → same as kubelet                        │
+│  kubectl                   → vX.(Y+1).Z to vX.(Y-1).Z (±1 minor)   │
+└─────────────────────────────────────────────────────────────────────┘
 
-Rule: NEVER upgrade components beyond API Server version
-      API Server is the anchor version
-
-Upgrade path: ONE MINOR VERSION AT A TIME
-1.26 → 1.27 → 1.28 (not 1.26 → 1.28 directly)
+Golden Rule: NEVER run any component at a HIGHER version than API Server
+Upgrade path: ONE minor version at a time
+              1.26 → 1.27 → 1.28 → 1.29 (NEVER skip versions)
 ```
 
 ### When to Upgrade
 
 ```
 Kubernetes support policy: Latest 3 minor versions supported
-Currently: 1.28 is latest
-Supported: 1.26, 1.27, 1.28
-NOT supported: 1.25 and older
+If latest is v1.29 → Supported: v1.27, v1.28, v1.29
+                   → NOT supported: v1.26 and below
 
-If running 1.26: Upgrade before 1.29 releases (when 1.26 drops out of support)
+Trigger: Upgrade BEFORE your version drops out of support window
+         When v1.30 releases → v1.27 becomes unsupported
 ```
 
-### Complete Upgrade Walkthrough (1.28 → 1.29)
+### Upgrade Strategy Overview
 
-#### Step 1: Update Package Repository
+```
+Two main upgrade strategies for worker nodes:
+
+Strategy 1 — Rolling Node Upgrade (most common):
+  └── Upgrade workers ONE AT A TIME
+      ├── Drain node01 → upgrade → uncordon
+      ├── Drain node02 → upgrade → uncordon
+      └── Drain node03 → upgrade → uncordon
+      Cost: No extra infrastructure needed
+      Risk: Reduced capacity during each node upgrade
+
+Strategy 2 — Blue/Green Node Upgrade:
+  └── Provision NEW nodes (v1.29) → add to cluster
+      Cordon + Drain OLD nodes → workloads migrate
+      Remove old nodes from cluster
+      Cost: Double infrastructure temporarily
+      Risk: Minimal (no capacity reduction)
+```
+
+### Complete Upgrade Walkthrough (v1.28 → v1.29)
+
+#### Phase 1: Pre-Upgrade Checklist
 
 ```bash
-# Update Kubernetes apt repository to 1.29
+# 1. Verify current cluster version
+kubectl get nodes
+# NAME           STATUS   ROLES           VERSION
+# controlplane   Ready    control-plane   v1.28.0
+# node01         Ready    <none>          v1.28.0
+# node02         Ready    <none>          v1.28.0
+
+# 2. Check overall cluster health
+kubectl get pods --all-namespaces | grep -v Running | grep -v Completed
+# Should return nothing (all pods healthy)
+
+# 3. Check PodDisruptionBudgets — ensure drain won't break them
+kubectl get pdb --all-namespaces
+# NAME               MIN-AVAILABLE   MAX-UNAVAILABLE   ALLOWED-DISRUPTIONS
+# payment-svc-pdb    2               N/A               1
+
+# 4. Verify spare node capacity exists
+kubectl top nodes
+# NAME           CPU(cores)   CPU%   MEMORY(bytes)   MEMORY%
+# controlplane   312m         15%    1250Mi           32%
+# node01         650m         32%    2100Mi           54%
+# node02         480m         24%    1800Mi           46%
+
+# 5. CRITICAL: Backup etcd BEFORE starting upgrade
+ETCDCTL_API=3 etcdctl snapshot save \
+  /backup/etcd-pre-upgrade-$(date +%Y%m%d-%H%M%S).db \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+
+# Verify backup created successfully
+ETCDCTL_API=3 etcdctl snapshot status \
+  /backup/etcd-pre-upgrade-$(date +%Y%m%d)*.db \
+  --write-out=table
+# +----------+----------+------------+------------+
+# |   HASH   | REVISION | TOTAL KEYS | TOTAL SIZE |
+# +----------+----------+------------+------------+
+# | abc12345 |    15234 |       1025 |     3.2 MB |
+# +----------+----------+------------+------------+
+```
+
+#### Phase 2: Update Package Repository (All Nodes)
+
+```bash
+# ─── Run on EACH NODE (control plane AND all workers) ───
+
+# For Debian/Ubuntu systems (new pkgs.k8s.io repository — post-Sept 2023)
 echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] \
   https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" | \
   sudo tee /etc/apt/sources.list.d/kubernetes.list
 
-# Download signing key
-curl -fsSL https://pkgs.k8s.io/core/stable/v1.29/deb/Release.key | \
+# Download and install signing key
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | \
   sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 
+# Update package lists
 sudo apt-get update
 ```
 
-#### Step 2: Upgrade Control Plane (Master Node)
+#### Phase 3: Upgrade Control Plane Node
 
 ```bash
-# Check available versions
-apt-cache madison kubeadm
-# kubeadm | 1.29.3-1.1 | ...
-# kubeadm | 1.29.2-1.1 | ...
+# ─── Run on CONTROL PLANE node ───
 
-# Upgrade kubeadm FIRST
+# Step 1: Check available kubeadm versions
+apt-cache madison kubeadm
+# kubeadm | 1.29.3-1.1 | https://pkgs.k8s.io ...
+# kubeadm | 1.29.2-1.1 | https://pkgs.k8s.io ...
+# kubeadm | 1.29.1-1.1 | https://pkgs.k8s.io ...
+
+# Step 2: Upgrade kubeadm FIRST (must always precede cluster upgrade)
 sudo apt-mark unhold kubeadm
-sudo apt-get install -y
+sudo apt-get install -y kubeadm='1.29.3-1.1'
+sudo apt-mark hold kubeadm
+
+# Verify kubeadm upgrade
+kubeadm version
+# kubeadm version: &version.Info{Major:"1", Minor:"29", GitVersion:"v1.29.3"}
+
+# Step 3: Run upgrade plan — verify what changes will be made
+sudo kubeadm upgrade plan
+# [upgrade] Cluster version: v1.28.0
+# [upgrade] kubeadm version: v1.29.3
+#
+# Components that must be upgraded manually after control plane:
+# COMPONENT   CURRENT       TARGET
+# kubelet     2 x v1.28.0   v1.29.3
+#
+# Upgrade to the latest stable version:
+# COMPONENT                 CURRENT    TARGET
+# kube-apiserver            v1.28.0    v1.29.3
+# kube-controller-manager   v1.28.0    v1.29.3
+# kube-scheduler            v1.28.0    v1.29.3
+# kube-proxy                v1.28.0    v1.29.3
+# CoreDNS                   v1.10.1    v1.11.1
+# etcd                      3.5.9      3.5.12
+#
+# You can now apply the upgrade by executing the following command:
+#   kubeadm upgrade apply v1.29.3
+
+# Step 4: Apply control plane upgrade
+sudo kubeadm upgrade apply v1.29.3
+# [upgrade/config] Making sure the configuration is correct
+# [upgrade/health] Running pre-upgrade health check
+# [upgrade/version] You have chosen to change the cluster version to "v1.29.3"
+# [upgrade/versions] Cluster version: v1.28.0
+# [upgrade/versions] kubeadm version: v1.29.3
+# [upgrade/prepull] Pulling images required for setting up a Kubernetes cluster
+# ...
+# [upgrade/apply] Upgrading your Static Pod-hosted control plane to version "v1.29.3"
+# ...
+# [upgrade/successful] SUCCESS! Your cluster was upgraded to "v1.29.3". Enjoy!
+# [upgrade/kubelet] Now that your control plane is upgraded, please proceed
+#                   with upgrading your kubelets if you haven't already done so.
+
+# Step 5: Drain control plane (evict user workloads before upgrading kubelet)
+kubectl drain controlplane --ignore-daemonsets
+# node/controlplane cordoned
+# evicting pod kube-system/coredns-abc123
+# node/controlplane drained
+
+# Step 6: Upgrade kubelet and kubectl on control plane
+sudo apt-mark unhold kubelet kubectl
+sudo apt-get install -y kubelet='1.29.3-1.1' kubectl='1.29.3-1.1'
+sudo apt-mark hold kubelet kubectl
+
+# Step 7: Reload systemd and restart kubelet
+sudo systemctl daemon-reload
+sudo systemctl restart kubelet
+
+# Step 8: Uncordon control plane (restore scheduling)
+kubectl uncordon controlplane
+
+# Step 9: Verify control plane upgraded successfully
+kubectl get nodes
+# NAME           STATUS   ROLES           AGE   VERSION
+# controlplane   Ready    control-plane   2d    v1.29.3  ← UPGRADED
+# node01         Ready    <none>          2d    v1.28.0  ← still old
+# node02         Ready    <none>          2d    v1.28.0  ← still old
+```
+
+#### Phase 4: Upgrade Worker Nodes (Repeat Per Node)
+
+```bash
+# ─── CONTROL PLANE: Step 1 — Drain the worker node ───
+kubectl drain node01 --ignore-daemonsets
+
+# Output:
+# node/node01 cordoned
+# evicting pod default/webapp-abc123
+# evicting pod default/payment-service-xyz789
+# node/node01 drained
+
+# ─── SSH into worker node: node01 ───
+ssh node01
+
+# Step 2: Upgrade kubeadm on worker node
+sudo apt-mark unhold kubeadm
+sudo apt-get install -y kubeadm='1.29.3-1.1'
+sudo apt-mark hold kubeadm
+
+# Step 3: Update node configuration
+# NOTE: worker nodes use 'kubeadm upgrade node' NOT 'kubeadm upgrade apply'
+sudo kubeadm upgrade node
+# [upgrade] Reading configuration from the cluster
+# [upgrade] FYI: You can look at this config file with:
+#           'kubectl -n kube-system get cm kubeadm-config -o yaml'
+# [upgrade] Skipping phase. Not a control plane node.
+# [kubelet-start] Writing kubelet configuration to "/var/lib/kubelet/config.yaml"
+# [upgrade] The configuration for this node was successfully updated!
+# Please proceed with upgrading kubelet and kubectl on this node
+
+# Step 4: Upgrade kubelet and kubectl on worker node
+sudo apt-mark unhold kubelet kubectl
+sudo apt-get install -y kubelet='1.29.3-1.1' kubectl='1.29.3-1.1'
+sudo apt-mark hold kubelet kubectl
+
+# Step 5: Reload and restart kubelet
+sudo systemctl daemon-reload
+sudo systemctl restart kubelet
+
+# Step 6: Exit SSH session
+exit
+
+# ─── Back on CONTROL PLANE ───
+# Step 7: Uncordon node01
+kubectl uncordon node01
+# node/node01 uncordoned
+
+# Step 8: Verify node01 upgraded
+kubectl get nodes
+# NAME           STATUS   ROLES           AGE   VERSION
+# controlplane   Ready    control-plane   2d    v1.29.3
+# node01         Ready    <none>          2d    v1.29.3  ← UPGRADED
+# node02         Ready    <none>          2d    v1.28.0  ← next
+
+# ─── Repeat Phase 4 for node02 ───
+kubectl drain node02 --ignore-daemonsets
+# ... upgrade steps on node02 ...
+kubectl uncordon node02
+
+# Final verification — ALL nodes upgraded
+kubectl get nodes
+# NAME           STATUS   ROLES           AGE   VERSION
+# controlplane   Ready    control-plane   2d    v1.29.3
+# node01         Ready    <none>          2d    v1.29.3
+# node02         Ready    <none>          2d    v1.29.3
+```
+
+### What Each Upgrade Command Does
+
+```
+kubeadm upgrade apply v1.29.3  (control plane only):
+  ✓ Upgrades kube-apiserver static pod manifest
+  ✓ Upgrades kube-controller-manager static pod manifest
+  ✓ Upgrades kube-scheduler static pod manifest
+  ✓ Upgrades etcd static pod manifest
+  ✓ Upgrades kube-proxy DaemonSet
+  ✓ Upgrades CoreDNS Deployment
+  ✓ Renews certificates expiring within 1 year
+  ✗ Does NOT upgrade kubelet
+  ✗ Does NOT upgrade kubectl
+
+kubeadm upgrade node  (worker nodes only):
+  ✓ Downloads updated kubelet configuration from API server
+  ✓ Writes updated config to /var/lib/kubelet/config.yaml
+  ✗ Does NOT upgrade kubelet binary
+  ✗ Does NOT upgrade control plane components
+```
+
+### Handling Drain Failures During Upgrade
+
+```bash
+# Error 1: Pods not managed by ReplicaSet/Deployment
+kubectl drain node01 --ignore-daemonsets
+# error: cannot delete Pods not managed by ReplicaSet, Job, or StatefulSet:
+#        default/standalone-pod
+
+# Fix: Add --force flag (WARNING: standalone pods DELETED, not rescheduled)
+kubectl drain node01 --ignore-daemonsets --force
+
+# Error 2: Pods using local storage (emptyDir)
+# error: cannot delete Pods with local storage: default/data-processor-xyz
+
+# Fix: Add --delete-emptydir-data
+kubectl drain node01 --ignore-daemonsets --delete-emptydir-data
+
+# Error 3: PodDisruptionBudget blocks drain
+# error: Cannot evict pod as it would violate the pod's disruption budget
+
+# Fix option 1: Scale up the deployment first
+kubectl scale deployment payment-service --replicas=4
+# Now drain can evict 1 pod while maintaining minAvailable=2
+
+# Fix option 2: Check PDB and adjust temporarily (NOT recommended in production)
+kubectl get pdb -n production
+kubectl patch pdb payment-pdb -n production \
+  --patch '{"spec":{"minAvailable":1}}'
+# After upgrade, restore PDB:
+kubectl patch pdb payment-pdb -n production \
+  --patch '{"spec":{"minAvailable":2}}'
+```
+
+### Post-Upgrade Validation
+
+```bash
+# 1. Verify all nodes at new version
+kubectl get nodes
+# All showing v1.29.3
+
+# 2. Verify all control plane components healthy
+kubectl get pods -n kube-system
+# etcd-controlplane                   1/1  Running  0  5m
+# kube-apiserver-controlplane         1/1  Running  0  5m
+# kube-controller-manager-controlplane 1/1  Running  0  5m
+# kube-scheduler-controlplane         1/1  Running  0  5m
+
+# 3. Verify all application pods healthy
+kubectl get pods --all-namespaces | grep -v Running | grep -v Completed
+
+# 4. Run a smoke test
+kubectl run smoke-test --image=nginx --rm -it --restart=Never -- curl localhost
+
+# 5. Verify etcd cluster health
+ETCDCTL_API=3 etcdctl endpoint health \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+# https://127.0.0.1:2379 is healthy: successfully committed proposal
+```
+
+### Debugging & Troubleshooting Upgrades
+
+```bash
+# Issue 1: kubeadm upgrade apply fails
+# Check API server logs
+kubectl logs kube-apiserver-controlplane -n kube-system --previous
+journalctl -u kubelet -n 100 | grep Error
+
+# Issue 2: kubelet not starting after upgrade
+journalctl -u kubelet -n 50 --no-pager
+# Common: version mismatch in config
+sudo kubeadm upgrade node    # Re-generates kubelet config
+
+# Issue 3: Node stuck in NotReady after upgrade
+kubectl describe node node01 | grep -A 10 Conditions
+# Check: kubelet restarted? Certs valid? Network plugin running?
+
+# Issue 4: Control plane pods not coming up after upgrade
+ls /etc/kubernetes/manifests/
+cat /etc/kubernetes/manifests/kube-apiserver.yaml | grep image
+# Verify image tags updated to v1.29.3
+
+# Issue 5: etcd not starting after upgrade
+cat /etc/kubernetes/manifests/etcd.yaml
+journalctl -u kubelet | grep etcd
+# Check: data directory permissions, cert paths
+```
+
+### CKA Exam Tips
+- Upgrade order is MANDATORY: **kubeadm first → control plane → kubelet/kubectl → workers**
+- On worker nodes: `kubeadm upgrade node` (NOT `kubeadm upgrade apply`)
+- `kubeadm upgrade plan` BEFORE `kubeadm upgrade apply` — always verify first
+- `apt-mark unhold` before upgrading packages; `apt-mark hold` after
+- Kubelet must be upgraded SEPARATELY via apt-get on EVERY node
+- `systemctl daemon-reload && systemctl restart kubelet` after every kubelet upgrade
+- Drain from control plane; upgrade ON worker node; uncordon from control plane
+- **One minor version at a time** — this will be tested in CKA
+
+### Production Best Practices
+- Always **back up etcd** before starting any upgrade
+- Perform upgrades during **maintenance windows** with team on standby
+- Test in **staging/dev** first — identify application compatibility issues
+- Use **PodDisruptionBudgets** to prevent service disruption during drain
+- Monitor application error rates during and after upgrade
+- Keep a **rollback plan** (etcd restore + previous package versions)
+- Document upgrade runbook with exact commands for your environment
+- After upgrade: check **deprecation warnings** in API server logs for future planning
+
+---
+
+### 🔎 Summary — Cluster Upgrade Process
+
+- **Upgrade order:** kubeadm binary → control plane components → kubelet/kubectl → worker nodes
+- Control plane: `kubeadm upgrade apply vX.Y.Z` upgrades apiserver, controller-manager, scheduler, etcd
+- Worker nodes: `kubeadm upgrade node` updates config only; kubelet upgraded separately via apt
+- Always upgrade **one minor version at a time** — version skipping not supported
+- Drain workers BEFORE upgrading; uncordon AFTER kubelet restart
+- `kubeadm upgrade plan` = your pre-upgrade safety check — always run it first
+- **Production Takeaway:** Cluster upgrades are sequential, methodical operations. Back up etcd first, upgrade control plane completely before touching workers, upgrade workers one at a time during business off-hours. Never skip versions and always validate application health between each node upgrade.
+
+---
+
+## 46. Backup and Restore Methods
+
+### What Is It?
+**Backup and Restore** in Kubernetes protects cluster state and configurations against catastrophic failures, accidental deletions, etcd corruption, or disaster recovery scenarios. The two primary backup strategies are resource configuration export and etcd snapshots.
+
+### What Needs to Be Backed Up
+
+```
+Three categories of cluster data:
+
+1. Resource Configurations (manifests):
+   ├── Deployments, Services, ConfigMaps, Secrets
+   ├── Namespaces, RBAC, NetworkPolicies, Ingress
+   ├── PersistentVolumeClaims, StorageClasses
+   └── Recommended storage: Git repository (GitOps model)
+
+2. etcd Data Store (single source of truth):
+   ├── ALL cluster state — every object Kubernetes tracks
+   ├── Node registrations, lease objects
+   ├── ConfigMaps, Secrets (encoded/encrypted)
+   └── Location: /var/lib/etcd on control plane node(s)
+
+3. Persistent Volume Data (application data):
+   ├── Database files, uploaded files, application state
+   ├── NOT part of etcd backup
+   └── Use: Velero + cloud volume snapshots (out of CKA scope)
+```
+
+### Backup Method 1 — Resource Configuration Export
+
+```bash
+# Export ALL resources across ALL namespaces
+kubectl get all --all-namespaces -o yaml > all-resources-$(date +%Y%m%d).yaml
+
+# More complete export including additional resource types
+kubectl get \
+  deployments,replicasets,daemonsets,statefulsets,\
+  services,endpoints,ingress,\
+  configmaps,secrets,\
+  persistentvolumes,persistentvolumeclaims,\
+  serviceaccounts,roles,rolebindings,\
+  clusterroles,clusterrolebindings,\
+  namespaces,networkpolicies \
+  --all-namespaces -o yaml > full-backup-$(date +%Y%m%d).yaml
+
+# Per-namespace automated backup script
+#!/bin/bash
+BACKUP_DIR="/backup/k8s-$(date +%Y%m%d)"
+mkdir -p $BACKUP_DIR
+
+for ns in $(kubectl get namespaces -o jsonpath='{.items[*].metadata.name}'); do
+  echo "Backing up namespace: $ns"
+  kubectl get all,configmaps,secrets,pvc -n $ns -o yaml \
+    > $BACKUP_DIR/namespace-${ns}.yaml
+done
+
+echo "Backup complete: $BACKUP_DIR"
+
+# Limitations of resource export:
+# ✓ Human-readable, version-controlled friendly
+# ✓ Easy to restore individual resources
+# ✗ Does NOT capture everything (ephemeral objects, events)
+# ✗ Must manually track which resources to export
+# ✗ Does NOT capture etcd-only state
+```
+
+### Backup Method 2 — etcd Snapshot (Complete Cluster Backup)
+
+```bash
+# ─── Prerequisites ───
+# etcdctl must be installed
+apt-get install etcd-client   # Ubuntu/Debian
+# OR download from GitHub releases
+
+# Verify etcdctl works
+ETCDCTL_API=3 etcdctl version
+# etcdctl version: 3.5.9
+# API version: 3.5
+
+# ─── Identify etcd connection details ───
+# For kubeadm clusters — check etcd pod manifest
+cat /etc/kubernetes/manifests/etcd.yaml | grep -E \
+  "advertise-client|cert-file|key-file|trusted-ca"
+
+# OR check running etcd pod
+kubectl describe pod etcd-controlplane -n kube-system | grep -A 20 Command
+# --advertise-client-urls=https://192.168.1.10:2379
+# --cert-file=/etc/kubernetes/pki/etcd/server.crt
+# --key-file=/etc/kubernetes/pki/etcd/server.key
+# --trusted-ca-file=/etc/kubernetes/pki/etcd/ca.crt
+
+# ─── Create etcd snapshot ───
+ETCDCTL_API=3 etcdctl snapshot save /backup/etcd-snapshot.db \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+
+# Output:
+# {"level":"info","ts":"2024-01-15T10:30:45.123Z","caller":"snapshot/v3_snapshot.go:65",
+#  "msg":"created snapshot","path":"/backup/etcd-snapshot.db"}
+# Snapshot saved at /backup/etcd-snapshot.db
+
+# ─── Verify snapshot integrity ───
+ETCDCTL_API=3 etcdctl snapshot status /backup/etcd-snapshot.db \
+  --write-out=table
+# +----------+----------+------------+------------+
+# |   HASH   | REVISION | TOTAL KEYS | TOTAL SIZE |
+# +----------+----------+------------+------------+
+# | 3da4b3e7 |    48291 |       1247 |     4.2 MB |
+# +----------+----------+------------+------------+
+```
+
+### Restoring from etcd Snapshot
+
+```bash
+# ─── SCENARIO: Complete cluster data loss / etcd corruption ───
+# Goal: Restore cluster to state captured in snapshot
+
+# Step 1: Stop kube-apiserver (it must not run during restore)
+# For kubeadm: move manifest out of watched directory
+mv /etc/kubernetes/manifests/kube-apiserver.yaml /tmp/kube-apiserver.yaml
+# kubelet will detect the file is gone and stop the API server pod
+
+# Step 2: Stop etcd
+mv /etc/kubernetes/manifests/etcd.yaml /tmp/etcd.yaml
+# Wait for etcd to fully stop
+sleep 10
+
+# Step 3: Restore snapshot to a new data directory
+ETCDCTL_API=3 etcdctl snapshot restore /backup/etcd-snapshot.db \
+  --data-dir=/var/lib/etcd-restored \
+  --initial-cluster=controlplane=https://127.0.0.1:2380 \
+  --initial-advertise-peer-urls=https://127.0.0.1:2380 \
+  --name=controlplane
+
+# Output:
+# {"level":"info","msg":"restoring snapshot","path":"/backup/etcd-snapshot.db"}
+# {"level":"info","msg":"restored snapshot","path":"/backup/etcd-snapshot.db",
+#  "dir":"/var/lib/etcd-restored"}
+
+# Step 4: Update etcd manifest to use the new data directory
+vim /tmp/etcd.yaml
+# Find and update:
+#   - --data-dir=/var/lib/etcd          ← original
+#   + --data-dir=/var/lib/etcd-restored  ← restored directory
+#
+# Also update volumes section:
+#   volumes:
+#   - hostPath:
+#       path: /var/lib/etcd-restored    ← update this too
+#       type: DirectoryOrCreate
+#     name: etcd-data
+
+# Step 5: Return etcd manifest to watched directory
+mv /tmp/etcd.yaml /etc/kubernetes/manifests/etcd.yaml
+# kubelet detects manifest and starts etcd with restored data
+
+# Step 6: Wait for etcd to start
+sleep 15
+# Verify etcd is running
+crictl ps | grep etcd
+
+# Step 7: Return API server manifest
+mv /tmp/kube-apiserver.yaml /etc/kubernetes/manifests/kube-apiserver.yaml
+# Wait for API server to start
+sleep 30
+
+# Step 8: Verify cluster restored
+kubectl get nodes
+kubectl get pods --all-namespaces
+# All resources that existed at snapshot time should be present
+```
+
+### etcd Restore — Alternative: Replace Existing Data Directory
+
+```bash
+# Alternative approach: overwrite existing /var/lib/etcd
+# Use when snapshot was from same cluster (same member config)
+
+# Step 1: Stop API server and etcd (same as before)
+mv /etc/kubernetes/manifests/kube-apiserver.yaml /tmp/
+mv /etc/kubernetes/manifests/etcd.yaml /tmp/
+
+# Step 2: Remove corrupted etcd data
+rm -rf /var/lib/etcd
+
+# Step 3: Restore snapshot directly to original location
+ETCDCTL_API=3 etcdctl snapshot restore /backup/etcd-snapshot.db \
+  --data-dir=/var/lib/etcd
+
+# Step 4: No manifest changes needed (same --data-dir as before)
+mv /tmp/etcd.yaml /etc/kubernetes/manifests/etcd.yaml
+mv /tmp/kube-apiserver.yaml /etc/kubernetes/manifests/kube-apiserver.yaml
+```
+
+### Complete etcd Backup/Restore Reference
+
+```bash
+# ─── BACKUP ───
+
+# Basic snapshot (local etcd, no TLS)
+ETCDCTL_API=3 etcdctl snapshot save snapshot.db
+
+# Production snapshot (with TLS certificates)
+ETCDCTL_API=3 etcdctl snapshot save /backup/snapshot-$(date +%Y%m%d-%H%M).db \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+
+# Verify snapshot
+ETCDCTL_API=3 etcdctl snapshot status /backup/snapshot.db --write-out=table
+
+# ─── RESTORE ───
+
+# Basic restore (no TLS needed for restore operation)
+ETCDCTL_API=3 etcdctl snapshot restore /backup/snapshot.db \
+  --data-dir=/var/lib/etcd-new
+
+# Restore with cluster configuration
+ETCDCTL_API=3 etcdctl snapshot restore /backup/snapshot.db \
+  --name=master \
+  --initial-cluster=master=https://127.0.0.1:2380 \
+  --initial-advertise-peer-urls=https://127.0.0.1:2380 \
+  --data-dir=/var/lib/etcd-new
+```
+
+### Automated Backup Script (Production)
+
+```bash
+#!/bin/bash
+# /usr/local/bin/etcd-backup.sh
+
+BACKUP_DIR="/backup/etcd"
+RETENTION_DAYS=7
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+SNAPSHOT_FILE="${BACKUP_DIR}/etcd-snapshot-${TIMESTAMP}.db"
+
+# Create backup directory
+mkdir -p $BACKUP_DIR
+
+# Take etcd snapshot
+ETCDCTL_API=3 etcdctl snapshot save $SNAPSHOT_FILE \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+
+# Verify snapshot
+if ETCDCTL_API=3 etcdctl snapshot status $SNAPSHOT_FILE &>/dev/null; then
+  echo "SUCCESS: etcd snapshot saved to $SNAPSHOT_FILE"
+  SIZE=$(du -sh $SNAPSHOT_FILE | cut -f1)
+  echo "Snapshot size: $SIZE"
+else
+  echo "ERROR: etcd snapshot verification failed!"
+  exit 1
+fi
+
+# Cleanup old backups (keep last 7 days)
+find $BACKUP_DIR -name "etcd-snapshot-*.db" \
+  -mtime +$RETENTION_DAYS -delete
+
+echo "Cleaned backups older than $RETENTION_DAYS days"
+```
+
+```yaml
+# CronJob to run backup every 6 hours
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: etcd-backup
+  namespace: kube-system
+spec:
+  schedule: "0 */6 * * *"      # Every 6 hours
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          hostNetwork: true     # Access etcd on host network
+          containers:
+          - name: etcd-backup
+            image: bitnami/etcd:3.5
+            command: ["/bin/sh", "-c"]
+            args:
+            - |
+              ETCDCTL_API=3 etcdctl snapshot save \
+                /backup/etcd-$(date +%Y%m%d-%H%M).db \
+                --endpoints=https://127.0.0.1:2379 \
+                --cacert=/etc/etcd/certs/ca.crt \
+                --cert=/etc/etcd/certs/server.crt \
+                --key=/etc/etcd/certs/server.key
+            volumeMounts:
+            - name: etcd-certs
+              mountPath: /etc/etcd/certs
+              readOnly: true
+            - name: backup-storage
+              mountPath: /backup
+          volumes:
+          - name: etcd-certs
+            hostPath:
+              path: /etc/kubernetes/pki/etcd
+          - name: backup-storage
+            hostPath:
+              path: /backup/etcd
+          restartPolicy: OnFailure
+          nodeSelector:
+            node-role.kubernetes.io/control-plane: ""
+          tolerations:
+          - key: node-role.kubernetes.io/control-plane
+            operator: Exists
+            effect: NoSchedule
+```
+
+### Velero — Production-Grade Backup Tool
+
+```bash
+# Velero backs up both Kubernetes objects AND persistent volumes
+# Industry standard for production backup/restore and disaster recovery
+
+# Install Velero CLI
+wget https://github.com/vmware-tanzu/velero/releases/download/v1.12.0/\
+  velero-v1.12.0-linux-amd64.tar.gz
+tar xzf velero-v1.12.0-linux-amd64.tar.gz
+sudo mv velero-v1.12.0-linux-amd64/velero /usr/local/bin/
+
+# Install Velero server (using AWS S3 as backup storage example)
+velero install \
+  --provider aws \
+  --plugins velero/velero-plugin-for-aws:v1.8.0 \
+  --bucket my-k8s-backups \
+  --backup-location-config region=us-east-1 \
+  --snapshot-location-config region=us-east-1 \
+  --secret-file ./aws-credentials
+
+# Create a backup
+velero backup create full-cluster-backup \
+  --include-namespaces '*' \
+  --wait
+
+# Create namespace-specific backup
+velero backup create production-backup \
+  --include-namespaces production \
+  --wait
+
+# Schedule automated backups
+velero schedule create daily-backup \
+  --schedule="0 2 * * *" \             # 2 AM daily
+  --include-namespaces '*' \
+  --ttl 168h                            # Keep for 7 days
+
+# Restore from backup
+velero restore create --from-backup full-cluster-backup
+
+# List backups
+velero backup get
+```
+
+### Real-World Production Scenario
+
+**Scenario:** Database corruption and accidental namespace deletion
+
+```
+Incident timeline:
+10:00 - Developer accidentally runs: kubectl delete namespace production
+10:01 - All production pods GONE — payment service, user service, inventory
+10:02 - Alerts fire — monitoring detects all production services down
+10:03 - On-call engineer notified
+10:05 - Decision: restore from etcd backup (last snapshot: 10:00 pre-deletion)
+
+Recovery process:
+10:05 - Identify most recent snapshot
+        ls -lt /backup/etcd/ | head -5
+        # etcd-snapshot-20240115-095930.db  ← 30 seconds before deletion!
+
+10:07 - Stop API server (move manifest)
+        mv /etc/kubernetes/manifests/kube-apiserver.yaml /tmp/
+
+10:08 - Stop etcd
+        mv /etc/kubernetes/manifests/etcd.yaml /tmp/
+
+10:09 - Restore snapshot
+        ETCDCTL_API=3 etcdctl snapshot restore \
+          /backup/etcd/etcd-snapshot-20240115-095930.db \
+          --data-dir=/var/lib/etcd-restored
+
+10:10 - Update etcd manifest data-dir, restore manifests
+        vim /tmp/etcd.yaml  # Change data-dir
+        mv /tmp/etcd.yaml /etc/kubernetes/manifests/
+        mv /tmp/kube-apiserver.yaml /etc/kubernetes/manifests/
+
+10:12 - Cluster recovering...
+
+10:15 - Verify recovery:
+        kubectl get namespaces | grep production
+        # production  Active  95m  ← RESTORED!
+        kubectl get pods -n production
+        # All 47 pods running!
+
+Total downtime: 13 minutes
+```
+
+### Examining etcd Keys (Advanced)
+
+```bash
+# List all keys stored in etcd (prefixed with /registry/)
+ETCDCTL_API=3 etcdctl get / \
+  --prefix \
+  --keys-only \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+
+# Sample output:
+# /registry/apiregistration.k8s.io/apiservices/v1
+# /registry/clusterrolebindings/cluster-admin
+# /registry/configmaps/default/app-config
+# /registry/deployments/production/webapp
+# /registry/namespaces/production
+# /registry/pods/production/webapp-abc123
+# /registry/secrets/production/app-secret
+# /registry/services/production/webapp-service
+
+# Get specific resource value
+ETCDCTL_API=3 etcdctl get \
+  /registry/deployments/production/webapp \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+```
+
+### Debugging & Troubleshooting Backup/Restore
+
+```bash
+# Issue 1: etcdctl command not found
+apt-get install etcd-client
+# OR: use kubectl exec into etcd pod
+kubectl exec etcd-controlplane -n kube-system -- \
+  etcdctl --version
+
+# Issue 2: Snapshot save fails — permission denied
+ls -la /backup/
+# Fix: ensure backup directory writable
+sudo mkdir -p /backup && sudo chmod 777 /backup
+
+# Issue 3: Certificate errors during backup
+# error: context deadline exceeded
+# Fix: verify certificate paths
+ls /etc/kubernetes/pki/etcd/
+# ca.crt  healthcheck-client.crt  peer.crt  server.crt
+# ca.key  healthcheck-client.key  peer.key  server.key
+
+# Issue 4: Restore completes but cluster state not recovered
+# Check: did you update --data-dir in etcd manifest?
+cat /etc/kubernetes/manifests/etcd.yaml | grep data-dir
+# Must match the --data-dir used in snapshot restore command
+
+# Issue 5: API server not coming back after restore
+journalctl -u kubelet | grep apiserver
+# Check: is etcd healthy first?
+ETCDCTL_API=3 etcdctl endpoint health \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+
+# Issue 6: etcd member list shows wrong endpoints after restore
+ETCDCTL_API=3 etcdctl member list \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+```
+
+### CKA Exam Tips
+
+```
+Backup (memorize this exact command structure):
+ETCDCTL_API=3 etcdctl snapshot save <path> \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=<ca-cert> \
+  --cert=<server-cert> \
+  --key=<server-key>
+
+Restore (memorize this):
+ETCDCTL_API=3 etcdctl snapshot restore <snapshot-path> \
+  --data-dir=<new-data-dir>
+
+Post-restore: Update etcd manifest --data-dir to point to new directory
+
+CKA cert paths (kubeadm default):
+--cacert=/etc/kubernetes/pki/etcd/ca.crt
+--cert=/etc/kubernetes/pki/etcd/server.crt
+--key=/etc/kubernetes/pki/etcd/server.key
+
+Key exam scenarios:
+1. "Back up etcd to /opt/snapshot.db"
+   → Run etcdctl snapshot save command with certs
+
+2. "Restore etcd from /opt/snapshot.db"
+   → Run snapshot restore, update manifest data-dir, restart etcd
+
+3. "Find etcd certs location"
+   → kubectl describe pod etcd-controlplane -n kube-system
+   → OR: cat /etc/kubernetes/manifests/etcd.yaml | grep cert
+
+Always set: ETCDCTL_API=3 (or prefix every command with it)
+```
+
+### Production Best Practices
+- Take **automated snapshots every 30–60 minutes** (CronJob or external tool)
+- Store backups in **separate location** from cluster (S3, GCS, NFS, different datacenter)
+- **Encrypt snapshots** at rest (they contain all secrets)
+- **Test restore procedure regularly** — quarterly disaster recovery drills
+- Use **Velero** for full cluster backup including PVs and namespace scope
+- Maintain **multiple backup generations** (hourly last 24h, daily last 30d)
+- **Document recovery runbook** with exact commands for your environment
+- Keep **etcd backup retention** aligned with your RPO (Recovery Point Objective)
+
+---
+
+### 🔎 Summary — Backup and Restore Methods
+
+- **etcd snapshot** = complete cluster backup (all objects, state, config)
+- `etcdctl snapshot save` = creates snapshot; `etcdctl snapshot restore` = restores it
+- Always specify `--cacert`, `--cert`, `--key` for TLS-enabled etcd (kubeadm default)
+- Restore steps: stop API server → stop etcd → restore → update manifest data-dir → start etcd → start API server
+- `ETCDCTL_API=3` must be set for all etcdctl commands
+- `kubectl get all --all-namespaces -o yaml` = resource manifest backup (supplementary)
+- Velero = production-grade tool for full backup including persistent volumes
+- **Production Takeaway:** etcd IS your cluster. If etcd is healthy, your cluster is recoverable. Take automated etcd snapshots every 30-60 minutes, store them off-cluster, encrypt them (they contain all secrets), and test your restore procedure quarterly. Never skip pre-upgrade backups.
+
+---
+
+# Complete Table of Contents
+
+> **Quick Reference Index for all covered topics**
+
+---
+
+## Section 1 — Core Concepts & Architecture
+
+| # | Topic | Key Concepts |
+|---|---|---|
+| 1 | Course Introduction | CKA exam, learning path |
+| 2 | Core Concepts Introduction | API primitives overview |
+| 3 | Cluster Architecture | Master/worker nodes, control plane |
+| 4 | Docker vs ContainerD | CRI, containerd, crictl, nerdctl |
+| 5 | Docker Deprecation Note | containerd standalone, OCI |
+| 6 | ETCD for Beginners | Key-value store, API v2 vs v3 |
+| 7 | ETCD in Kubernetes | Cluster state, deployment methods |
+| 8 | Kube API Server | Central hub, request lifecycle |
+| 9 | Kube Controller Manager | Node controller, replication controller |
+| 10 | Kube Scheduler | Filtering, ranking, pod placement |
+| 11 | Kubelet | Node captain, pod lifecycle |
+| 12 | Kube Proxy | IP tables rules, service routing |
+| 13 | Pods | Smallest unit, single/multi-container |
+| 14 | Pods with YAML | apiVersion, kind, metadata, spec |
+| 15 | Demo — Pods with YAML | kubectl apply, describe |
+| 16 | ReplicaSets | High availability, selectors |
+| 17 | Deployments | Rolling updates, rollbacks |
+| 18 | Services | NodePort, ClusterIP, LoadBalancer |
+| 19 | Services ClusterIP | Internal pod-to-pod communication |
+| 20 | Services LoadBalancer | Cloud-native load balancing |
+| 21 | Namespaces | Resource isolation, DNS resolution |
+| 22 | Solution — Namespaces | Lab walkthrough |
+| 23 | Imperative vs Declarative | kubectl vs YAML, kubectl apply |
+| 24 | kubectl apply Command | Last-applied annotation, three-way merge |
+
+## Section 2 — Scheduling
+
+| # | Topic | Key Concepts |
+|---|---|---|
+| S1 | Scheduling Introduction | Manual, DaemonSets, affinity |
+| S2 | Manual Scheduling | nodeName, binding objects |
+| S3 | Labels and Selectors | matchLabels, annotations |
+| 25 | Taints and Tolerations | Node repulsion, NoSchedule/NoExecute |
+| 26 | Node Selectors | nodeSelector, pre-labeling |
+| 27 | Node Affinity | In/NotIn/Exists operators, required/preferred |
+| 28 | Taints/Tolerations vs Node Affinity | Combined strategy for exclusive placement |
+| 29 | DaemonSets | One pod per node, monitoring agents |
+| 30 | Static Pods | kubelet-managed, control plane bootstrap |
+| 31 | Priority Classes | Pod priority, preemption, value ranges |
+| 32 | Multiple Schedulers | Custom scheduling logic, schedulerName |
+| 33 | Scheduler Profiles | Single binary, multiple profiles, plugins |
+| 34 | Admission Controllers | Request interception, mutating/validating |
+| 35 | Validating & Mutating Webhooks | External webhooks, AdmissionReview |
+
+## Section 3 — Logging, Monitoring & Lifecycle
+
+| # | Topic | Key Concepts |
+|---|---|---|
+| 36 | Managing Application Logs | kubectl logs, multi-container, --previous |
+| 37 | Rolling Updates & Rollbacks | RollingUpdate, Recreate, kubectl rollout |
+| 38 | Commands & Args in Docker | CMD, ENTRYPOINT, override behavior |
+| 39 | Commands & Args in Kubernetes | command, args, Dockerfile mapping |
+| 40 | Secrets | Opaque, TLS, base64, envFrom, volumeMounts |
+| 41 | Encrypting Secrets at Rest | EncryptionConfiguration, AES-CBC, KMS |
+| 42 | Multi-Container Pods | Sidecar, Ambassador, Adapter, init containers |
+| 43 | Introduction to Autoscaling | HPA, VPA, Cluster Autoscaler, KEDA |
+| 44 | Horizontal Pod Autoscaler | metrics-server, autoscaling/v2, behavior |
+| 45 | In-Place Pod Resize | Feature gate, resizePolicy, limitations |
+
+## Section 4 — Cluster Maintenance
+
+| # | Topic | Key Concepts |
+|---|---|---|
+| 46 | Cluster Maintenance Introduction | OS upgrades, backup, disaster recovery |
+| 47 | OS Upgrades | drain, cordon, uncordon, eviction timeout |
+| 48 | Cluster Upgrade Introduction | Version skew, supported versions |
+| 49 | Cluster Upgrade Process (Demo) | kubeadm upgrade plan/apply/node |
+| 50 | Backup and Restore Methods | etcd snapshot, restore, Velero |
+
+---
+
+## Master Quick Reference Card
+
+### Most Critical kubectl Commands for CKA
+
+```bash
+# ═══ POD MANAGEMENT ═══
+kubectl run nginx --image=nginx                          # Create pod imperatively
+kubectl get pods -o wide                                 # List with node info
+kubectl describe pod <name>                              # Detailed pod info
+kubectl logs <pod> -c <container> --previous             # Previous container logs
+kubectl exec -it <pod> -- /bin/sh                        # Shell into pod
+kubectl delete pod <pod> --force --grace-period=0        # Force delete
+
+# ═══ DEPLOYMENTS ═══
+kubectl create deployment webapp --image=nginx --replicas=3
+kubectl set image deployment/webapp nginx=nginx:1.19
+kubectl rollout status deployment/webapp
+kubectl rollout history deployment/webapp
+kubectl rollout undo deployment/webapp
+kubectl rollout undo deployment/webapp --to-revision=2
+kubectl scale deployment webapp --replicas=5
+
+# ═══ SERVICES ═══
+kubectl expose pod nginx --port=80 --type=NodePort
+kubectl expose deployment webapp --port=80 --target-port=8080 --type=ClusterIP
+
+# ═══ SCHEDULING ═══
+kubectl taint nodes node1 app=blue:NoSchedule
+kubectl taint nodes node1 app=blue:NoSchedule-           # REMOVE taint (note the -)
+kubectl label nodes node1 size=Large
+kubectl cordon node1
+kubectl drain node1 --ignore-daemonsets --delete-emptydir-data
+kubectl uncordon node1
+
+# ═══ NAMESPACES ═══
+kubectl get pods -n kube-system
+kubectl config set-context --current --namespace=dev     # Change default namespace
+kubectl get pods --all-namespaces
+
+# ═══ SECRETS & CONFIGMAPS ═══
+kubectl create secret generic mysecret --from-literal=key=value
+kubectl create configmap myconfig --from-literal=key=value
+echo -n "value" | base64                                 # Encode for Secret
+echo -n "dmFsdWU=" | base64 --decode                    # Decode Secret value
+
+# ═══ ETCD BACKUP/RESTORE ═══
+ETCDCTL_API=3 etcdctl snapshot save /backup/snap.db \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+
+ETCDCTL_API=3 etcdctl snapshot restore /backup/snap.db \
+  --data-dir=/var/lib/etcd-restored
+
+ETCDCTL_API=3 etcdctl snapshot status /backup/snap.db --write-out=table
+
+# ═══ CLUSTER UPGRADE ═══
+apt-cache madison kubeadm                                # List available versions
+sudo kubeadm upgrade plan                                # Pre-upgrade check
+sudo kubeadm upgrade apply v1.29.3                       # Upgrade control plane
+sudo kubeadm upgrade node                                # Upgrade worker node config
+
+# ═══ AUTOSCALING ═══
+kubectl autoscale deployment webapp --cpu-percent=50 --min=2 --max=10
+kubectl get hpa
+kubectl top pods
+kubectl top nodes
+
+# ═══ DEBUGGING ═══
+kubectl get events --sort-by='.lastTimestamp'
+kubectl describe node <node>
+kubectl get pods --field-selector=status.phase=Pending
+kubectl auth can-i create pods --as=developer
+```
+
+---
+
+## Common Error Patterns & Quick Fixes
+
+```
+CrashLoopBackOff:
+  → kubectl logs <pod> --previous
+  → Check: app startup error, wrong env var, missing dependency
+  → kubectl describe pod <pod> → check Events section
+
+OOMKilled:
+  → kubectl describe pod <pod> | grep -A 3 "OOM\|Limits"
+  → Fix: increase memory limits in deployment spec
+  → kubectl top pod <pod> to see actual usage
+
+ImagePullBackOff:
+  → kubectl describe pod <pod> | grep -A 5 Events
+  → Check: image name typo, registry auth, network connectivity
+  → kubectl create secret docker-registry regcred ...
+
+Pending pods:
+  → kubectl describe pod <pod> → check Events for "Insufficient" errors
+  → kubectl get nodes → check node availability
+  → Check: taints, nodeSelector, resource requests vs available
+
+Terminating pods stuck:
+  → kubectl delete pod <pod> --force --grace-period=0
+
+Service not reachable:
+  → kubectl get endpoints <service>  ← should show pod IPs
+  → kubectl describe service <service> ← check selector matches pod labels
+  → kubectl get pods -l <label-from-service-selector>
+
+etcd not responding:
+  → Check static pod: crictl ps | grep etcd
+  → journalctl -u kubelet | grep etcd
+  → ls /var/lib/etcd → verify data directory exists and has content
+```
+
+---
+
+This completes the comprehensive Kubernetes Production Handbook covering all topics from Core Concepts, Scheduling, Logging, Lifecycle Management, and Cluster Maintenance — structured for CKA mastery, production readiness, and interview preparation.
+
 
 
