@@ -5621,23 +5621,4 @@ ipvsadm -L -n
 
 ---
 
-## 28. DNS Prerequisites
-
-### 🔷 What Is DNS in the Kubernetes Context?
-
-**DNS (Domain Name System)** is the system that translates human-readable hostnames into IP addresses. In Kubernetes, DNS is foundational to **service discovery** — how pods find and communicate with services without hardcoding IP addresses. Understanding DNS at the Linux system level is a prerequisite for understanding how Kubernetes CoreDNS works and how to troubleshoot DNS resolution failures inside pods.
-
----
-
-### 🔷 Core DNS Concepts for Kubernetes
-
-**1. /etc/hosts — Local Name Resolution**
-
-The first place Linux checks for hostname resolution. Kubernetes pods have their own `/etc/hosts` injected by the kubelet containing the pod's own hostname and IP.
-
-```bash
-# View a pod's /etc/hosts (injected by kubelet)
-kubectl exec -it <pod-name> -- cat /etc/hosts
-# 127.0.0.1   localhost
-# 10.244.1.5  my
 
