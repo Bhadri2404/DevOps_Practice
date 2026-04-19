@@ -5621,4 +5621,3346 @@ ipvsadm -L -n
 
 ---
 
+# 28. DNS Prerequisites
+
+## 🔷 What Is DNS in the Kubernetes Context?
+
+DNS (Domain Name System) is the system that translates human-readable hostnames into IP addresses. In Kubernetes, DNS is foundational to **service discovery** — how pods find and communicate with services without hardcoding IP addresses. Understanding DNS at the Linux system level is a prerequisite for understanding how Kubernetes **CoreDNS** works and how to troubleshoot DNS resolution failures inside pods.
+
+Before CoreDNS handles Kubernetes-internal resolution, the underlying Linux networking stack on each node must be correctly configured with DNS resolution mechanisms. This section explores those foundational building blocks.
+
+---
+
+## 🔷 Why Do We Need DNS?
+
+In any distributed system, services talk to each other. In a Kubernetes cluster with hundreds of pods and services, IP addresses change constantly — pods restart, scale up/down, and get rescheduled. **Hardcoding IPs is impossible and fragile.** DNS provides a stable naming layer that abstracts away IP changes.
+
+Without DNS:
+- Every pod would need environment variable injection of every other service's IP
+- Any pod restart or service recreation would break connectivity
+- Multi-namespace communication would be unmanageable
+- Blue/green deployments and canary releases would require manual IP management
+
+With DNS:
+- A pod simply calls `curl http://web-service` and DNS resolves the current IP automatically
+- Services can move, scale, and be replaced without disrupting callers
+
+---
+
+## 🔷 Core Components Involved
+
+| Component | Role |
+|---|---|
+| `/etc/hosts` | Local static hostname-to-IP mapping on each Linux host |
+| `/etc/resolv.conf` | Configures which DNS server to query, search domains |
+| `/etc/nsswitch.conf` | Defines resolution order: files first, then DNS |
+| `nameserver` entry | IP of the DNS server (e.g., `8.8.8.8` or CoreDNS ClusterIP) |
+| `search` domains | Suffixes appended when a short hostname can't be resolved |
+| `nslookup` / `dig` | DNS querying tools for debugging |
+| CoreDNS (in-cluster) | The Kubernetes DNS server that resolves service/pod names |
+
+---
+
+## 🔷 Internal Working — Step-by-Step DNS Resolution on Linux
+
+### Step 1 — Check Local `/etc/hosts` First
+When a process inside a pod or a node tries to resolve a hostname, the Linux resolver checks `/etc/hosts` first (controlled by `/etc/nsswitch.conf` order: `files dns`).
+
+```bash
+cat /etc/nsswitch.conf
+# hosts: files dns
+```
+
+If an entry exists in `/etc/hosts`, resolution stops here — no DNS query is made.
+
+```bash
+# /etc/hosts example
+192.168.1.11    db
+192.168.1.11    www.google.com   # This would intercept ALL google lookups!
+```
+
+### Step 2 — Query the Configured DNS Server
+If no match is found in `/etc/hosts`, the resolver queries the nameserver specified in `/etc/resolv.conf`:
+
+```bash
+cat /etc/resolv.conf
+nameserver  192.168.1.100       # Internal DNS server
+search      default.svc.cluster.local svc.cluster.local cluster.local
+```
+
+The `nameserver` line points to either:
+- An enterprise internal DNS server
+- Google's public DNS (`8.8.8.8`)
+- Kubernetes CoreDNS ClusterIP (inside pods: `10.96.0.10`)
+
+### Step 3 — Search Domain Expansion
+When a short hostname like `web-service` is queried, the resolver appends each `search` domain in sequence:
+
+```
+web-service → web-service.default.svc.cluster.local → resolved ✅
+```
+
+This is exactly how Kubernetes pods can call `curl http://web-service` without the full FQDN.
+
+### Step 4 — Hierarchical DNS Resolution for External Names
+For external domains (e.g., `www.google.com`), the internal DNS server forwards to:
+- A root DNS server → `.com` TLD server → Google's authoritative server
+- Result is cached locally (TTL-based)
+
+---
+
+## 🔷 Architecture Flow
+
+```
+Pod Process
+    │
+    ▼
+/etc/nsswitch.conf  ──► "files" → check /etc/hosts
+    │
+    ▼ (not found in /etc/hosts)
+/etc/resolv.conf  ──► nameserver 10.96.0.10 (CoreDNS ClusterIP)
+    │
+    ▼
+CoreDNS Pod (kube-system namespace)
+    │
+    ├──► Kubernetes internal? → Resolve from etcd-backed service registry
+    │
+    └──► External domain? → Forward to upstream DNS (/etc/resolv.conf of node)
+              │
+              ▼
+          Public Internet DNS (8.8.8.8 → Root → TLD → Authoritative)
+```
+
+---
+
+## 🔷 DNS Record Types
+
+| Record Type | Purpose | Example |
+|---|---|---|
+| **A** | Hostname → IPv4 address | `web-server → 192.168.1.10` |
+| **AAAA** | Hostname → IPv6 address | `web-server → 2001:db8::1` |
+| **CNAME** | Alias → another hostname | `food.web-server → eat.web-server` |
+| **PTR** | Reverse DNS (IP → hostname) | `10.1.2.3 → pod-name.namespace` |
+| **SRV** | Service discovery with port info | Used by some service meshes |
+
+---
+
+## 🔷 DNS Debugging Tools
+
+### `nslookup` — Queries DNS server only (ignores `/etc/hosts`)
+```bash
+nslookup www.google.com
+# Server:    8.8.8.8
+# Address:   8.8.8.8#53
+# Name:      www.google.com
+# Address:   172.217.0.132
+```
+
+> ⚠️ **Critical CKA Tip**: `nslookup` does NOT check `/etc/hosts`. Use `ping` or `getent hosts` to check local resolution. This distinction matters for troubleshooting.
+
+### `dig` — Detailed DNS query analysis
+```bash
+dig www.google.com
+# Shows: query time, server used, TTL, answer section
+```
+
+### `ping` — Tests both DNS resolution AND network reachability
+```bash
+ping db
+# PING db (192.168.1.11): 56 bytes of data...
+```
+
+---
+
+## 🔷 Real-World Production Scenario
+
+**Scenario**: A microservices e-commerce platform where the `payment-service` pod cannot reach `fraud-detection-service`.
+
+**Debugging Flow**:
+```bash
+# Step 1: Exec into the payment-service pod
+kubectl exec -it payment-service-xxx -- /bin/sh
+
+# Step 2: Check resolv.conf — is CoreDNS configured?
+cat /etc/resolv.conf
+
+# Step 3: Try full FQDN
+nslookup fraud-detection-service.fraud-ns.svc.cluster.local
+
+# Step 4: If FQDN works but short name fails → search domain misconfiguration
+# Step 5: If FQDN fails → CoreDNS issue → check CoreDNS pods
+kubectl get pods -n kube-system | grep coredns
+kubectl logs -n kube-system coredns-xxx
+```
+
+---
+
+## 🔷 Common Mistakes
+
+| Mistake | Impact |
+|---|---|
+| Not understanding `search` domains | Misdiagnose "DNS broken" when it's actually a namespace issue |
+| Using `nslookup` to test `/etc/hosts` | Will miss local overrides |
+| Forgetting that `/etc/hosts` takes precedence | Security risk if compromised |
+| Misconfiguring nameserver in custom pods | Pod can't resolve any services |
+| Not checking CoreDNS logs during DNS failures | Miss root cause entirely |
+
+---
+
+## 🔷 CKA Exam Tips
+
+- Know the order: **files → DNS** (from `/etc/nsswitch.conf`)
+- Know what `/etc/resolv.conf` does and what `search` domains mean
+- Know that `nslookup` bypasses `/etc/hosts`
+- Be able to explain why `curl web-service` works (search domain expansion)
+- Understand FQDN format: `<service>.<namespace>.svc.cluster.local`
+
+---
+
+## 🔎 Topic Summary — DNS Prerequisites
+
+- **DNS translates hostnames to IPs**, enabling stable service communication despite dynamic pod IPs
+- **Resolution order** is controlled by `/etc/nsswitch.conf`: local `/etc/hosts` first, then DNS server
+- **`/etc/resolv.conf`** configures the DNS server IP and search domain suffixes
+- **Search domains** allow short names like `web-service` to be expanded to full FQDNs automatically
+- **`nslookup`** only queries DNS — it ignores `/etc/hosts`; use `ping` for full resolution testing
+- **Inside Kubernetes pods**, `/etc/resolv.conf` points to CoreDNS's ClusterIP (`10.96.0.10`)
+- **Production takeaway**: Every DNS failure troubleshooting session starts with checking these Linux-level primitives before blaming Kubernetes
+
+---
+
+# 29. Network Namespaces
+
+## 🔷 What Are Network Namespaces?
+
+A **Linux network namespace** is a kernel-level isolation mechanism that provides a completely independent network stack for a process group. Each namespace has its own:
+- Network interfaces
+- IP addresses
+- Routing tables
+- ARP cache
+- iptables rules
+- Sockets
+
+This is the **foundational technology** that Docker and Kubernetes use to isolate container networking. When a container is created, it gets its own network namespace — it cannot see or directly access the host's network interfaces or those of other containers.
+
+---
+
+## 🔷 Why Do We Need Network Namespaces?
+
+Without network namespaces:
+- All containers on a host would share the same network stack
+- Port conflicts would occur constantly (two containers can't both listen on port 80)
+- One container could intercept or inspect another container's traffic
+- Security isolation would be impossible
+
+With network namespaces:
+- Each container believes it has its own network interface (typically `eth0`)
+- Port 80 in container A doesn't conflict with port 80 in container B
+- Network traffic is isolated by default
+- Kubernetes network policies can enforce inter-pod communication rules
+
+---
+
+## 🔷 Core Components
+
+| Component | Role |
+|---|---|
+| `ip netns` | Linux command to create/manage/inspect network namespaces |
+| `veth pair` | Virtual Ethernet cable — connects a namespace to a bridge |
+| `bridge` | Virtual switch on the host connecting multiple namespaces |
+| ARP table | Maps IP→MAC within each namespace independently |
+| Routing table | Per-namespace routes (created with `ip route`) |
+| `ip link` | Shows/modifies network interfaces |
+| `iptables / NAT` | Used to enable external connectivity from namespaces |
+
+---
+
+## 🔷 Internal Working — Step-by-Step
+
+### Step 1 — Create Network Namespaces
+```bash
+ip netns add red
+ip netns add blue
+```
+
+Each namespace is completely isolated — no interfaces, no routes.
+
+### Step 2 — Inspect Isolation
+```bash
+# Host sees its interfaces:
+ip link
+# eth0, lo
+
+# Red namespace sees NOTHING initially:
+ip netns exec red ip link
+# lo (only loopback)
+```
+
+### Step 3 — Connect Two Namespaces with a veth Pair
+```bash
+# Create virtual cable with two ends
+ip link add veth-red type veth peer name veth-blue
+
+# Attach each end to its namespace
+ip link set veth-red netns red
+ip link set veth-blue netns blue
+
+# Assign IPs
+ip -n red addr add 192.168.15.1/24 dev veth-red
+ip -n blue addr add 192.168.15.2/24 dev veth-blue
+
+# Bring interfaces up
+ip -n red link set veth-red up
+ip -n blue link set veth-blue up
+```
+
+### Step 4 — Test Connectivity
+```bash
+ip netns exec red ping 192.168.15.2
+# 64 bytes from 192.168.15.2: icmp_seq=1 ttl=64
+```
+
+### Step 5 — Scale with a Bridge (Virtual Switch)
+For more than 2 namespaces, use a bridge:
+
+```bash
+# Create bridge
+ip link add v-net-0 type bridge
+ip link set v-net-0 up
+
+# Assign IP to bridge (allows host to communicate with namespaces)
+ip addr add 192.168.15.5/24 dev v-net-0
+
+# Create veth pairs for each namespace connecting to bridge
+ip link add veth-red type veth peer name veth-red-br
+ip link set veth-red netns red
+ip link set veth-red-br master v-net-0
+
+ip link add veth-blue type veth peer name veth-blue-br
+ip link set veth-blue netns blue
+ip link set veth-blue-br master v-net-0
+```
+
+### Step 6 — Enable External Connectivity (NAT)
+```bash
+# Add default route in namespace
+ip netns exec blue ip route add default via 192.168.15.5
+
+# Enable IP forwarding on host
+echo 1 > /proc/sys/net/ipv4/ip_forward
+
+# NAT masquerade — translate namespace IPs to host's external IP
+iptables -t nat -A POSTROUTING -s 192.168.15.0/24 -j MASQUERADE
+```
+
+---
+
+## 🔷 Architecture Flow — How This Becomes Kubernetes Pod Networking
+
+```
+Kubernetes Node
+┌──────────────────────────────────────────────────────┐
+│                                                        │
+│  Pod A (netns-a)          Pod B (netns-b)              │
+│  ┌──────────────┐         ┌──────────────┐            │
+│  │ eth0: 10.x.x │         │ eth0: 10.x.y │            │
+│  └──────┬───────┘         └──────┬───────┘            │
+│         │ veth-a                 │ veth-b              │
+│         └──────────┬─────────────┘                    │
+│                    │                                    │
+│             ┌──────▼──────┐                            │
+│             │  cni0/cbr0  │ (Bridge / Virtual Switch)  │
+│             │  Node Bridge│                            │
+│             └──────┬──────┘                            │
+│                    │                                    │
+│             ┌──────▼──────┐                            │
+│             │    eth0     │ (Host Physical Interface)   │
+│             │ 192.168.1.x │                            │
+│             └──────┬──────┘                            │
+└────────────────────┼───────────────────────────────────┘
+                     │
+              Physical Network / VPC
+```
+
+Each pod gets its own **network namespace** with a **veth pair** connecting to the node's **bridge interface**. This is exactly what CNI plugins (Weave, Calico, Flannel) implement automatically.
+
+---
+
+## 🔷 How Processes Are Isolated
+
+```bash
+# Inside a container — sees only its own processes
+ps aux
+# PID 1: nginx
+
+# On the host — sees ALL processes including containers
+ps aux
+# PID 1: systemd
+# PID 3816: nginx (same nginx, different PID from host perspective)
+```
+
+This demonstrates PID namespace isolation working alongside network namespace isolation.
+
+---
+
+## 🔷 Real-World Production Scenario
+
+**Scenario**: Security team requires complete network isolation between a payment processing pod and a logging pod on the same node.
+
+**How Kubernetes achieves this**:
+1. Each pod gets its own network namespace at creation time
+2. The CNI plugin creates a veth pair connecting the pod namespace to the node bridge
+3. Network policies are enforced via iptables rules in the host namespace
+4. Even though both pods are on the same physical machine, they cannot communicate unless explicitly permitted
+
+**Verification**:
+```bash
+# Check pod's network namespace on the node
+crictl pods
+# Find the container ID, then:
+nsenter -t <PID> -n ip addr
+# Shows the pod's isolated network interfaces
+```
+
+---
+
+## 🔷 Common Mistakes
+
+| Mistake | Impact |
+|---|---|
+| Forgetting to enable IP forwarding | Namespace-to-external communication fails silently |
+| Not adding default route in namespace | Namespace can only reach its local subnet |
+| Deleting veth pair without cleanup | Orphaned bridge entries causing IP conflicts |
+| Not understanding that container restarts create new veth pairs | Stale iptables rules can block new pods |
+
+---
+
+## 🔷 CKA Exam Tips
+
+- Understand that **each pod = one network namespace** (by default; sidecar containers share it)
+- Know that `ip netns exec <ns> <cmd>` is how you inspect/operate inside a namespace
+- Understand the **veth pair → bridge → node eth0** chain
+- Know that ARP and routing tables are **per-namespace**
+- Understand why `kubectl exec pod -- ip addr` shows a different IP than the host's `ip addr`
+
+---
+
+## 🔎 Topic Summary — Network Namespaces
+
+- **Network namespaces** provide complete kernel-level network isolation for containers
+- **Each pod** in Kubernetes runs in its own network namespace with isolated interfaces, routes, and ARP tables
+- **veth pairs** act as virtual cables connecting a pod's namespace to the node's bridge network
+- **Bridge networks** (like `cni0`) act as virtual switches aggregating all pod connections on a node
+- **NAT/iptables** enables external connectivity from isolated namespaces
+- **This is the foundation of ALL Kubernetes pod networking** — CNI plugins automate what we did manually above
+- **Production takeaway**: Understanding namespaces is critical for debugging pod networking issues and understanding how CNI plugins work
+
+---
+
+# 30. Docker Networking
+
+## 🔷 What Is Docker Networking?
+
+Docker networking defines how containers communicate with each other, with the host, and with the external world. Docker implements networking using Linux network namespaces, bridge networks, veth pairs, and iptables — the same primitives we explored in the previous section. Understanding Docker networking is a direct prerequisite for understanding Kubernetes pod networking.
+
+---
+
+## 🔷 Docker Networking Modes
+
+### Mode 1: None Network
+```bash
+docker run --network none nginx
+```
+- Container has **no network interfaces** (except loopback `lo`)
+- Complete network isolation
+- Use case: batch processing jobs, security-sensitive workloads
+
+### Mode 2: Host Network
+```bash
+docker run --network host nginx
+```
+- Container **shares the host's network namespace entirely**
+- No isolation — container's port 80 IS the host's port 80
+- Use case: performance-critical applications where network overhead matters
+- **Risk**: Port conflicts between containers and host services
+
+### Mode 3: Bridge Network (Default)
+```bash
+docker run nginx
+# Automatically connects to default "bridge" network
+```
+- Docker creates a virtual bridge `docker0` (172.17.0.1/16 by default)
+- Each container gets its own network namespace
+- Connected to bridge via veth pair
+- Containers can communicate with each other via the bridge
+- External access requires **port mapping (NAT)**
+
+---
+
+## 🔷 Architecture Flow — Bridge Network
+
+```
+External User (port 8080)
+        │
+        ▼
+   Host eth0 (192.168.1.10:8080)
+        │
+        ▼ iptables DNAT rule
+   docker0 bridge (172.17.0.1)
+        │
+   ┌────┴────────────────┐
+   │                     │
+veth pair A          veth pair B
+   │                     │
+Container A          Container B
+(172.17.0.2)         (172.17.0.3)
+```
+
+---
+
+## 🔷 Port Mapping (NAT)
+
+When a container runs a web server on port 80 but needs to be accessible externally:
+
+```bash
+docker run -p 8080:80 nginx
+```
+
+Docker adds an **iptables DNAT rule**:
+```bash
+iptables -t nat -A PREROUTING -j DNAT --dport 8080 --to-destination 172.17.0.2:80
+```
+
+This translates:
+- Incoming traffic on `host:8080` → Container `172.17.0.2:80`
+
+Verify the NAT rules:
+```bash
+iptables -nvL -t nat
+# Chain DOCKER
+# DNAT tcp -- anywhere anywhere tcp dpt:8080 to:172.17.0.2:80
+```
+
+---
+
+## 🔷 How Kubernetes Extends Docker Networking
+
+Kubernetes doesn't use Docker's default bridge network directly. Instead:
+1. Kubernetes creates a **per-pod network namespace** (same as Docker containers)
+2. A **CNI plugin** (not Docker) manages the veth pairs and bridge connections
+3. The CNI plugin assigns IPs from a cluster-wide CIDR (e.g., `10.244.0.0/16`)
+4. Kubernetes uses **kube-proxy** (not Docker's iptables) for service traffic management
+
+The key difference: **Docker networking is single-host; Kubernetes networking spans the entire cluster.**
+
+---
+
+## 🔷 Real-World Scenario
+
+**Scenario**: Developer runs multiple microservices locally with Docker and notices service A can't reach service B.
+
+**Root Cause Investigation**:
+```bash
+# Check which network containers are on
+docker inspect container_a | grep NetworkMode
+docker inspect container_b | grep NetworkMode
+
+# If on different user-defined networks → they can't communicate by default
+# Solution: Connect both to same network
+docker network connect my-network container_a
+docker network connect my-network container_b
+```
+
+**Production Insight**: In Kubernetes, this problem doesn't exist — **all pods share one flat network** (enforced by CNI plugins) and can reach each other by IP unless blocked by NetworkPolicy.
+
+---
+
+## 🔷 CKA Exam Tips
+
+- Know that `docker0` is the default bridge interface created by Docker installation
+- Understand that **port mapping = iptables DNAT rules**
+- Know the difference between `kube-proxy` (Kubernetes service traffic) and `kubectl proxy` (API server access)
+- Understand that **Kubernetes pods don't use Docker's networking** — they use CNI plugins
+
+---
+
+## 🔎 Topic Summary — Docker Networking
+
+- Docker provides **three main networking modes**: none (isolation), host (shared), bridge (default with isolation)
+- **Bridge mode** uses `docker0` virtual switch + veth pairs + network namespaces
+- **Port mapping** works via iptables DNAT rules translating host ports to container ports
+- **Kubernetes does not use Docker networking** — it uses CNI plugins for cluster-wide pod networking
+- The **same Linux primitives** (veth, bridge, iptables, namespaces) power both Docker and Kubernetes networking
+- **Production takeaway**: Mastering Docker networking concepts makes Kubernetes CNI troubleshooting significantly easier
+
+---
+
+# 31. Cluster Networking
+
+## 🔷 What Is Cluster Networking?
+
+Cluster networking refers to the network configuration required for all nodes in a Kubernetes cluster to communicate correctly. This includes the physical/virtual network interfaces on each node, the IP address assignments, required open ports for Kubernetes components, and the routing configuration that allows the cluster to function.
+
+---
+
+## 🔷 Node Network Requirements
+
+Every node in a Kubernetes cluster must have:
+- At least **one network interface** configured with an IP address
+- A **unique hostname** (cannot have two nodes with the same name)
+- A **unique MAC address** (critical when cloning VMs — clone generates a new MAC but may reuse the same hostname)
+
+---
+
+## 🔷 Required Ports — Master Node (Control Plane)
+
+| Port | Component | Description |
+|---|---|---|
+| **6443** | kube-apiserver | All cluster communication goes through here |
+| **10250** | kubelet | API for node health monitoring |
+| **10259** | kube-scheduler | Internal scheduler communication |
+| **10257** | kube-controller-manager | Controller manager operations |
+| **2379** | etcd client | API server reads/writes to etcd |
+| **2380** | etcd peer | etcd cluster member-to-member communication (HA) |
+
+### Required Ports — Worker Nodes
+
+| Port Range | Component | Description |
+|---|---|---|
+| **10250** | kubelet | Same as master — node management |
+| **30000–32767** | NodePort Services | External traffic to exposed services |
+
+---
+
+## 🔷 Architecture Flow — Network Communication Paths
+
+```
+External Client
+      │
+      ▼ (port 30000–32767)
+Worker Node eth0
+      │
+      ▼ kube-proxy / iptables
+NodePort Service
+      │
+      ▼
+Pod Network (CNI: 10.244.0.0/16)
+      │
+      ▼
+Individual Pod
+
+Admin / CI-CD System
+      │
+      ▼ (port 6443 - TLS)
+kube-apiserver (Master Node)
+      │
+      ├──► etcd (port 2379) — state storage
+      │
+      ├──► kubelet (port 10250) — node management
+      │
+      └──► kube-scheduler (port 10259) — pod placement
+           kube-controller-manager (port 10257) — reconciliation
+```
+
+---
+
+## 🔷 Key Network Verification Commands
+
+```bash
+# List all network interfaces
+ip link
+
+# Show IP addresses assigned
+ip addr
+
+# Assign IP (temporary)
+ip addr add 192.168.1.10/24 dev eth0
+
+# View routing table
+route
+# or
+ip route
+
+# Add a route
+ip route add 192.168.1.0/24 via 192.168.2.1
+
+# Check if IP forwarding is enabled (required for routing between pods)
+cat /proc/sys/net/ipv4/ip_forward
+# Should return: 1
+
+# Check ARP table
+arp
+
+# Check listening ports and active connections
+netstat -plnt
+# -p: show process name
+# -l: show only LISTENING ports
+# -n: show numeric IPs (don't resolve)
+# -t: TCP only
+
+# Useful for verifying kube-apiserver, etcd, kubelet are listening
+netstat -plnt | grep 6443
+```
+
+---
+
+## 🔷 Real-World Production Scenario
+
+**Scenario**: New worker node added to cluster but `kubectl get nodes` shows it as `NotReady`.
+
+**Systematic Network Check**:
+```bash
+# On the new worker node:
+# 1. Check interface is up and has IP
+ip addr show eth0
+
+# 2. Can it reach the master's API server port?
+curl -k https://<master-ip>:6443
+
+# 3. Is kubelet running?
+systemctl status kubelet
+
+# 4. Check if required ports are open in firewall
+netstat -plnt | grep 10250
+
+# 5. Check for hostname conflicts
+hostname
+# On master: kubectl get nodes
+
+# 6. Check kubelet logs for API server connectivity issues
+journalctl -u kubelet -f
+```
+
+---
+
+## 🔷 Common Mistakes
+
+| Mistake | Impact |
+|---|---|
+| Duplicate hostnames when cloning VMs | Node registration conflicts |
+| Firewall blocking port 6443 | kubectl commands fail from all clients |
+| Firewall blocking port 10250 | kube-apiserver can't get node metrics |
+| Not enabling IP forwarding | Pod-to-pod routing across nodes fails |
+| Using overlapping CIDRs for pods and services | Routing chaos, silent packet drops |
+
+---
+
+## 🔷 CKA Exam Tips
+
+- **Memorize the port table** — exam questions directly test this
+- Know that `netstat -plnt` shows listening ports with process names
+- Know that `ip route` / `route` shows the routing table
+- Understand that port **6443** = kube-apiserver (HTTPS)
+- Understand that port **2379** = etcd client, **2380** = etcd peer (HA clusters)
+- Know that **NodePort range** is 30000–32767
+
+---
+
+## 🔎 Topic Summary — Cluster Networking
+
+- Every node needs **unique IP, hostname, and MAC** — VM cloning is a common source of conflicts
+- **kube-apiserver on port 6443** is the central communication hub for the entire cluster
+- **etcd uses ports 2379 (client) and 2380 (peer)** — port 2380 only matters in multi-master HA setups
+- **Worker nodes need port 10250** (kubelet) open for the control plane to manage them
+- **NodePort range 30000–32767** is where services are exposed externally on worker nodes
+- Key diagnostic commands: `ip addr`, `ip route`, `netstat -plnt`, `arp`, `ip link`
+- **Production takeaway**: Always verify network requirements and firewall rules before adding nodes to a cluster
+
+---
+
+# 32. Pod Networking
+
+## ���� What Is Pod Networking?
+
+Pod networking is the system that enables every pod in a Kubernetes cluster to:
+1. Have a **unique IP address** (no two pods share an IP, even across nodes)
+2. **Communicate with every other pod** on any node without NAT
+3. **Communicate with services** using stable IP/DNS names
+
+This is the **Kubernetes networking model** — sometimes called the "flat network" model — and it is the most critical networking concept for the CKA exam.
+
+---
+
+## 🔷 Kubernetes Networking Model Requirements
+
+Kubernetes **mandates** (does not implement itself) the following:
+1. Every pod gets its own IP address
+2. All pods can reach all other pods using their IP addresses (no NAT between pods on different nodes)
+3. Agents on a node (kubelet, system daemons) can communicate with all pods on that node
+
+**Kubernetes does NOT implement pod networking itself.** It delegates this to **CNI plugins**.
+
+---
+
+## 🔷 How Pod Networking Works — Step by Step
+
+### Phase 1: Single Node Pod Communication
+
+When two pods are on the **same node**:
+
+```
+Pod A (10.244.1.2)          Pod B (10.244.1.3)
+     │                           │
+  veth-a                      veth-b
+     └──────────────────────────┘
+              cni0 bridge
+              (10.244.1.1)
+                   │
+              Node eth0
+```
+
+1. Pod A sends packet to `10.244.1.3`
+2. Packet goes through veth-a to cni0 bridge
+3. Bridge performs ARP lookup for `10.244.1.3`
+4. Packet delivered to veth-b → Pod B
+
+### Phase 2: Cross-Node Pod Communication
+
+When pods are on **different nodes**:
+
+```
+Node 1                              Node 2
+─────────────────                   ─────────────────
+Pod A (10.244.1.2)                  Pod C (10.244.2.2)
+     │                                   │
+  cni0 (10.244.1.1)               cni0 (10.244.2.1)
+     │                                   │
+  Node eth0                         Node eth0
+  (192.168.1.11)                    (192.168.1.12)
+         │                                │
+         └──────── Physical Network ──────┘
+```
+
+For Pod A to reach Pod C:
+1. Pod A sends packet to `10.244.2.2`
+2. Node 1's routing table: "For `10.244.2.0/24`, route via `192.168.1.12`"
+3. Packet sent from Node 1 `eth0` to Node 2 `eth0` (via physical/VPC network)
+4. Node 2 routing: "For `10.244.2.0/24`, send to cni0"
+5. cni0 bridge on Node 2 delivers to Pod C
+
+**This routing table setup is exactly what CNI plugins automate.**
+
+---
+
+## 🔷 Manual CNI Script (Understanding What CNI Does)
+
+The CNI plugin executes a script with parameters at pod creation:
+
+```bash
+# CNI "add" command — called when a pod is created
+./net-script.sh add <container-id> <namespace>
+
+# Inside the script:
+# 1. Create veth pair
+ip link add veth-in-pod type veth peer name veth-on-host
+
+# 2. Move one end into the pod's namespace
+ip link set veth-in-pod netns <pod-namespace>
+
+# 3. Connect the other end to the bridge
+ip link set veth-on-host master cni0
+
+# 4. Assign IP to pod interface
+ip -n <pod-namespace> addr add 10.244.1.5/24 dev veth-in-pod
+
+# 5. Add default route in pod
+ip -n <pod-namespace> route add default via 10.244.1.1
+
+# 6. Bring up interfaces
+ip -n <pod-namespace> link set veth-in-pod up
+ip link set veth-on-host up
+```
+
+---
+
+## 🔷 Architecture Flow — Full Pod Networking Stack
+
+```
+kubectl create pod nginx
+      │
+      ▼
+kube-apiserver stores in etcd
+      │
+      ▼
+kube-scheduler assigns pod to Node 2
+      │
+      ▼
+kubelet on Node 2 receives pod spec
+      │
+      ▼
+kubelet calls container runtime (containerd)
+      │
+      ▼
+Container runtime creates container
+      │
+      ▼
+kubelet calls CNI plugin with "add" command
+      │
+      ▼
+CNI plugin:
+  1. Creates network namespace for pod
+  2. Creates veth pair
+  3. Assigns IP from IPAM (IP Address Management)
+  4. Connects to bridge (cni0)
+  5. Sets up routes
+      │
+      ▼
+Pod has IP 10.244.2.5, can communicate cluster-wide
+```
+
+---
+
+## 🔷 YAML — Understanding CNI Bridge Config
+
+```yaml
+# /etc/cni/net.d/10-bridge.conf
+# This file tells the container runtime which CNI plugin to use
+{
+  "cniVersion": "0.2.0",
+  "name": "mynet",
+  "type": "bridge",           # Use the bridge CNI plugin
+  "bridge": "cni0",           # Name of the Linux bridge to use
+  "isGateway": true,          # Bridge gets an IP (acts as default gateway for pods)
+  "ipMasq": true,             # Enable NAT for pod-to-external traffic
+  "ipam": {
+    "type": "host-local",     # IP management: allocate from local file
+    "subnet": "10.244.0.0/16",
+    "routes": [
+      { "dst": "0.0.0.0/0" } # Default route: all traffic goes to bridge
+    ]
+  }
+}
+```
+
+---
+
+## 🔷 Real-World Production Scenario
+
+**Application**: A 3-tier application (frontend, backend API, database) spread across 3 nodes.
+
+**Infrastructure**:
+- Node 1: Frontend pods (10.244.1.x)
+- Node 2: Backend API pods (10.244.2.x)
+- Node 3: Database pods (10.244.3.x)
+
+**Communication Flow**:
+```
+Browser → NodePort (Node1:30080) → Frontend Pod
+                                       │
+                           HTTP to backend-service (ClusterIP)
+                                       │
+                                       ▼ kube-proxy routes
+                               Backend API Pod (Node 2)
+                                       │
+                           TCP to database-service (ClusterIP)
+                                       │
+                                       ▼ kube-proxy routes
+                                Database Pod (Node 3)
+```
+
+**Troubleshooting cross-node connectivity**:
+```bash
+# Verify pod IPs
+kubectl get pods -o wide
+
+# Test direct pod-to-pod connectivity (bypass services)
+kubectl exec -it frontend-pod -- curl http://10.244.2.5:8080
+
+# If direct pod IP works but service doesn't → kube-proxy issue
+# If direct pod IP fails → CNI/routing issue
+
+# Check node routes
+ip route show | grep 10.244
+```
+
+---
+
+## 🔷 Common Mistakes
+
+| Mistake | Impact |
+|---|---|
+| Overlapping pod CIDR with service CIDR | Routing ambiguity, packet drops |
+| Overlapping pod CIDR with host network | ARP conflicts |
+| CNI plugin not installed | Pods stuck in `ContainerCreating` forever |
+| Wrong CNI config file permissions | CNI plugin not invoked |
+| Pod CIDR too small for cluster size | IP exhaustion as cluster grows |
+
+---
+
+## 🔷 CKA Exam Tips
+
+- Know the Kubernetes networking model: **every pod gets unique IP, no NAT between pods**
+- Understand CNI plugin role: **kubelet calls CNI, CNI sets up networking**
+- Know CNI binary location: `/opt/cni/bin/`
+- Know CNI config location: `/etc/cni/net.d/`
+- Understand that **kubelet parameter `--network-plugin=cni`** enables CNI
+- Be able to identify why pods are stuck in `ContainerCreating` (often CNI not configured)
+
+---
+
+## 🔎 Topic Summary — Pod Networking
+
+- **Every pod gets a unique IP** — this is a hard requirement of the Kubernetes networking model
+- **Pods communicate without NAT** — direct IP-to-IP across the entire cluster
+- **CNI plugins** (Calico, Flannel, Weave) automate the veth/bridge/route setup that we explored manually
+- **Pod CIDR** (e.g., `10.244.0.0/16`) must not overlap with node IPs or service CIDR
+- **CNI binaries** live in `/opt/cni/bin/`, **CNI config** in `/etc/cni/net.d/`
+- **Troubleshooting**: `ContainerCreating` forever = CNI not configured; cross-node failure = routing issue
+- **Production takeaway**: Choose your CNI plugin carefully based on scale, network policy needs, and cloud provider compatibility
+
+---
+
+# 33. CNI in Kubernetes
+
+## 🔷 What Is CNI?
+
+The **Container Network Interface (CNI)** is a specification and a set of libraries that defines how container runtimes (like containerd or CRI-O) should configure networking for containers. It standardizes the interface between container orchestrators and networking solutions, allowing any CNI-compliant plugin to work with any CNI-compliant orchestrator.
+
+---
+
+## 🔷 Why CNI Exists
+
+Before CNI, every container runtime had its own networking implementation baked in. Docker had its own network model, rkt had another, and Kubernetes initially used Docker's networking. As multiple container runtimes and networking solutions emerged, maintaining compatibility was impossible.
+
+CNI solves this by defining:
+1. A standard configuration file format
+2. Standard command-line arguments (ADD, DEL, CHECK)
+3. Standard return values
+
+Now a networking vendor (like Calico) only needs to write **one CNI plugin** that works with **all CNI-compliant runtimes**.
+
+---
+
+## 🔷 How CNI Works in Kubernetes
+
+### The Flow:
+```
+Pod creation requested
+      │
+      ▼
+kubelet creates the container (via containerd/CRI-O)
+      │
+      ▼
+kubelet reads CNI config from /etc/cni/net.d/
+      │
+      ▼ (selects first config alphabetically)
+kubelet calls CNI plugin binary from /opt/cni/bin/
+with "ADD" command + container namespace + container ID
+      │
+      ▼
+CNI plugin sets up networking (veth, IP, routes)
+      │
+      ▼
+kubelet receives success response with pod IP
+      │
+      ▼
+Pod is Running with configured IP
+```
+
+---
+
+## 🔷 CNI Configuration File Structure
+
+```json
+# /etc/cni/net.d/10-bridge.conf
+{
+  "cniVersion": "0.2.0",
+  "name": "mynet",
+  "type": "bridge",        # References binary: /opt/cni/bin/bridge
+  "bridge": "cni0",
+  "isGateway": true,
+  "ipMasq": true,
+  "ipam": {
+    "type": "host-local",  # IP allocation plugin
+    "subnet": "10.22.0.0/16",
+    "routes": [
+      { "dst": "0.0.0.0/0" }
+    ]
+  }
+}
+```
+
+**File naming convention**: The file starting with the lowest number is used first (alphabetical order within same prefix numbers).
+
+---
+
+## 🔷 CNI Plugin Directories
+
+```bash
+# CNI plugin binaries
+ls /opt/cni/bin/
+# bridge  dhcp  flannel  host-local  ipvlan  loopback
+# macvlan  portmap  ptp  sample  tuning  vlan
+# weave-net  calico  calico-ipam  ...
+
+# CNI configuration files
+ls /etc/cni/net.d/
+# 10-calico.conflist
+# 10-flannel.conflist
+```
+
+---
+
+## 🔷 Popular CNI Plugins Compared
+
+| Plugin | Key Feature | Use Case |
+|---|---|---|
+| **Flannel** | Simple overlay network | Small clusters, simplicity |
+| **Calico** | Network policies + BGP routing | Enterprise, large-scale |
+| **Weave Net** | Encrypted overlay, simple setup | Multi-cloud |
+| **Cilium** | eBPF-based, L7 policies | High-performance, observability |
+| **AWS VPC CNI** | Native VPC IPs for pods | AWS EKS |
+| **Azure CNI** | Native Azure VNet IPs | AKS |
+
+> ⚠️ **Critical**: **Flannel does NOT support Kubernetes NetworkPolicy**. If you need network policies, you must use Calico, Cilium, or Weave Net.
+
+---
+
+## 🔷 Architecture Flow
+
+```
+                    Kubernetes Node
+┌─────────────────────────────────────────────────────────┐
+│                                                          │
+│  kubelet                                                 │
+│  (--network-plugin=cni)                                  │
+│     │                                                    │
+│     ▼                                                    │
+│  Reads: /etc/cni/net.d/10-bridge.conf                    │
+│     │                                                    │
+│     ▼                                                    │
+│  Executes: /opt/cni/bin/bridge ADD ...                   │
+│     │                                                    │
+│     ▼                                                    │
+│  CNI Plugin creates:                                     │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │  Pod Network Namespace (eth0: 10.244.x.y)        │   │
+│  │  ←→ veth pair ←→ cni0 bridge (10.244.x.1)        │   │
+│  └──────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🔷 Checking CNI Configuration in a Running Cluster
+
+```bash
+# Find which CNI plugin is being used
+ls /etc/cni/net.d/
+
+# Check kubelet's CNI configuration
+ps -ef | grep kubelet
+# Look for --network-plugin=cni and --cni-conf-dir
+
+# Check if CNI plugin pods are running
+kubectl get pods -n kube-system
+# Should see: calico-node, weave-net, or flannel daemonsets
+
+# Verify CNI is working by checking pod IPs
+kubectl get pods -o wide
+# All pods should have non-empty IP addresses
+```
+
+---
+
+## 🔷 Common Mistakes
+
+| Mistake | Symptom |
+|---|---|
+| No CNI plugin installed | All pods stuck in `ContainerCreating` |
+| Multiple CNI configs | Unpredictable behavior — only first alphabetically is used |
+| CNI plugin pods crashing | Pods on that node get no IPs |
+| Wrong CIDR in CNI config | IP conflicts with existing infrastructure |
+| Using Flannel but expecting NetworkPolicy | Policies created but not enforced |
+
+---
+
+## 🔷 CKA Exam Tips
+
+- Know the two key directories: `/opt/cni/bin/` and `/etc/cni/net.d/`
+- Know that **kubelet reads CNI config** and executes the binary
+- Know that **Flannel doesn't support NetworkPolicy**
+- If asked why pods are `ContainerCreating` → check if CNI is installed
+- Know how to identify which CNI plugin is in use: `ls /etc/cni/net.d/`
+
+---
+
+## 🔎 Topic Summary — CNI in Kubernetes
+
+- **CNI standardizes** how Kubernetes configures pod networking, decoupling orchestrators from network implementations
+- **kubelet calls the CNI plugin** at pod creation/deletion using binaries in `/opt/cni/bin/`
+- **CNI config files** in `/etc/cni/net.d/` define which plugin to use and with what parameters
+- **Only one CNI config is active** — the first alphabetically in `/etc/cni/net.d/`
+- **Different plugins have different capabilities**: Flannel = simple, Calico = policies + BGP, Cilium = eBPF
+- **Missing CNI = pods stuck in ContainerCreating** — this is a very common exam scenario
+- **Production takeaway**: Choose CNI based on your requirements — network policies, scale, cloud provider, and observability needs
+
+---
+
+# 34. Service Networking
+
+## 🔷 What Is Service Networking?
+
+Service networking in Kubernetes provides a stable, virtual IP address (ClusterIP) for a group of pods. While pods have ephemeral IPs that change every time they restart, **services provide a consistent IP and DNS name** that clients use to reach pods. The actual traffic routing from the service IP to the backend pod IPs is handled by **kube-proxy** on every node.
+
+---
+
+## 🔷 Why Services Exist
+
+Without services:
+- Pod restarts = new IP = all callers break
+- Load balancing across pod replicas is manual
+- External access to pods requires knowing their exact IPs
+- Scaling pods breaks existing connections
+
+With services:
+- Clients call `web-service:80` forever — Kubernetes handles the routing
+- kube-proxy load-balances across all healthy pods automatically
+- Services survive pod restarts, rescheduling, and scaling
+
+---
+
+## 🔷 Service Types
+
+| Type | Accessibility | Use Case |
+|---|---|---|
+| **ClusterIP** (default) | Internal to cluster only | Microservice-to-microservice |
+| **NodePort** | External via `<NodeIP>:<NodePort>` | Direct external access (dev/testing) |
+| **LoadBalancer** | External via cloud load balancer | Production external access on cloud |
+| **ExternalName** | DNS CNAME to external service | Routing to external services |
+| **Headless** | No ClusterIP, direct pod IPs | StatefulSets, direct DNS discovery |
+
+---
+
+## 🔷 How kube-proxy Implements Service Networking
+
+### kube-proxy Modes:
+
+| Mode | Implementation | Default? |
+|---|---|---|
+| **iptables** | iptables DNAT rules | Yes (most clusters) |
+| **IPVS** | Linux IP Virtual Server | High performance (many services) |
+| **userspace** | Proxy in userspace | Legacy, deprecated |
+
+### iptables Mode — How It Works:
+
+When a service is created (ClusterIP: `10.103.132.104`, port 3306):
+
+1. kube-proxy on every node adds iptables rules
+2. Any packet destined for `10.103.132.104:3306` is DNAT'd to a real pod IP
+
+```bash
+# View kube-proxy generated iptables rules
+iptables -L -t nat | grep db-service
+
+# Output:
+KUBE-SVC-XA5OGUC7YRHOS3PU  tcp  -- anywhere  10.103.132.104  tcp dpt:3306
+DNAT  tcp  -- anywhere  anywhere  to:10.244.1.2:3306
+```
+
+---
+
+## 🔷 Service IP Range vs Pod IP Range
+
+```bash
+# Check service CIDR (set on kube-apiserver)
+cat /etc/kubernetes/manifests/kube-apiserver.yaml | grep service-cluster-ip-range
+# --service-cluster-ip-range=10.96.0.0/12
+
+# Check pod CIDR (set during kubeadm init)
+kubectl cluster-info dump | grep -m 1 cluster-cidr
+# --cluster-cidr=10.244.0.0/16
+```
+
+> ⚠️ **Critical**: Service CIDR and Pod CIDR **must not overlap**. If they do, routing becomes ambiguous and connectivity breaks.
+
+---
+
+## 🔷 Architecture Flow — ClusterIP Service
+
+```
+Pod A (10.244.1.5)
+     │
+     │ sends packet to 10.96.1.100:80 (ClusterIP)
+     ▼
+iptables on Node 1 (installed by kube-proxy)
+     │
+     │ DNAT: 10.96.1.100:80 → 10.244.2.3:80 (random pod selection)
+     ▼
+Pod B (10.244.2.3) on Node 2 receives packet
+```
+
+The packet appears to come from Pod A's IP — no NAT on the source side.
+
+---
+
+## 🔷 YAML — ClusterIP Service
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-service
+  namespace: production
+spec:
+  selector:
+    app: mysql          # Routes to pods with this label
+    tier: database
+  type: ClusterIP       # Internal only
+  ports:
+    - protocol: TCP
+      port: 3306        # Service port (what clients call)
+      targetPort: 3306  # Container port (what pods listen on)
+  # ClusterIP is auto-assigned from --service-cluster-ip-range
+  # Can be specified: clusterIP: 10.96.10.20
+```
+
+---
+
+## 🔷 YAML — NodePort Service
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+spec:
+  selector:
+    app: frontend
+  type: NodePort
+  ports:
+    - port: 80          # ClusterIP port
+      targetPort: 8080  # Pod/container port
+      nodePort: 30080   # External port (range: 30000-32767)
+      # If nodePort not specified, Kubernetes auto-assigns one
+```
+
+---
+
+## 🔷 Verifying Service Networking
+
+```bash
+# Check service exists and has ClusterIP
+kubectl get svc db-service
+# NAME         TYPE        CLUSTER-IP      PORT(S)    AGE
+# db-service   ClusterIP   10.103.132.104  3306/TCP   5m
+
+# Check endpoints (pods selected by service)
+kubectl get endpoints db-service
+# NAME         ENDPOINTS              AGE
+# db-service   10.244.1.2:3306       5m
+# If ENDPOINTS is <none> → label selector doesn't match any pods!
+
+# Check kube-proxy mode
+kubectl logs -n kube-system kube-proxy-xxx | head -5
+# "Using iptables Proxier"
+
+# View iptables rules for service
+iptables -t nat -L KUBE-SERVICES | grep 10.103.132.104
+```
+
+---
+
+## 🔷 Real-World Production Scenario
+
+**Scenario**: Microservices application where `order-service` calls `inventory-service` but gets connection refused.
+
+**Systematic Debugging**:
+```bash
+# Step 1: Does the service exist?
+kubectl get svc inventory-service -n production
+
+# Step 2: Does it have endpoints?
+kubectl get endpoints inventory-service -n production
+# If no endpoints → pod labels don't match service selector
+
+# Step 3: Do pods have matching labels?
+kubectl get pods -n production --show-labels | grep inventory
+
+# Step 4: Is the pod actually running?
+kubectl get pods -n production | grep inventory
+
+# Step 5: Test service connectivity from another pod
+kubectl exec -it order-service-xxx -n production -- \
+  curl http://inventory-service:8080/health
+
+# Step 6: Check kube-proxy logs for errors
+kubectl logs -n kube-system -l k8s-app=kube-proxy
+```
+
+---
+
+## 🔷 Common Mistakes
+
+| Mistake | Symptom |
+|---|---|
+| Label selector mismatch | Service has no Endpoints, all traffic fails |
+| Wrong `targetPort` | Connection refused at pod |
+| CIDR overlap (service/pod) | Intermittent routing failures |
+| Not using `--service-cluster-ip-range` on apiserver | Services get IPs outside expected range |
+| Manually setting a ClusterIP already in use | Service creation fails |
+
+---
+
+## 🔷 CKA Exam Tips
+
+- **Endpoints = which pods are selected by the service** — always check endpoints when service isn't working
+- Know the difference: `port` (service port) vs `targetPort` (pod port) vs `nodePort` (external port)
+- Know that kube-proxy default mode is **iptables**
+- Know the NodePort range: **30000–32767**
+- Know that ClusterIP is virtual — it exists only in iptables rules, not as a real interface
+- `kubectl get endpoints` is your most powerful service debugging command
+
+---
+
+## 🔎 Topic Summary — Service Networking
+
+- **Services provide stable virtual IPs (ClusterIP)** for dynamic pods — the IP survives pod restarts
+- **kube-proxy** on every node implements service routing using iptables DNAT rules
+- **ClusterIP** = internal only; **NodePort** = external via node ports; **LoadBalancer** = cloud load balancer
+- **Endpoints** object lists the actual pod IPs behind a service — always check this when debugging
+- **Service CIDR and Pod CIDR must not overlap** — this is a critical configuration requirement
+- **iptables is the default proxy mode** — IPVS offers better performance at large scale
+- **Production takeaway**: The most common service failure cause is a label selector mismatch — always check `kubectl get endpoints` first
+
+---
+
+# 35. DNS in Kubernetes
+
+## 🔷 What Is DNS in Kubernetes?
+
+Kubernetes DNS provides automatic name resolution for services and pods within the cluster. When a service is created, Kubernetes automatically creates a DNS record mapping the service name to its ClusterIP. This allows any pod to reach any service using a predictable, human-readable name without knowing the service's IP address.
+
+---
+
+## 🔷 DNS Record Format
+
+### For Services:
+```
+<service-name>.<namespace>.svc.cluster.local
+```
+
+Examples:
+```
+web-service.default.svc.cluster.local
+db-service.production.svc.cluster.local
+redis.cache.svc.cluster.local
+```
+
+From within the **same namespace**, pods can use just the service name:
+```bash
+curl http://web-service        # Works in same namespace
+curl http://web-service.production  # Works from any namespace
+curl http://web-service.production.svc.cluster.local  # Full FQDN always works
+```
+
+### For Pods (when enabled):
+Pod IP addresses are converted to hostnames by replacing dots with dashes:
+```
+<pod-ip-with-dashes>.<namespace>.pod.cluster.local
+
+# Example: Pod IP 10.244.2.5 in namespace "default"
+10-244-2-5.default.pod.cluster.local → 10.244.2.5
+```
+
+> Note: Pod DNS records are not enabled by default. Service DNS records ARE created automatically.
+
+---
+
+## 🔷 How It Works — DNS Resolution Flow in a Pod
+
+```
+Pod tries: curl http://web-service
+     │
+     ▼
+/etc/resolv.conf in the pod:
+  nameserver 10.96.0.10          ← CoreDNS ClusterIP
+  search default.svc.cluster.local svc.cluster.local cluster.local
+     │
+     ▼
+Query sent to CoreDNS: "web-service"
+CoreDNS appends search domains:
+  → web-service.default.svc.cluster.local ← matches! Returns ClusterIP
+     │
+     ▼
+Pod connects to the returned ClusterIP
+```
+
+---
+
+## 🔷 Architecture Flow
+
+```
+Pod's /etc/resolv.conf
+  nameserver: 10.96.0.10 (kube-dns Service ClusterIP)
+      │
+      ▼
+kube-dns Service (ClusterIP: 10.96.0.10)
+      │
+      ▼
+CoreDNS Pods (Deployment in kube-system namespace)
+      │
+      ├──► Kubernetes Plugin: Resolves .cluster.local names from etcd/API
+      │
+      └──► Forward Plugin: Forwards external names to upstream DNS
+               (configured in CoreDNS ConfigMap)
+```
+
+---
+
+## 🔷 CoreDNS Configuration
+
+CoreDNS is configured via a **ConfigMap** in `kube-system`:
+
+```bash
+kubectl get configmap coredns -n kube-system -o yaml
+```
+
+```yaml
+# CoreDNS Corefile — explains each plugin's role
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns
+  namespace: kube-system
+data:
+  Corefile: |
+    .:53 {
+        errors              # Log DNS errors
+        health              # Health check endpoint
+        ready               # Readiness probe support
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+            pods insecure   # Enable pod DNS records (insecure = no verification)
+            fallthrough in-addr.arpa ip6.arpa
+        }
+        prometheus :9153    # Metrics for Prometheus
+        forward . /etc/resolv.conf  # Forward external names to node's DNS
+        cache 30            # Cache responses for 30 seconds
+        loop                # Detect forwarding loops
+        reload              # Watch for ConfigMap changes
+        loadbalance         # Round-robin DNS load balancing
+    }
+```
+
+---
+
+## 🔷 How CoreDNS Pod Gets Configured in Each Pod
+
+Kubelet is responsible for populating `/etc/resolv.conf` in each pod:
+
+```bash
+# Check kubelet configuration for DNS settings
+cat /var/lib/kubelet/config.yaml | grep -A3 clusterDNS
+# clusterDNS:
+# - 10.96.0.10
+# clusterDomain: cluster.local
+```
+
+Kubelet injects these into every pod's `/etc/resolv.conf`:
+```bash
+# Inside any pod:
+cat /etc/resolv.conf
+# nameserver 10.96.0.10
+# search default.svc.cluster.local svc.cluster.local cluster.local
+# options ndots:5
+```
+
+---
+
+## 🔷 DNS Troubleshooting Commands
+
+```bash
+# Check CoreDNS pods are running
+kubectl get pods -n kube-system -l k8s-app=kube-dns
+
+# Check CoreDNS logs for errors
+kubectl logs -n kube-system coredns-xxx
+
+# Test DNS from within a pod
+kubectl exec -it test-pod -- nslookup web-service
+kubectl exec -it test-pod -- nslookup web-service.default.svc.cluster.local
+kubectl exec -it test-pod -- cat /etc/resolv.conf
+
+# Check the kube-dns service exists and has correct ClusterIP
+kubectl get svc kube-dns -n kube-system
+
+# Test cross-namespace DNS
+kubectl exec -it test-pod -n app-ns -- \
+  nslookup db-service.production.svc.cluster.local
+```
+
+---
+
+## 🔷 Real-World Production Scenario
+
+**Scenario**: Application pods can't resolve service names after a cluster upgrade.
+
+**Investigation Steps**:
+```bash
+# Step 1: Are CoreDNS pods running?
+kubectl get pods -n kube-system | grep coredns
+# If CrashLoopBackOff → check logs
+
+# Step 2: Check CoreDNS logs
+kubectl logs -n kube-system coredns-xxx
+# Look for: "plugin/loop: Loop detected"
+# This means the forward plugin is creating a DNS loop!
+
+# Step 3: Fix DNS loop (common after certain cluster setups)
+kubectl edit configmap coredns -n kube-system
+# Change: forward . /etc/resolv.conf
+# To: forward . 8.8.8.8 8.8.4.4
+# (avoid forwarding to a nameserver that forwards back to CoreDNS)
+
+# Step 4: Verify pod's resolv.conf is correct
+kubectl exec -it app-pod -- cat /etc/resolv.conf
+# nameserver should be 10.96.0.10
+
+# Step 5: Test resolution
+kubectl exec -it app-pod -- nslookup kubernetes.default
+```
+
+---
+
+## 🔷 Common Mistakes
+
+| Mistake | Symptom |
+|---|---|
+| CoreDNS pods not running | All DNS resolution fails cluster-wide |
+| DNS loop in CoreDNS config | `plugin/loop: Loop detected`, high CPU on CoreDNS |
+| Wrong `clusterDomain` in kubelet | Service names with cluster.local suffix fail |
+| Custom DNS server blocking UDP/TCP 53 | Pods can't resolve external names |
+| ndots:5 misunderstood | Short names cause 5 DNS lookups before resolution |
+
+---
+
+## 🔷 CKA Exam Tips
+
+- Know CoreDNS lives in **`kube-system` namespace** as a **Deployment**
+- Know the **kube-dns Service** at `10.96.0.10` is what pods use as nameserver
+- Know that **kubelet configures `/etc/resolv.conf`** in each pod
+- FQDN format: `<service>.<namespace>.svc.cluster.local`
+- Know how to edit CoreDNS ConfigMap to fix DNS issues
+- Know that pod DNS records use dashes: `10-244-2-5.default.pod.cluster.local`
+
+---
+
+## 🔎 Topic Summary — DNS in Kubernetes
+
+- **CoreDNS** is Kubernetes' built-in DNS server, running as a Deployment in `kube-system`
+- **Every pod's `/etc/resolv.conf`** points to CoreDNS's ClusterIP (typically `10.96.0.10`)
+- **Service DNS format**: `<service>.<namespace>.svc.cluster.local`
+- **Pod DNS format** (when enabled): `<ip-with-dashes>.<namespace>.pod.cluster.local`
+- **Search domains** in resolv.conf allow short names within the same namespace
+- **CoreDNS ConfigMap** controls behavior: Kubernetes plugin resolves internal names, forward plugin handles external
+- **Production takeaway**: DNS failures affect the entire cluster; always check CoreDNS pod health and logs as the first step in any service connectivity investigation
+
+---
+
+# 36. Ingress
+
+## 🔷 What Is Ingress?
+
+Ingress is a Kubernetes API object that manages **external HTTP/HTTPS access** to services within a cluster. It provides:
+- **URL-based routing** (path-based and host-based)
+- **TLS/SSL termination**
+- **Load balancing**
+- **Virtual hosting** (multiple domains → single entry point)
+- **Rewrite rules and redirects**
+
+Ingress is essentially a **Layer 7 (application layer) load balancer** deployed inside the cluster, in contrast to LoadBalancer services which are Layer 4 (transport layer).
+
+---
+
+## 🔷 Why Ingress Instead of LoadBalancer Services?
+
+**Without Ingress** (using LoadBalancer services):
+```
+app1.company.com ──► Cloud LB 1 ($$) ──► Service A
+app2.company.com ──► Cloud LB 2 ($$) ──► Service B
+app3.company.com ──► Cloud LB 3 ($$) ──► Service C
+# Each LB costs money and has a different external IP!
+```
+
+**With Ingress**:
+```
+app1.company.com ──┐
+app2.company.com ──┤──► Single Cloud LB ──► Ingress Controller ──► Routes to Services
+app3.company.com ──┘
+# ONE load balancer, ONE external IP, MULTIPLE applications
+```
+
+Additionally, Ingress handles:
+- SSL termination centrally (no need for SSL in each service)
+- URL path routing (e.g., `/api` → backend-service, `/` → frontend-service)
+- Authentication
+- Rate limiting
+
+---
+
+## 🔷 Two Components of Ingress
+
+1. **Ingress Controller** — The actual software that implements the ingress rules (NGINX, Traefik, HAProxy, Contour, Istio, GKE, etc.). **NOT included by default in Kubernetes.** Must be deployed separately.
+
+2. **Ingress Resource** — The Kubernetes API object (YAML) that defines routing rules.
+
+> ⚠️ **Critical**: Creating Ingress resources without an Ingress Controller has NO effect. The resources are stored in etcd but nothing acts on them.
+
+---
+
+## 🔷 Architecture Flow
+
+```
+External User
+     │
+     ▼ HTTPS request to company.com
+Cloud Load Balancer (port 80/443)
+     │
+     ▼ (NodePort or LoadBalancer Service targeting Ingress Controller)
+Ingress Controller Pod (NGINX/Traefik running in cluster)
+     │
+     ├──► Path: /api/* ──► backend-service:8080
+     │
+     ├──► Path: /auth/* ──► auth-service:3000
+     │
+     └──► Default (/) ──► frontend-service:80
+              │
+              ▼
+         Backend Pod
+```
+
+---
+
+## 🔷 Deploying NGINX Ingress Controller
+
+```yaml
+# ingress-controller-deployment.yaml
+# This deploys the NGINX Ingress Controller — the brains that processes Ingress rules
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-ingress-controller
+  namespace: ingress-nginx
+spec:
+  replicas: 2             # Run 2 replicas for HA
+  selector:
+    matchLabels:
+      app: nginx-ingress
+  template:
+    metadata:
+      labels:
+        app: nginx-ingress
+    spec:
+      serviceAccountName: nginx-ingress-serviceaccount  # Needs RBAC to read Ingress resources
+      containers:
+        - name: nginx-ingress-controller
+          image: quay.io/kubernetes-ingress-controller/nginx-ingress-controller:1.3.0
+          args:
+            - /nginx-ingress-controller
+            - --configmap=$(POD_NAMESPACE)/nginx-configuration   # ConfigMap for NGINX tuning
+            - --tcp-services-configmap=$(POD_NAMESPACE)/tcp-services
+            - --udp-services-configmap=$(POD_NAMESPACE)/udp-services
+          env:
+            - name: POD_NAME         # Passes pod identity to controller
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - name: http
+              containerPort: 80
+            - name: https
+              containerPort: 443
+          # OOMKilled risk: NGINX can use significant memory at high traffic
+          # Set appropriate limits: memory: 512Mi, cpu: 500m
+          # CrashLoopBackOff: check ConfigMap exists and is correct
+```
+
+---
+
+## 🔷 YAML — Ingress Resource (Path-Based Routing)
+
+```yaml
+# ingress-path-based.yaml
+# Routes different URL paths to different backend services
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+  namespace: production
+  annotations:
+    # NGINX-specific annotations for behavior customization
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  ingressClassName: nginx      # Specifies which Ingress Controller to use
+  tls:
+    - hosts:
+        - company.com
+      secretName: company-tls  # Secret containing TLS certificate and key
+  rules:
+    - host: company.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix   # /api, /api/v1, /api/users all match
+            backend:
+              service:
+                name: backend-service
+                port:
+                  number: 8080
+          - path: /            # Default: catch-all
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-service
+                port:
+                  number: 80
+```
+
+---
+
+## 🔷 YAML — Ingress Resource (Host-Based Routing)
+
+```yaml
+# ingress-host-based.yaml
+# Routes different hostnames to different backend services
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: multi-domain-ingress
+  namespace: production
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - wear.company.com
+        - watch.company.com
+      secretName: multi-domain-tls
+  rules:
+    - host: wear.company.com          # Domain 1
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: wear-service
+                port:
+                  number: 80
+    - host: watch.company.com         # Domain 2
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: watch-service
+                port:
+                  number: 80
+```
+
+---
+
+## 🔷 Ingress Debugging
+
+```bash
+# Check Ingress Controller is running
+kubectl get pods -n ingress-nginx
+
+# Check Ingress resource
+kubectl get ingress -n production
+kubectl describe ingress app-ingress -n production
+
+# Check Ingress Controller logs
+kubectl logs -n ingress-nginx nginx-ingress-controller-xxx
+
+# Check IngressClass
+kubectl get ingressclass
+
+# Common issues:
+# 1. No ADDRESS on ingress → Controller not running or not watching this namespace
+# 2. 502 Bad Gateway → Backend service/pods not reachable
+# 3. TLS errors → Secret missing or wrong format
+# 4. 404 for all paths → Path rules misconfigured
+```
+
+---
+
+## 🔷 Real-World Production Scenario
+
+**Application**: Multi-tenant SaaS platform with `api.saas.com`, `app.saas.com`, and `admin.saas.com`.
+
+**Architecture**:
+```
+Route 53 (DNS) → *.saas.com → ELB (single)
+                                    │
+                            NGINX Ingress Controller
+                         (Deployment, 3 replicas, HPA)
+                                    │
+              ┌────────────────────┬┴─────────────────┐
+              ▼                    ▼                   ▼
+        api-service           app-service        admin-service
+        (ClusterIP)           (ClusterIP)        (ClusterIP)
+              │                    │                   │
+        API pods (10)         Frontend pods (5)   Admin pods (2)
+```
+
+**Security Considerations**:
+- Wildcard TLS certificate from Let's Encrypt, auto-renewed via cert-manager
+- Rate limiting annotations on API endpoints
+- IP whitelisting on admin endpoints: `nginx.ingress.kubernetes.io/whitelist-source-range`
+- OAuth2 authentication proxy for admin routes
+
+---
+
+## 🔷 Common Mistakes
+
+| Mistake | Impact |
+|---|---|
+| No Ingress Controller deployed | Ingress resources do nothing |
+| Wrong `ingressClassName` | Rules not processed |
+| Path ordering wrong | More specific paths shadowed by catch-all |
+| TLS secret in wrong namespace | 404/SSL errors |
+| Missing `pathType: Exact/Prefix` | Ambiguous routing behavior |
+| Default backend not configured | Unmatched paths return 404 without explanation |
+
+---
+
+## 🔷 CKA Exam Tips
+
+- Know that **Ingress Controller is NOT included by default** — must be deployed
+- Know the difference between **path-based** and **host-based** routing
+- Know that `ingressClassName` connects the Ingress resource to the controller
+- Know how to create a simple Ingress: `kubectl create ingress` command
+- Know that `kubectl describe ingress` shows rules and events
+- Understand **annotations** (controller-specific) vs **spec** (universal)
+
+---
+
+## 🔎 Topic Summary — Ingress
+
+- **Ingress provides Layer 7 routing** for external HTTP/HTTPS traffic — path and host based
+- **Two components**: Ingress Controller (software) + Ingress Resource (rules YAML)
+- **Ingress Controller is NOT deployed by default** — popular choices: NGINX, Traefik, Contour
+- **Path-based routing**: `/api` → service A, `/` → service B on the same domain
+- **Host-based routing**: `api.domain.com` → service A, `app.domain.com` → service B
+- **TLS termination** at the Ingress layer removes SSL management from individual services
+- **Production takeaway**: Ingress is the standard way to expose production web applications — it consolidates external access, TLS, and routing into one manageable layer
+
+---
+
+# 37. Gateway API (2025 Updates)
+
+## 🔷 What Is the Gateway API?
+
+The **Kubernetes Gateway API** is the next-generation Kubernetes API for managing external traffic, designed to replace and significantly enhance the capabilities of the Ingress resource. It was developed as an official Kubernetes project (under `gateway.networking.k8s.io`) to address fundamental limitations of Ingress:
+
+| Ingress Limitation | Gateway API Solution |
+|---|---|
+| Single resource, coordination required | Split into roles: infrastructure admin, cluster operator, app developer |
+| Controller-specific annotations | Standardized spec (no annotations needed) |
+| HTTP only | Supports HTTP, HTTPS, TCP, UDP, gRPC, TLS |
+| No traffic splitting natively | Built-in traffic splitting/canary |
+| No CORS natively | Built-in response header modification |
+| Single multi-tenant resource | Independent HTTPRoute per team |
+
+---
+
+## 🔷 Gateway API Objects
+
+The Gateway API separates concerns into three distinct objects:
+
+| Object | Managed By | Purpose |
+|---|---|---|
+| **GatewayClass** | Infrastructure provider | Defines the type of gateway (NGINX, Traefik, GKE, etc.) |
+| **Gateway** | Cluster operator | Instance of a GatewayClass with listener configuration |
+| **HTTPRoute** | Application developer | Traffic routing rules for HTTP/HTTPS |
+| **TCPRoute** | Application developer | TCP traffic routing |
+| **TLSRoute** | Application developer | TLS passthrough routing |
+| **GRPCRoute** | Application developer | gRPC traffic routing |
+
+---
+
+## 🔷 Architecture Flow
+
+```
+GatewayClass (infrastructure provider configures once)
+      │ defines type of infrastructure
+      ▼
+Gateway (cluster operator creates per environment)
+      │ configures listeners (ports, protocols, TLS)
+      │
+      ├──► HTTPRoute (team A manages their routes independently)
+      │
+      ├──► HTTPRoute (team B manages their routes independently)
+      │
+      └──► TCPRoute (team C manages database routes)
+```
+
+This separation enables **multi-tenancy**: Team A can update their routing rules without affecting Team B, and neither team can access each other's configuration.
+
+---
+
+## 🔷 YAML — Complete Gateway API Configuration
+
+```yaml
+# Step 1: GatewayClass — configured by infrastructure team
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: nginx-gateway-class
+spec:
+  controllerName: k8s.nginx.org/nginx-gateway-controller
+  # This references the Gateway Controller implementation
+---
+# Step 2: Gateway — configured by cluster operators
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: production-gateway
+  namespace: gateway-system
+spec:
+  gatewayClassName: nginx-gateway-class
+  listeners:
+    - name: https
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate             # Gateway terminates TLS
+        certificateRefs:
+          - kind: Secret
+            name: wildcard-tls     # TLS cert stored as Secret
+      allowedRoutes:
+        kinds:
+          - kind: HTTPRoute        # Only HTTPRoutes can attach
+        namespaces:
+          from: Selector           # Only from labeled namespaces
+          selector:
+            matchLabels:
+              gateway-access: "true"
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: All
+---
+# Step 3: HTTPRoute — configured by application teams independently
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: wear-route
+  namespace: wear-team            # Each team owns their namespace
+spec:
+  parentRefs:
+    - name: production-gateway
+      namespace: gateway-system
+  hostnames:
+    - "wear.company.com"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api
+      backendRefs:
+        - name: wear-api-service
+          port: 8080
+          weight: 90               # 90% to stable version
+        - name: wear-api-service-v2
+          port: 8080
+          weight: 10               # 10% canary traffic
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            add:
+              - name: X-Team-Owner
+                value: "wear-team"
+      backendRefs:
+        - name: wear-frontend
+          port: 80
+```
+
+---
+
+## 🔷 Traffic Splitting (Canary Deployment)
+
+```yaml
+# Gateway API native canary — no annotations needed!
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: canary-route
+spec:
+  parentRefs:
+    - name: production-gateway
+  rules:
+    - backendRefs:
+        - name: app-v1        # Stable version
+          port: 80
+          weight: 80          # 80% of traffic
+        - name: app-v2        # Canary version
+          port: 80
+          weight: 20          # 20% of traffic
+```
+
+**Ingress equivalent** (requires controller-specific annotations):
+```yaml
+# Ingress canary — controller-specific, not portable
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/canary: "true"
+    nginx.ingress.kubernetes.io/canary-weight: "20"
+```
+
+---
+
+## 🔷 Supported Gateway API Controllers (2025)
+
+| Platform | Status |
+|---|---|
+| Amazon EKS (AWS Load Balancer Controller) | GA |
+| Google GKE | GA |
+| Azure Application Gateway for Containers | GA |
+| NGINX Kubernetes Gateway | GA |
+| Contour | GA |
+| Istio | GA |
+| Traefik | GA |
+| Cilium | GA |
+| Kong | GA |
+
+---
+
+## 🔷 Key Differences: Ingress vs Gateway API
+
+| Feature | Ingress | Gateway API |
+|---|---|---|
+| Protocols | HTTP/HTTPS only | HTTP, HTTPS, TCP, UDP, gRPC, TLS |
+| Traffic splitting | Via annotations (controller-specific) | Native spec (portable) |
+| CORS | Via annotations | Native response header modifier |
+| Multi-tenancy | Single resource, coordination needed | Independent HTTPRoutes per team |
+| TLS configuration | `spec.tls` + annotations | Built into Gateway listener spec |
+| Canary deployments | Via annotations | Native `weight` on backendRefs |
+| Portability | Low (annotation-dependent) | High (standardized spec) |
+
+---
+
+## 🔷 CKA Exam Tips (2025)
+
+- Understand the **three-layer hierarchy**: GatewayClass → Gateway → HTTPRoute
+- Know that Gateway API is **NOT a replacement for Ingress** in existing clusters — it's the future direction
+- Understand **traffic splitting is native** in Gateway API (no annotations)
+- Know that different **teams can own their HTTPRoute** objects independently
+- Gateway API supports **multiple protocols** — not just HTTP
+
+---
+
+## 🔎 Topic Summary — Gateway API
+
+- **Gateway API addresses Ingress limitations** by separating infrastructure, platform, and application concerns
+- **Three objects**: GatewayClass (type definition), Gateway (instance), HTTPRoute/TCPRoute (routing rules)
+- **Multi-tenancy**: Each team manages their own HTTPRoute independently without coordination
+- **Native traffic splitting**: Weight-based routing is built into the spec, not via annotations
+- **Protocol support**: HTTP, HTTPS, TCP, UDP, gRPC — unlike Ingress which is HTTP only
+- **Portability**: Gateway API specs are controller-agnostic — same YAML works with different controllers
+- **Production takeaway**: For new cluster deployments and greenfield applications, Gateway API is the recommended approach; it will eventually supersede Ingress
+
+---
+
+# 38. Network Policies
+
+## 🔷 What Are Network Policies?
+
+A **Kubernetes NetworkPolicy** is a specification of how groups of pods are allowed to communicate with each other and with other network endpoints. By default, all pods in a Kubernetes cluster can communicate with all other pods — there is no network isolation. NetworkPolicy resources define **allow rules** that restrict which traffic is permitted.
+
+> ⚠️ **Key Concept**: NetworkPolicy is **additive and allow-only**. You cannot explicitly deny traffic with a NetworkPolicy rule — you can only allow specific traffic. All non-matching traffic is implicitly denied **once a policy applies to a pod**.
+
+---
+
+## 🔷 Default Behavior
+
+**Without any NetworkPolicy**:
+- All pods can reach all other pods (complete mesh communication)
+- Any pod can reach any external IP
+- Any external source can reach any pod on open ports
+
+**When a NetworkPolicy selects a pod**:
+- ALL traffic to/from that pod is **denied by default**
+- Only explicitly allowed traffic (matching policy rules) is permitted
+
+---
+
+## 🔷 Core Concepts
+
+| Concept | Description |
+|---|---|
+| **podSelector** | Which pods this policy applies to (the "target" pod) |
+| **policyTypes** | `Ingress`, `Egress`, or both |
+| **ingress rules** | What incoming traffic is allowed TO the target pod |
+| **egress rules** | What outgoing traffic is allowed FROM the target pod |
+| **from/to** | Source/destination selectors (pod, namespace, IP block) |
+| **ports** | Which ports are allowed |
+
+---
+
+## 🔷 Architecture Flow — Traffic Enforcement
+
+```
+NetworkPolicy YAML ──► kube-apiserver ──► etcd (stored)
+                                              │
+                                              ▼
+                              CNI Plugin on each node
+                              (Calico/Cilium/Weave reads policy)
+                                              │
+                                              ▼
+                              iptables / eBPF rules configured
+                              on node for each pod
+```
+
+> ⚠️ **CRITICAL**: NetworkPolicy enforcement depends on the **CNI plugin**. **Flannel does NOT enforce NetworkPolicies**. You must use **Calico**, **Cilium**, **Weave Net**, or another policy-supporting CNI.
+
+---
+
+## 🔷 YAML — Deny All Ingress (Default Deny Policy)
+
+```yaml
+# This is the recommended starting point for zero-trust networking
+# Apply this first, then add allow rules for what you need
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: production
+spec:
+  podSelector: {}          # Applies to ALL pods in this namespace
+  policyTypes:
+    - Ingress              # Only affects ingress traffic
+  # No ingress rules = all ingress traffic denied
+```
+
+---
+
+## 🔷 YAML — Allow Specific Traffic
+
+```yaml
+# db-network-policy.yaml
+# Allows only API pod → DB pod communication on port 3306
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: db-policy
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      role: db             # This policy applies to pods labeled role=db
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        # Rule 1: Allow from API pods in production namespace (AND condition)
+        - podSelector:
+            matchLabels:
+              name: api-pod      # Must match this pod label
+          namespaceSelector:
+            matchLabels:
+              name: production   # AND must be in production namespace
+        # Rule 2: Allow from backup server IP (OR condition - separate list item)
+        - ipBlock:
+            cidr: 192.168.5.10/32
+      ports:
+        - protocol: TCP
+          port: 3306
+  egress:
+    # DB pod needs to send backups to external server
+    - to:
+        - ipBlock:
+            cidr: 192.168.5.10/32     # Backup server
+      ports:
+        - protocol: TCP
+          port: 80
+```
+
+### ⚠️ AND vs OR in NetworkPolicy — Critical Distinction
+
+```yaml
+# AND condition (both selectors must match — they're in the same list item)
+from:
+  - podSelector:
+      matchLabels:
+        name: api-pod
+    namespaceSelector:          # NOTE: at same indentation level
+      matchLabels:
+        env: production
+
+# OR condition (either selector matches — they're separate list items)
+from:
+  - podSelector:
+      matchLabels:
+        name: api-pod
+  - namespaceSelector:          # NOTE: separate list item with "-"
+      matchLabels:
+        env: production
+```
+
+**This is one of the most common mistakes in NetworkPolicy writing!**
+
+---
+
+## 🔷 YAML — Complete Production Network Policy
+
+```yaml
+# Complete zero-trust policy for a 3-tier application
+---
+# Frontend policy: allow ingress from internet, egress to API
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-policy
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      tier: frontend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - port: 80
+        - port: 443
+      # No 'from' → allows from anywhere (0.0.0.0/0)
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              tier: api
+      ports:
+        - port: 8080
+    - ports:
+        - port: 53            # Allow DNS resolution!
+          protocol: UDP       # Critical: often forgotten in policies
+        - port: 53
+          protocol: TCP
+---
+# API policy: allow from frontend, egress to DB
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-policy
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      tier: api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              tier: frontend
+      ports:
+        - port: 8080
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              tier: database
+      ports:
+        - port: 5432
+    - ports:              # DNS
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+```
+
+---
+
+## 🔷 Real-World Production Scenario
+
+**Application**: Financial services platform with strict PCI-DSS compliance requirements.
+
+**Requirements**:
+- Payment pods can only communicate with fraud-detection service
+- Database pods cannot be reached by anything except the payment pods
+- No pod can reach the internet (egress blocked)
+- Only the ingress controller can reach frontend pods
+
+**Implementation**:
+```bash
+# Apply default deny to all namespaces
+kubectl apply -f default-deny-all.yaml -n payments
+kubectl apply -f default-deny-all.yaml -n fraud-detection
+kubectl apply -f default-deny-all.yaml -n data
+
+# Apply specific allow policies
+kubectl apply -f payment-to-fraud-policy.yaml
+kubectl apply -f fraud-to-database-policy.yaml
+kubectl apply -f ingress-to-frontend-policy.yaml
+
+# Verify policies are applied
+kubectl get networkpolicies -n payments
+
+# Test connectivity (should fail)
+kubectl exec -it payment-pod-xxx -- curl http://external.internet.com
+# Connection refused/timeout ✅ (blocked by egress policy)
+
+# Test connectivity (should succeed)
+kubectl exec -it payment-pod-xxx -- curl http://fraud-detection-service:8080
+# 200 OK ✅ (allowed by policy)
+```
+
+---
+
+## 🔷 Common Mistakes
+
+| Mistake | Impact |
+|---|---|
+| Using Flannel (no policy support) | All NetworkPolicies silently ignored |
+| Forgetting DNS port 53 in egress | Pods can't resolve service names |
+| AND vs OR confusion with from selectors | Wrong pods allowed/blocked |
+| Not applying default-deny first | Policy has gaps where traffic sneaks through |
+| Applying policy to wrong namespace | Intended pods not protected |
+| Empty podSelector without Egress type | No egress restriction |
+
+---
+
+## 🔷 Debugging NetworkPolicies
+
+```bash
+# List all NetworkPolicies
+kubectl get networkpolicies -A
+
+# Describe a specific policy
+kubectl describe networkpolicy db-policy -n production
+
+# Check if CNI supports NetworkPolicy
+kubectl get pods -n kube-system | grep -E "calico|cilium|weave"
+
+# Test connectivity between pods
+kubectl exec -it source-pod -- nc -zv destination-pod-ip 3306
+# or
+kubectl exec -it source-pod -- wget -qO- http://destination-service:port
+
+# Calico-specific: Check if policy is being enforced
+kubectl exec -n kube-system calico-node-xxx -- iptables -L | grep CALICO
+
+# Cilium-specific: Monitor policy enforcement
+kubectl exec -n kube-system cilium-xxx -- cilium policy get
+```
+
+---
+
+## 🔷 CKA Exam Tips
+
+- Know that **NetworkPolicy is allow-only** — no deny rules
+- Know that **Flannel doesn't enforce NetworkPolicies** — this is a frequent exam trap
+- Understand the **AND vs OR** distinction in `from`/`to` selectors
+- Know that `podSelector: {}` matches **all pods** in the namespace
+- Know that **once any policy selects a pod, all non-matching traffic is denied**
+- Remember **DNS port 53** in egress rules — easy to forget, breaks service resolution
+- Know the three selector types: `podSelector`, `namespaceSelector`, `ipBlock`
+
+---
+
+## 🔎 Topic Summary — Network Policies
+
+- **NetworkPolicy implements zero-trust networking** — define what's allowed, everything else is blocked
+- **Once a pod is selected by any policy**, all unlisted traffic is **implicitly denied**
+- **CNI plugin must support NetworkPolicy** — Flannel does NOT; Calico, Cilium, Weave do
+- **AND vs OR**: Combined selectors in same list item = AND; separate list items = OR
+- **Always allow DNS (port 53 UDP/TCP)** in egress policies or pods lose service resolution
+- **Default-deny-all + explicit allows** is the production-recommended zero-trust approach
+- **Production takeaway**: Implement NetworkPolicy from day one; retrofitting it into an existing cluster is much harder and riskier
+
+---
+
+# 39. Troubleshooting — Application Failures
+
+## 🔷 What Is Application Failure Troubleshooting?
+
+Application failure troubleshooting in Kubernetes is the systematic process of identifying why an application is not functioning correctly. Unlike traditional server debugging, Kubernetes adds multiple layers of abstraction — pods, services, deployments, ConfigMaps, Secrets — each of which can be the source of a failure. A structured, layer-by-layer approach is essential.
+
+---
+
+## 🔷 Troubleshooting Framework — Start from the User-Facing Layer
+
+The golden rule: **start from where the user experiences the failure and work backward toward the root cause**.
+
+```
+User → Service → Pod → Container → Application
+         ↑        ↑       ↑            ↑
+      Check    Check   Check         Check
+      first   second   third         fourth
+```
+
+---
+
+## 🔷 Step-by-Step Troubleshooting Process
+
+### Step 1 — Test the Front End
+
+```bash
+# Test direct service accessibility
+curl http://web-service-ip:node-port
+# or
+curl http://<node-ip>:<nodeport>
+
+# Expected: HTML/JSON response
+# If timeout: firewall or pod not running
+# If "connection refused": service misconfigured or pod not listening
+```
+
+### Step 2 — Check the Service
+
+```bash
+# Does the service exist?
+kubectl get svc web-service -n production
+
+# Does the service have endpoints? (MOST IMPORTANT CHECK)
+kubectl get endpoints web-service -n production
+# NAME          ENDPOINTS              AGE
+# web-service   10.244.1.5:8080       5m  ← Good
+# web-service   <none>                5m  ← Bad: no pods selected!
+
+# If no endpoints → label mismatch between service selector and pod labels
+kubectl describe svc web-service | grep Selector
+kubectl get pods --show-labels | grep <expected-label>
+```
+
+### Step 3 — Check Pod Status
+
+```bash
+# Get pod status
+kubectl get pods -n production
+# NAME              READY   STATUS             RESTARTS   AGE
+# webapp-xxx        0/1     CrashLoopBackOff   5          10m  ← Problem!
+# webapp-xxx        1/1     Running            0          10m  ← Good
+
+# Get detailed pod information including events
+kubectl describe pod webapp-xxx -n production
+# Look in the Events section at the bottom — this is the most useful info
+```
+
+### Step 4 — Check Pod Logs
+
+```bash
+# Current logs
+kubectl logs webapp-xxx -n production
+
+# Previous container's logs (before restart — critical for CrashLoopBackOff)
+kubectl logs webapp-xxx -n production --previous
+
+# Live streaming logs
+kubectl logs webapp-xxx -n production -f
+
+# Logs from specific container in a multi-container pod
+kubectl logs webapp-xxx -c nginx -n production
+```
+
+### Step 5 — Check Database/Dependency Services
+
+Apply the same checks to each downstream service that the application depends on.
+
+---
+
+## 🔷 Common Failure States and Their Causes
+
+| Status | Common Cause | Fix |
+|---|---|---|
+| `Pending` | No node with sufficient resources | Check node capacity, resource requests |
+| `ContainerCreating` | Image pull issue or CNI problem | Check image name/tag, registry credentials |
+| `CrashLoopBackOff` | App crashes on startup | Check logs, ConfigMaps, environment variables |
+| `OOMKilled` | Container exceeded memory limit | Increase memory limit or fix memory leak |
+| `ImagePullBackOff` | Wrong image tag or registry credentials | Check image name, imagePullSecrets |
+| `Error` | Command failed or init container failed | Check command, entrypoint, init containers |
+| `Evicted` | Node running out of resources | Add nodes, increase limits, check node pressure |
+
+---
+
+## 🔷 YAML — Pod with All Common Issue Patterns
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: webapp
+  namespace: production
+spec:
+  containers:
+    - name: webapp
+      image: webapp:v1.2.3
+      # ImagePullBackOff: wrong tag "v1.2.3" doesn't exist
+      # Fix: kubectl describe pod webapp | grep "Image:" and verify tag
+
+      ports:
+        - containerPort: 8080
+
+      env:
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: password
+              # CrashLoopBackOff: if secret "db-credentials" doesn't exist
+              # Fix: kubectl get secrets | grep db-credentials
+              # kubectl describe pod webapp | grep "Error: secret not found"
+
+        - name: DB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: db-config
+              key: DB_HOST
+              # CrashLoopBackOff: ConfigMap missing or wrong key name
+              # Fix: kubectl get configmap db-config -o yaml
+
+      resources:
+        requests:
+          memory: "128Mi"
+          cpu: "100m"
+        limits:
+          memory: "256Mi"    # OOMKilled if app uses more than 256Mi
+          cpu: "500m"        # CPU throttling if consistently hitting limit
+          # OOMKilled: kubectl describe pod webapp | grep "OOMKilled"
+          # Fix: increase limit or profile memory usage
+
+  imagePullSecrets:
+    - name: registry-secret
+      # ImagePullBackOff from private registry: secret missing or wrong
+      # Fix: kubectl get secret registry-secret
+      # kubectl describe pod webapp | grep "Failed to pull image"
+```
+
+---
+
+## 🔷 Debugging Commands Cheat Sheet
+
+```bash
+# Overview of all pods and their status
+kubectl get pods -A -o wide
+
+# Watch pod status changes in real-time
+kubectl get pods -w -n production
+
+# Get all events (ordered by time — very useful!)
+kubectl get events -n production --sort-by='.lastTimestamp'
+
+# Describe pod (includes events, resource limits, volume mounts)
+kubectl describe pod <pod-name> -n production
+
+# Get logs from crashed container
+kubectl logs <pod-name> --previous -n production
+
+# Execute command in running pod for manual debugging
+kubectl exec -it <pod-name> -n production -- /bin/bash
+
+# Check if environment variables are set correctly
+kubectl exec <pod-name> -- env | grep DB_
+
+# Test network connectivity from inside pod
+kubectl exec <pod-name> -- curl http://other-service:8080
+
+# Check resource usage
+kubectl top pods -n production
+kubectl top nodes
+
+# Force delete a stuck pod (use with caution)
+kubectl delete pod <pod-name> --grace-period=0 --force
+```
+
+---
+
+## 🔷 Real-World Production Scenario
+
+**Scenario**: `payment-api` service is returning 503 errors to customers.
+
+**Investigation**:
+```bash
+# 1. Check if service exists and has endpoints
+kubectl get endpoints payment-api -n production
+# <none> → no pods selected
+
+# 2. Check pods
+kubectl get pods -n production -l app=payment-api
+# No resources found → deployment has 0 replicas?
+
+# 3. Check deployment
+kubectl get deployment payment-api -n production
+# AVAILABLE: 0 → why?
+
+kubectl describe deployment payment-api -n production
+# Events: "Failed create pod: insufficient cpu"
+
+# 4. Check node resources
+kubectl describe nodes | grep -A5 "Allocated resources"
+
+# 5. Resolution: Scale down other non-critical deployments
+# or add a new node to the cluster
+
+# Root cause: Cluster resource exhaustion during high-traffic period
+```
+
+---
+
+## 🔷 CKA Exam Tips
+
+- **Check endpoints first** when service isn't working — it reveals label mismatches
+- **`kubectl logs --previous`** is essential for `CrashLoopBackOff` debugging
+- **`kubectl describe pod`** Events section reveals the actual failure reason
+- **`kubectl get events --sort-by='.lastTimestamp'`** is your cluster-level diagnostic tool
+- Know all pod status states and their common causes
+- Practice: `kubectl exec -it pod -- /bin/sh` for interactive debugging
+
+---
+
+## 🔎 Topic Summary — Application Failure Troubleshooting
+
+- **Work from user-facing layer inward**: Service → Endpoints → Pods → Logs → Application
+- **Endpoints is the most critical check**: `<none>` means service selector doesn't match pod labels
+- **Pod status reveals the failure category**: CrashLoopBackOff, OOMKilled, ImagePullBackOff each have different root causes
+- **`kubectl logs --previous`** is essential for diagnosing pods that crash on startup
+- **`kubectl describe`** Events section is the richest source of failure information
+- **Resource limits misconfiguration** (OOMKilled, CPU throttling) is a common silent production issue
+- **Production takeaway**: Instrument your applications with proper liveness/readiness probes and structured logs to dramatically reduce mean time to recovery (MTTR)
+
+---
+
+# 40. Troubleshooting — Control Plane Failures
+
+## 🔷 What Are Control Plane Failures?
+
+Control plane failures are failures in the Kubernetes master node components: **kube-apiserver**, **kube-scheduler**, **kube-controller-manager**, and **etcd**. When these components fail, the cluster becomes partially or fully unmanageable — existing workloads may continue running, but new deployments, scaling, and healing stop working.
+
+---
+
+## 🔷 Impact of Each Component Failure
+
+| Component | Failure Impact |
+|---|---|
+| **kube-apiserver** | kubectl stops working; all cluster management fails |
+| **kube-scheduler** | New pods get stuck in `Pending` — not scheduled |
+| **kube-controller-manager** | No pod healing, no scaling, Deployments don't create pods |
+| **etcd** | Data loss risk; all components dependent on cluster state fail |
+
+---
+
+## 🔷 Two Types of Control Plane Deployments
+
+### Type 1: kubeadm-based (Static Pods)
+Components run as **static pods** in `kube-system` namespace. Managed by kubelet (not kube-apiserver itself).
+
+```bash
+# Pod manifest files — kubelet watches this directory
+ls /etc/kubernetes/manifests/
+# kube-apiserver.yaml  kube-scheduler.yaml  kube-controller-manager.yaml  etcd.yaml
+```
+
+### Type 2: Binary/Systemd Services
+Components run as OS services (non-kubeadm setups).
+
+```bash
+# Check service status
+systemctl status kube-apiserver
+systemctl status kube-scheduler
+systemctl status kube-controller-manager
+systemctl status etcd
+```
+
+---
+
+## 🔷 Step-by-Step Troubleshooting
+
+### Step 1 — Check Node Health First
+
+```bash
+kubectl get nodes
+# If this command hangs → kube-apiserver is down
+# If this command returns but shows NotReady → node issue
+```
+
+### Step 2 — Check Control Plane Pods (kubeadm)
+
+```bash
+kubectl get pods -n kube-system
+# NAME                                READY   STATUS    RESTARTS
+# kube-apiserver-master               1/1     Running   0
+# kube-scheduler-master               0/1     CrashLoopBackOff  5   ← Problem!
+# kube-controller-manager-master      1/1     Running   0
+# etcd-master                         1/1     Running   0
+```
+
+### Step 3 — Check Component Logs
+
+For kubeadm (static pods):
+```bash
+# View pod logs
+kubectl logs kube-scheduler-master -n kube-system
+
+# If kube-apiserver is down and kubectl doesn't work:
+# Static pod containers are still running — use crictl or docker logs
+crictl ps -a | grep scheduler
+crictl logs <container-id>
+```
+
+For systemd services:
+```bash
+journalctl -u kube-apiserver -f
+journalctl -u kube-scheduler -f
+journalctl -u kube-controller-manager -f
+journalctl -u etcd -f
+```
+
+### Step 4 — Check Static Pod Manifests (kubeadm)
+
+```bash
+# The most common cause of control plane issues:
+# Wrong certificate paths, wrong flags, port conflicts
+
+cat /etc/kubernetes/manifests/kube-scheduler.yaml
+
+# Common issues found here:
+# - --kubeconfig pointing to wrong file
+# - Certificate file doesn't exist at specified path
+# - Wrong API version or flag names
+```
+
+---
+
+## 🔷 Common Control Plane Failure Scenarios
+
+### Scenario 1: kube-scheduler Crash
+```bash
+kubectl get pods -n kube-system | grep scheduler
+# kube-scheduler-master   0/1   CrashLoopBackOff   8   25m
+
+kubectl logs -n kube-system kube-scheduler-master --previous
+# Error: failed to load configuration: unable to load config file
+# "/etc/kubernetes/scheduler.conf": no such file or directory
+
+# Fix: Check the kubeconfig path in scheduler manifest
+cat /etc/kubernetes/manifests/kube-scheduler.yaml | grep kubeconfig
+# Correct path: /etc/kubernetes/scheduler.conf
+ls /etc/kubernetes/scheduler.conf    # Verify it exists
+```
+
+### Scenario 2: kube-apiserver Not Responding
+```bash
+# kubectl hangs → API server down
+# Go directly to logs
+crictl logs $(crictl ps -a | grep kube-apiserver | awk '{print $1}')
+
+# Common causes:
+# 1. etcd connection failed (check etcd is running)
+# 2. Certificate expired (check dates in manifest flags)
+# 3. Port 6443 conflict (another process using port)
+# 4. Wrong etcd endpoint in manifest
+
+# Check etcd connection from apiserver perspective
+openssl s_client -connect localhost:2379 \
+  -cert /etc/kubernetes/pki/apiserver-etcd-client.crt \
+  -key /etc/kubernetes/pki/apiserver-etcd-client.key \
+  -CAfile /etc/kubernetes/pki/etcd/ca.crt
+```
+
+### Scenario 3: etcd Data Corruption
+```bash
+# Check etcd health
+ETCDCTL_API=3 etcdctl \
+  --endpoints https://127.0.0.1:2379 \
+  --cacert /etc/kubernetes/pki/etcd/ca.crt \
+  --cert /etc/kubernetes/pki/etcd/server.crt \
+  --key /etc/kubernetes/pki/etcd/server.key \
+  endpoint health
+
+# If cluster member is unhealthy:
+ETCDCTL_API=3 etcdctl member list \
+  --endpoints https://127.0.0.1:2379 \
+  --cacert /etc/kubernetes/pki/etcd/ca.crt \
+  --cert /etc/kubernetes/pki/etcd/server.crt \
+  --key /etc/kubernetes/pki/etcd/server.key
+```
+
+---
+
+## 🔷 Control Plane Certificate Issues
+
+```bash
+# Check certificate expiration
+openssl x509 -in /etc/kubernetes/pki/apiserver.crt -text -noout | grep "Not After"
+
+# List all kubeadm-managed certs and their expiry
+kubeadm certs check-expiration
+
+# Renew all certificates
+kubeadm certs renew all
+
+# After renewal: restart control plane pods
+# For static pods: touch the manifest file to trigger restart
+# or: move yaml out and back in
+mv /etc/kubernetes/manifests/kube-apiserver.yaml /tmp/
+mv /tmp/kube-apiserver.yaml /etc/kubernetes/manifests/
+```
+
+---
+
+## 🔷 CKA Exam Tips
+
+- Know the static pod manifest directory: `/etc/kubernetes/manifests/`
+- Know that **modifying a static pod manifest restarts it automatically** (kubelet detects the change)
+- Know how to check logs when `kubectl` isn't working: `crictl logs <container-id>`
+- Know the difference between kubeadm setup (static pods) and binary setup (systemd)
+- Know that `journalctl -u <service>` is for systemd-based components
+- Know how to use `etcdctl` with all required certificate flags
+
+---
+
+## 🔎 Topic Summary — Control Plane Failure Troubleshooting
+
+- **Control plane failures stop cluster management** but don't immediately kill running workloads
+- **kubeadm clusters** use static pods in `/etc/kubernetes/manifests/` — editing YAML restarts the component
+- **Binary/systemd clusters** use `systemctl status` and `journalctl -u <service>` for diagnostics
+- **kube-apiserver down** = kubectl doesn't work; use `crictl` for container logs
+- **kube-scheduler down** = new pods stuck in `Pending` forever
+- **etcd issues** = highest severity; can cause data loss and full cluster failure
+- **Certificate expiration** is a common production failure; use `kubeadm certs check-expiration` proactively
+- **Production takeaway**: Monitor control plane component health with Prometheus/alertmanager and set up certificate expiry alerts at 60-day and 30-day thresholds
+
+---
+
+# 41. Troubleshooting — Worker Node Failures
+
+## 🔷 What Are Worker Node Failures?
+
+Worker node failures occur when a node that runs application pods becomes unhealthy or loses connectivity to the control plane. This causes pods on the affected node to be evicted and rescheduled elsewhere (after a timeout period), causing temporary service disruption. Understanding how to diagnose and recover worker node failures is critical for maintaining cluster reliability.
+
+---
+
+## 🔷 How Kubernetes Detects Node Failures
+
+The control plane uses **Node Conditions** updated by kubelet every few seconds. If a node doesn't report for `node-monitor-grace-period` (default: 40 seconds), the node is marked `Unknown`. After `pod-eviction-timeout` (default: 5 minutes), pods are evicted.
+
+---
+
+## 🔷 Node Condition Types
+
+```bash
+kubectl describe node worker-1
+# Under "Conditions":
+Type                Status   Reason              Message
+OutOfDisk           False    KubeletHasSufficientDisk
+MemoryPressure      False    KubeletHasSufficientMemory
+DiskPressure        False    KubeletHasNoDiskPressure
+PIDPressure         False    KubeletHasSufficientPID
+Ready               True     KubeletReady
+
+# Problem states:
+# OutOfDisk: True → Node is out of disk space
+# MemoryPressure: True → Node is running low on memory
+# DiskPressure: True → Node is running low on disk
+# PIDPressure: True → Too many processes
+# Ready: False or Unknown → Node is not healthy
+```
+
+---
+
+## 🔷 Step-by-Step Worker Node Troubleshooting
+
+### Step 1 — Identify Unhealthy Node
+
+```bash
+kubectl get nodes
+# NAME       STATUS      ROLES    AGE   VERSION
+# worker-1   Ready       <none>   8d    v1.29.0
+# worker-2   NotReady    <none>   8d    v1.29.0  ← Problem!
+```
+
+### Step 2 — Get Node Details
+
+```bash
+kubectl describe node worker-2
+# Check:
+# - Node conditions (MemoryPressure, DiskPressure, etc.)
+# - LastHeartbeatTime (when did kubelet last report?)
+# - Events section
+# - Taints added by system (node.kubernetes.io/not-ready:NoExecute)
+```
+
+### Step 3 — SSH to the Node
+
+```bash
+ssh worker-2
+
+# Check system resources
+df -h          # Disk space
+free -m        # Memory
+top            # CPU and process list
+uptime         # System load and uptime
+
+# Check if node has network connectivity to master
+ping <master-ip>
+curl -k https://<master-ip>:6443
+```
+
+### Step 4 — Check kubelet Status
+
+```bash
+# Is kubelet running?
+systemctl status kubelet
+# Active: active (running) ← Good
+# Active: failed ← Problem
+
+# Start if not running
+systemctl start kubelet
+systemctl enable kubelet  # Ensure it starts on reboot
+
+# View kubelet logs
+journalctl -u kubelet -f
+# Look for:
+# "Failed to connect to API server"
+# "certificate has expired"
+# "node not found"
+```
+
+### Step 5 — Check kubelet Certificates
+
+```bash
+# View the kubelet's client certificate
+openssl x509 -in /var/lib/kubelet/pki/kubelet-client-current.pem \
+  -text -noout | grep -A2 "Validity"
+
+# Check certificate details
+openssl x509 -in /var/lib/kubelet/worker-2.crt -text -noout
+# Subject: CN=system:node:worker-2, O=system:nodes
+# Verify: CN matches node name, Org is system:nodes
+# Verify: Not expired
+
+# If certificate expired → renew using kubeadm
+kubeadm token create --print-join-command
+# Re-run join command on the worker node
+```
+
+---
+
+## 🔷 kubelet Configuration
+
+```bash
+# kubelet config file location
+cat /var/lib/kubelet/config.yaml
+
+# kubelet systemd unit file
+cat /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+
+# Key configuration to verify:
+# - --kubeconfig: points to /etc/kubernetes/kubelet.conf
+# - --config: /var/lib/kubelet/config.yaml
+# - --container-runtime-endpoint: unix:///run/containerd/containerd.sock
+# - --cni-bin-dir: /opt/cni/bin
+# - --cni-conf-dir: /etc/cni/net.d
+```
+
+---
+
+## 🔷 Common Worker Node Failure Scenarios
+
+| Scenario | Symptoms | Fix |
+|---|---|---|
+| kubelet crashed | `NotReady`, `systemctl status kubelet` shows failed | `systemctl start kubelet`, check logs |
+| Disk full | `DiskPressure: True`, pods evicted | Clean up logs/images: `crictl rmi --prune` |
+| Out of memory | `MemoryPressure: True`, OOM kills | Add memory, reduce pod density |
+| Certificate expired | kubelet can't authenticate to API server | Renew cert, rejoin cluster |
+| Network partition | `Unknown` status, can't SSH | Check network hardware, routing |
+| containerd crashed | Pods running but new ones don't start | `systemctl restart containerd` |
+| Clock skew | TLS handshake failures | `timedatectl` or `chronyc tracking`, sync NTP |
+
+---
+
+## 🔷 CKA Exam Tips
+
+- Know the **5 Node Condition types** and what they mean
+- Know that `NotReady` can be diagnosed with `kubectl describe node`
+- Know that **kubelet is the most critical component on worker nodes** — check it first
+- Know the kubelet certificate location and format
+- Know that `journalctl -u kubelet` shows kubelet system logs
+- Know that kubelet must be able to reach kube-apiserver on **port 6443**
+
+---
+
+## 🔎 Topic Summary — Worker Node Failure Troubleshooting
+
+- **Node conditions** (OutOfDisk, MemoryPressure, DiskPressure, Ready) indicate health status
+- **NotReady node** → check kubelet status, resource pressure, and network connectivity to master
+- **kubelet is the heart of a worker node** — it manages all pods and communicates with the control plane
+- **Certificate expiration** is a common production issue — monitor proactively with `kubeadm certs check-expiration`
+- **Clock skew** causes TLS failures — ensure NTP is configured on all nodes
+- **Recovery order**: Restore connectivity → Start kubelet �� Verify node becomes Ready → Verify pods rescheduled
+- **Production takeaway**: Configure node-level monitoring (disk, memory, kubelet health) with alerting to detect issues before they become outages
+
+---
+
+# 42. Kubernetes Infrastructure Choices
+
+## 🔷 What Are Kubernetes Infrastructure Options?
+
+Kubernetes can be deployed on various types of infrastructure, ranging from a developer's laptop to massive multi-region cloud clusters. Understanding the options helps you choose the right platform for your use case — development, testing, or production.
+
+---
+
+## 🔷 Local Development Options
+
+| Tool | Use Case | How It Works |
+|---|---|---|
+| **Minikube** | Single-node local cluster | Creates a VM (VirtualBox/KVM) with a single Kubernetes node |
+| **kind** | Multi-node local cluster | Uses Docker containers as cluster nodes |
+| **k3s** | Lightweight production/edge | Stripped-down Kubernetes binary |
+| **kubeadm** | Realistic multi-node local cluster | Requires pre-provisioned VMs |
+
+---
+
+## 🔷 Production Deployment Options
+
+### Turnkey Solutions (You manage VMs, tool manages Kubernetes)
+| Solution | Provider | Notes |
+|---|---|---|
+| **kubeadm** | Self-managed | Manual setup on pre-provisioned VMs |
+| **kops** | AWS-focused | Automates cluster lifecycle on AWS |
+| **Kubespray** | Any cloud/on-prem | Ansible-based, highly flexible |
+| **OpenShift** | Red Hat | Enterprise Kubernetes with extras |
+| **Rancher** | SUSE | Multi-cluster management |
+
+### Hosted/Managed Solutions (Provider manages control plane)
+| Service | Provider | Notes |
+|---|---|---|
+| **GKE** (Google Kubernetes Engine) | Google Cloud | Fully managed, autopilot mode available |
+| **EKS** (Elastic Kubernetes Service) | AWS | Managed control plane, you manage workers |
+| **AKS** (Azure Kubernetes Service) | Microsoft Azure | Free control plane, pay for workers |
+| **OKE** (Oracle Container Engine) | Oracle | Strong networking capabilities |
+| **OpenShift Online** | Red Hat | Managed OpenShift |
+
+---
+
+## 🔷 Decision Framework
+
+```
+Is this for development/testing?
+    │
+    ├── Yes, single developer → Minikube or kind
+    ├── Yes, team CI/CD → kind in Docker or k3s
+    └── Yes, realistic env → kubeadm on VMs
+
+Is this for production?
+    │
+    ├── On public cloud (AWS/GCP/Azure)?
+    │       ├── Want fully managed? → EKS/GKE/AKS
+    │       └── Want more control? → kops (AWS) or Kubespray
+    │
+    ├── On-premises?
+    │       ├── Enterprise support needed? → OpenShift or Rancher
+    │       └── Community tools → kubeadm or Kubespray
+    │
+    └── Edge/IoT/Resource-constrained?
+            └── k3s or MicroK8s
+```
+
+---
+
+## 🔎 Topic Summary — Infrastructure Choices
+
+- **Minikube** = easiest single-node local development; **kind** = multi-node using Docker
+- **kubeadm** = production-grade setup tool; requires VMs but gives full control
+- **Managed services** (GKE/EKS/AKS) handle control plane HA, updates, and scaling automatically
+- **Turnkey solutions** (kops, Kubespray) automate cluster setup while you retain control
+- **OpenShift** adds enterprise features (RBAC presets, integrated CI/CD, developer tools) on top of Kubernetes
+- **Production takeaway**: For most organizations, a managed service (EKS/GKE/AKS) reduces operational burden significantly; use kubeadm or kops when you need deeper control or are on-premises
+
+---
+
+# 43. ETCD in High Availability
+
+## 🔷 What Is etcd?
+
+**etcd** is a distributed, reliable key-value store that serves as Kubernetes' database — the single source of truth for all cluster state. Every object you create with `kubectl` is stored in etcd. Every component that needs to know the cluster's state reads from etcd.
+
+Key characteristics:
+- **Distributed**: Runs as a cluster of 3, 5, or 7 nodes for HA
+- **Strongly consistent**: All reads return the latest written value
+- **Leader-based writes**: Only the leader node accepts and propagates writes
+- **Raft consensus**: Leader election and write consistency protocol
+
+---
+
+## 🔷 Single Node vs HA etcd
+
+### Single Node (kubeadm default):
+```
+kube-apiserver → etcd (single pod)
+```
+**Risk**: If the master node fails, the entire cluster state is unavailable.
+
+### HA Setup (3+ nodes):
+```
+kube-apiserver (LB) → ┌── etcd node 1 (Leader)
+                       ├── etcd node 2 (Follower)
+                       └── etcd node 3 (Follower)
+```
+If the leader fails, Raft algorithm elects a new leader from the remaining nodes.
+
+---
+
+## 🔷 The Raft Consensus Algorithm
+
+**Why Raft**: Ensures all etcd cluster members have the same data despite network partitions, node failures, and concurrent writes.
+
+**Leader Election Process**:
+1. All nodes start as **Followers**
+2. Each node has a random election timeout (150–300ms)
+3. First node to timeout becomes a **Candidate** and requests votes
+4. If a Candidate gets majority votes → becomes **Leader**
+5. Leader sends regular **heartbeats** to all Followers
+6. If Followers stop receiving heartbeats → new election
+
+**Write Process**:
+1. Client sends write to Leader
+2. Leader appends to its log
+3. Leader sends log entry to all Followers
+4. When majority (quorum) confirms → Leader commits and responds to client
+5. Leader notifies Followers to commit
+
+---
+
+## 🔷 Quorum Requirements
+
+| Cluster Size | Quorum (Minimum for writes) | Fault Tolerance |
+|---|---|---|
+| 1 | 1 | 0 (no HA) |
+| 2 | 2 | 0 (both must be up) |
+| **3** | **2** | **1 node failure** |
+| 4 | 3 | 1 node failure (same as 3!) |
+| **5** | **3** | **2 node failures** |
+| 6 | 4 | 2 node failures (same as 5!) |
+| **7** | **4** | **3 node failures** |
+
+**Formula**: `Quorum = floor(N/2) + 1`
+
+**Why odd numbers?** With even-numbered clusters, a network partition can create two equal-size groups, neither achieving quorum. Odd numbers prevent this split-brain scenario.
+
+**Production recommendation**: Start with **3 nodes** (minimum HA), use **5 nodes** for critical production (tolerates 2 simultaneous failures).
+
+---
+
+## 🔷 etcd Configuration for Multi-Node Cluster
+
+```bash
+# etcd systemd service configuration
+ExecStart=/usr/local/bin/etcd \
+  --name etcd-1 \                    # Unique name for this etcd member
+  --initial-advertise-peer-urls https://192.168.1.11:2380 \
+  --listen-peer-urls https://192.168.1.11:2380 \    # Port 2380: member-to-member
+  --listen-client-urls https://192.168.1.11:2379,https://127.0.0.1:2379 \  # Port 2379: client
+  --advertise-client-urls https://192.168.1.11:2379 \
+  --initial-cluster-token etcd-cluster-prod \       # Unique token for this cluster
+  --initial-cluster \                               # All cluster members
+    etcd-1=https://192.168.1.11:2380,\
+    etcd-2=https://192.168.1.12:2380,\
+    etcd-3=https://192.168.1.13:2380 \
+  --initial-cluster-state new \
+  --cert-file=/etc/etcd/server.crt \
+  --key-file=/etc/etcd/server.key \
+  --peer-cert-file=/etc/etcd/peer.crt \
+  --peer-key-file=/etc/etcd/peer.key \
+  --trusted-ca-file=/etc/etcd/ca.crt \
+  --peer-trusted-ca-file=/etc/etcd/ca.crt \
+  --data-dir=/var/lib/etcd
+```
+
+---
+
+## 🔷 Working with etcdctl
+
+```bash
+# Always set API version 3
+export ETCDCTL_API=3
+
+# Health check
+etcdctl endpoint health \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+
+# List members
+etcdctl member list \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+
+# Backup (snapshot)
+etcdctl snapshot save /backup/etcd-snapshot.db \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+
+# Restore from backup
+etcdctl snapshot restore /backup/etcd-snapshot.db \
+  --name etcd-1 \
+  --initial-cluster etcd-1=https://192.168.1.11:2380 \
+  --initial-advertise-peer-urls https://192.168.1.11:2380 \
+  --data-dir /var/lib/etcd-new
+
+# Basic key-value operations
+etcdctl put name "production-cluster"
+etcdctl get name
+```
+
+---
+
+## 🔷 etcd Backup Strategy
+
+```bash
+# Production backup script
+#!/bin/bash
+BACKUP_DIR="/backup/etcd"
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+SNAPSHOT_FILE="${BACKUP_DIR}/snapshot-${TIMESTAMP}.db"
+
+# Create snapshot
+ETCDCTL_API=3 etcdctl snapshot save ${SNAPSHOT_FILE} \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+
+# Verify backup
+ETCDCTL_API=3 etcdctl snapshot status ${SNAPSHOT_FILE} --write-out=table
+
+# Upload to S3 (production best practice)
+aws s3 cp ${SNAPSHOT_FILE} s3://cluster-backups/etcd/
+
+# Clean up backups older than 7 days
+find ${BACKUP_DIR} -name "snapshot-*.db" -mtime +7 -delete
+```
+
+---
+
+## 🔷 CKA Exam Tips
+
+- Know the **quorum formula**: `floor(N/2) + 1`
+- Know that **3 nodes is minimum HA**, tolerates **1 failure**
+- Know that **5 nodes** tolerates **2 failures**
+- Know how to perform **etcd backup and restore** — frequently tested!
+- Know the certificate flags
+
 
