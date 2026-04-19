@@ -1,263 +1,1445 @@
-# 🚀 Comprehensive CKA Master Notes — Senior DevOps & Kubernetes Administrator
-
-> **Crafted for CKA Mastery, Production-Grade Understanding & Senior DevOps Interviews**
-> *Explanation-first approach: 70% concepts, 30% YAML/commands*
+# 🚀 Kubernetes Core Production Handbook
+### CKA-Level Deep Notes | Production-Oriented | Interview-Ready
 
 ---
 
 ## 📋 Table of Contents
 
-### Part 1: Core Concepts & Scheduling
-- [1.1 Kubernetes Architecture Deep Dive](#11-kubernetes-architecture-deep-dive)
-- [1.2 Pods — The Atomic Unit](#12-pods--the-atomic-unit)
-- [1.3 ReplicaSets — Self-Healing Guarantees](#13-replicasets--self-healing-guarantees)
-- [1.4 Deployments — Rolling Updates & Rollbacks](#14-deployments--rolling-updates--rollbacks)
-- [1.5 Services — Stable Networking for Pods](#15-services--stable-networking-for-pods)
-- [1.6 Namespaces — Logical Cluster Isolation](#16-namespaces--logical-cluster-isolation)
-- [1.7 ConfigMaps & Secrets — Externalizing Configuration](#17-configmaps--secrets--externalizing-configuration)
-- [1.8 Resource Requirements, Limits & LimitRanges](#18-resource-requirements-limits--limitranges)
-- [1.9 Taints, Tolerations & Node Affinity — Advanced Scheduling](#19-taints-tolerations--node-affinity--advanced-scheduling)
-- [1.10 DaemonSets, Static Pods & Multiple Schedulers](#110-daemonsets-static-pods--multiple-schedulers)
-- [1.11 Monitoring & Metrics Server](#111-monitoring--metrics-server)
+### Part I — Core Concepts
+- [1. Cluster Architecture](#1-cluster-architecture)
+- [2. Docker vs ContainerD](#2-docker-vs-containerd)
+- [3. ETCD for Beginners](#3-etcd-for-beginners)
+- [4. ETCD in Kubernetes](#4-etcd-in-kubernetes)
+- [5. Kube API Server](#5-kube-api-server)
+- [6. Kube Controller Manager](#6-kube-controller-manager)
+- [7. Kube Scheduler](#7-kube-scheduler)
+- [8. Kubelet](#8-kubelet)
+- [9. Kube Proxy](#9-kube-proxy)
+- [10. Pods](#10-pods)
+- [11. Pods with YAML](#11-pods-with-yaml)
+- [12. ReplicaSets](#12-replicasets)
+- [13. Deployments](#13-deployments)
+- [14. Services — NodePort](#14-services--nodeport)
+- [15. Services — ClusterIP](#15-services--clusterip)
+- [16. Services — LoadBalancer](#16-services--loadbalancer)
+- [17. Namespaces](#17-namespaces)
+- [18. Imperative vs Declarative](#18-imperative-vs-declarative)
+- [19. Kubectl Apply Command](#19-kubectl-apply-command)
 
-### Part 2: Logging, Lifecycle Management & Cluster Maintenance
-- [2.1 Managing Application Logs](#21-managing-application-logs)
-- [2.2 Rolling Updates, Rollbacks & Deployment Strategies](#22-rolling-updates-rollbacks--deployment-strategies)
-- [2.3 Commands & Arguments — Docker vs Kubernetes](#23-commands--arguments--docker-vs-kubernetes)
-- [2.4 Secrets Management & Encryption at Rest](#24-secrets-management--encryption-at-rest)
-- [2.5 Multi-Container Pods — Sidecar Patterns](#25-multi-container-pods--sidecar-patterns)
-- [2.6 Horizontal & Vertical Pod Autoscaling](#26-horizontal--vertical-pod-autoscaling)
-- [2.7 OS Upgrades — Drain, Cordon & Uncordon](#27-os-upgrades--drain-cordon--uncordon)
-- [2.8 Cluster Upgrade with kubeadm](#28-cluster-upgrade-with-kubeadm)
-- [2.9 Backup & Restore — etcd & Cluster State](#29-backup--restore--etcd--cluster-state)
+### Part II — Scheduling
+- [20. Manual Scheduling](#20-manual-scheduling)
+- [21. Labels and Selectors](#21-labels-and-selectors)
+- [22. Taints and Tolerations](#22-taints-and-tolerations)
+- [23. Node Selectors](#23-node-selectors)
+- [24. Node Affinity](#24-node-affinity)
+- [25. Taints/Tolerations vs Node Affinity](#25-taintstolerations-vs-node-affinity)
+- [26. DaemonSets](#26-daemonsets)
+- [27. Static Pods](#27-static-pods)
+- [28. Priority Classes](#28-priority-classes)
+- [29. Multiple Schedulers](#29-multiple-schedulers)
+- [30. Configuring Scheduler Profiles](#30-configuring-scheduler-profiles)
+- [31. Admission Controllers](#31-admission-controllers)
+- [32. Validating and Mutating Admission Controllers](#32-validating-and-mutating-admission-controllers)
 
-### Part 3: Security & Storage
-- [3.1 Kubernetes Security Architecture](#31-kubernetes-security-architecture)
-- [3.2 Authentication — Who Are You?](#32-authentication--who-are-you)
-- [3.3 TLS Certificates — Deep Dive](#33-tls-certificates--deep-dive)
-- [3.4 KubeConfig — Credential Management](#34-kubeconfig--credential-management)
-- [3.5 RBAC — Role-Based Access Control](#35-rbac--role-based-access-control)
-- [3.6 Service Accounts — Machine Identity](#36-service-accounts--machine-identity)
-- [3.7 Network Policies — Zero-Trust Networking](#37-network-policies--zero-trust-networking)
-- [3.8 Image Security & Security Contexts](#38-image-security--security-contexts)
-- [3.9 Custom Resource Definitions & Operators](#39-custom-resource-definitions--operators)
-- [3.10 Storage — PV, PVC & Storage Classes](#310-storage--pv-pvc--storage-classes)
+### Part III — Logging, Monitoring & Lifecycle Management
+- [33. Managing Application Logs](#33-managing-application-logs)
+- [34. Rolling Updates and Rollbacks](#34-rolling-updates-and-rollbacks)
+- [35. Commands and Arguments in Docker](#35-commands-and-arguments-in-docker)
+- [36. Commands and Arguments in Kubernetes](#36-commands-and-arguments-in-kubernetes)
+- [37. Secrets](#37-secrets)
+- [38. Encrypting Secret Data at Rest](#38-encrypting-secret-data-at-rest)
+- [39. Multi-Container Pods](#39-multi-container-pods)
+- [40. Introduction to Autoscaling](#40-introduction-to-autoscaling)
+- [41. Horizontal Pod Autoscaler (HPA)](#41-horizontal-pod-autoscaler-hpa)
+- [42. In-Place Resize of Pods](#42-in-place-resize-of-pods)
 
-### Part 4: Networking, Troubleshooting & Cluster Installation
-- [4.1 Linux Networking Fundamentals](#41-linux-networking-fundamentals)
-- [4.2 CNI — Container Network Interface](#42-cni--container-network-interface)
-- [4.3 Service Networking & kube-proxy](#43-service-networking--kube-proxy)
-- [4.4 DNS in Kubernetes — CoreDNS](#44-dns-in-kubernetes--coredns)
-- [4.5 Ingress — Layer 7 Load Balancing](#45-ingress--layer-7-load-balancing)
-- [4.6 Troubleshooting — Application & Cluster Failures](#46-troubleshooting--application--cluster-failures)
-- [4.7 Installing Kubernetes with kubeadm](#47-installing-kubernetes-with-kubeadm)
-
-### Part 5: Helm, Kustomize & Package Management
-- [5.1 Helm — The Kubernetes Package Manager](#51-helm--the-kubernetes-package-manager)
-- [5.2 Helm vs Kustomize](#52-helm-vs-kustomize)
-- [5.3 Kustomize — Plain YAML Customization](#53-kustomize--plain-yaml-customization)
-
----
-
----
-
-# PART 1: CORE CONCEPTS & SCHEDULING
+### Part IV — Cluster Maintenance
+- [43. OS Upgrades](#43-os-upgrades)
+- [44. Cluster Upgrade Process](#44-cluster-upgrade-process)
+- [45. Backup and Restore Methods](#45-backup-and-restore-methods)
 
 ---
 
-## 1.1 Kubernetes Architecture Deep Dive
+---
 
-### What is Kubernetes?
-
-Kubernetes (K8s) is an open-source **container orchestration platform** originally developed by Google and donated to the CNCF in 2014. It automates the deployment, scaling, and management of containerized workloads across a cluster of machines.
-
-Before Kubernetes, teams ran containers manually on individual servers. If a container crashed, someone had to restart it. If traffic spiked, someone had to manually spin up more containers. Kubernetes solved these problems by providing a declarative, self-healing, auto-scaling system.
-
-### The Architecture: Two-Plane Model
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    CONTROL PLANE (Master Node)                  │
-│                                                                 │
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────────┐  │
-│  │  kube-api    │  │  Controller  │  │   kube-scheduler    │  │
-│  │  server      │◄─┤  Manager     │  │                     │  │
-│  │  (Port 6443) │  │              │  │ (Decides WHERE pods │  │
-│  └──────┬───────┘  └──────────────┘  │  are placed)        │  │
-│         │                            └─────────────────────┘  │
-│         │          ┌──────────────┐                            │
-│         └─────────►│    etcd      │ (Key-value state store)   │
-│                    │  (Port 2379) │                            │
-│                    └──────────────┘                            │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┼───────────────┐
-              ▼               ▼               ▼
-┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-│   Worker Node 1 │ │   Worker Node 2 │ │   Worker Node 3 │
-│                 │ │                 │ │                 │
-│  ┌───────────┐  │ │  ┌───────────┐  │ │  ┌───────────┐  │
-│  │  kubelet  │  │ │  │  kubelet  │  │ │  │  kubelet  │  │
-│  └───────────┘  │ │  └───────────┘  │ │  └───────────┘  │
-│  ┌───────────┐  │ │  ┌───────────┐  │ │  ┌───────────┐  │
-│  │ kube-proxy│  │ │  │ kube-proxy│  │ │  │ kube-proxy│  │
-│  └───────────┘  │ │  └───────────┘  │ │  └───────────┘  │
-│  ┌───────────┐  │ │  ┌───────────┐  │ │  ┌───────────┐  │
-│  │ Container │  │ │  │ Container │  │ │  │ Container │  │
-│  │ Runtime   │  │ │  │ Runtime   │  │ │  │ Runtime   │  │
-│  │(containerd│  │ │  │(containerd│  │ │  │(containerd│  │
-│  └───────────┘  │ │  └───────────┘  │ │  └───────────┘  │
-└─────────────────┘ └─────────────────┘ └─────────────────┘
-```
-
-### Control Plane Components — Deep Explanation
-
-#### 1. kube-apiserver — The Central Hub
-
-The API Server is **the single source of truth and the only component that talks directly to etcd**. Every interaction with the cluster — whether from `kubectl`, other control plane components, or external tools — goes through the API Server.
-
-**How it works internally:**
-1. A user runs `kubectl apply -f deployment.yaml`
-2. `kubectl` serializes the request and sends it as an HTTP/HTTPS REST call to the API Server
-3. The API Server **authenticates** the request (who are you?)
-4. The API Server **authorizes** the request (are you allowed to do this?)
-5. The API Server runs **admission controllers** (additional validation/mutation)
-6. The API Server **validates** the resource definition
-7. The API Server **writes the desired state to etcd**
-8. The API Server **notifies watching components** (like controllers and the scheduler)
-
-**Why it matters in production:** If the API Server is down, you can't `kubectl` anything, no new pods get scheduled, but *existing running pods continue to run*. This is a critical distinction — the data plane is somewhat independent of the control plane.
-
-#### 2. etcd — The Brain's Memory
-
-etcd is a **distributed, consistent key-value store** that holds the entire state of your Kubernetes cluster. Everything — all Pods, Services, ConfigMaps, Secrets, Deployments, RBAC rules — is stored in etcd.
-
-**Why etcd is critical:**
-- It uses the **Raft consensus algorithm** ensuring consistency across etcd cluster members
-- It's **append-only** — changes are journaled, making recovery possible
-- In production, you run **3 or 5 etcd members** for HA (never 2 or 4 — must be odd for quorum)
-- **Losing etcd = losing your cluster state** — this is why etcd backup is a CKA exam requirement
-
-**Production consideration:** In large EKS or on-prem clusters, etcd is often placed on dedicated nodes with SSD storage because it's extremely I/O sensitive.
-
-#### 3. kube-scheduler — The Smart Placer
-
-The Scheduler watches for **newly created Pods that have no node assignment** and decides which node each Pod should run on. It doesn't actually *run* the pod — it just assigns it to a node, then the kubelet on that node takes over.
-
-**Scheduling decision process:**
-1. **Filtering phase:** Eliminate nodes that *cannot* run the pod (insufficient CPU/memory, taints, node selectors)
-2. **Scoring phase:** Rank remaining nodes using priority functions (least loaded, image already present, etc.)
-3. **Assignment:** Bind the pod to the highest-scoring node by updating etcd via the API Server
-
-#### 4. kube-controller-manager — The Reconciliation Engine
-
-This component runs multiple **controllers** — each controller is a loop that watches the current state of specific resources and takes action to bring actual state in line with desired state.
-
-**Key controllers:**
-- **ReplicaSet Controller**: Ensures the right number of pods are running
-- **Node Controller**: Monitors node health, marks unreachable nodes as `NotReady`
-- **Deployment Controller**: Manages rolling updates by creating/deleting ReplicaSets
-- **Service Account Controller**: Creates default service accounts in new namespaces
-- **Job Controller**: Manages batch jobs and their completion
-
-**The Reconciliation Loop (critical concept):**
-```
-Watch etcd → Compare actual vs desired → Take corrective action → Repeat
-```
-
-This is why Kubernetes is called a **declarative system** — you declare *what* you want, controllers figure out *how* to achieve it.
-
-### Worker Node Components
-
-#### kubelet — The Node Agent
-
-The kubelet runs on **every worker node** and is responsible for:
-- Registering the node with the cluster
-- Watching the API Server for Pods assigned to its node
-- Calling the container runtime (containerd/CRI-O) to start/stop containers
-- Reporting Pod and node status back to the API Server
-- Mounting volumes and secrets into containers
-- Running liveness/readiness probes
-
-**Critical production fact:** The kubelet is the *only* Kubernetes component that is **not** deployed as a container or pod — it runs as a system service (systemd) on the node. If it goes down, no new pods start on that node and existing pod health isn't reported.
-
-#### kube-proxy — The Network Rules Manager
-
-kube-proxy runs on every node and maintains **iptables (or IPVS) rules** that implement Kubernetes Service networking. When you create a Service, kube-proxy creates the appropriate NAT rules so that traffic to the Service's ClusterIP gets forwarded to the right backend Pods.
-
-#### Container Runtime
-
-The actual software that runs containers. Kubernetes uses the **CRI (Container Runtime Interface)** to talk to the runtime. Common runtimes:
-- **containerd** (most common today, used in EKS, GKE, AKS)
-- **CRI-O** (Red Hat/OpenShift focused)
-- Docker (deprecated as a direct runtime since K8s 1.24)
-
-### Request Flow — Complete End-to-End
-
-```
-kubectl apply -f app.yaml
-    │
-    ▼
-kube-apiserver (authenticate → authorize → admission → validate → write etcd)
-    │
-    ▼
-etcd stores desired state
-    │
-    ▼ (watch notification)
-kube-scheduler sees unscheduled pod → assigns node → updates etcd
-    │
-    ▼ (watch notification)
-kubelet on assigned node sees new pod assignment
-    │
-    ▼
-kubelet calls containerd → container starts
-    │
-    ▼
-kubelet reports status → etcd updated (via apiserver)
-    │
-    ▼
-kube-proxy updates iptables if service exists
-```
-
-> **CKA Exam Insight:** You must know which port each component uses (6443 for apiserver, 2379/2380 for etcd, 10250 for kubelet, 10259 for scheduler, 10257 for controller-manager). Memorize these for network policy and firewall questions.
+# Part I — Core Concepts
 
 ---
 
-## 1.2 Pods — The Atomic Unit
+## 1. Cluster Architecture
 
-### What is a Pod and Why Does It Exist?
+### What Is It?
+Kubernetes Cluster Architecture is the foundational blueprint describing how Kubernetes organizes, manages, and orchestrates containerized workloads. It divides responsibilities between **Master (Control Plane) Nodes** and **Worker Nodes**, much like a harbor where control ships manage cargo ships.
 
-A Pod is the **smallest deployable unit in Kubernetes**. It's a logical wrapper around one or more containers. The key question is: why does Kubernetes introduce this abstraction instead of working directly with containers?
+### Why Do We Need It?
+Without a structured architecture, deploying containers at scale would require manual intervention for every placement, restart, networking, and scaling decision. Kubernetes architecture automates all of this, providing:
+- Automated scheduling and placement
+- Self-healing through controllers
+- Centralized state management via etcd
+- Declarative configuration management
 
-**The reason:** Kubernetes needed a way to represent "a unit of work" that could include tightly coupled helper containers (sidecars). A Pod allows multiple containers to:
-- Share the **same network namespace** (they communicate via `localhost`)
-- Share **storage volumes** (same volume can be mounted in multiple containers)
-- Have the **same lifecycle** (they start and stop together)
+### Key Components
 
-**Real-world example:** In production EKS environments, you commonly see:
-- Main application container + Envoy proxy sidecar (for service mesh like Istio)
-- Application container + Filebeat sidecar (for log shipping to Elasticsearch)
-- Application container + Vault agent (for secrets injection)
+| Component | Node Type | Role |
+|---|---|---|
+| etcd | Master | Distributed key-value store; cluster brain/memory |
+| kube-apiserver | Master | Central hub; all communication passes through here |
+| kube-scheduler | Master | Decides which node a pod runs on |
+| kube-controller-manager | Master | Watches state and drives toward desired state |
+| kubelet | Worker | Pod lifecycle manager on each node |
+| kube-proxy | Worker | Network rules and inter-pod communication |
+| Container Runtime | Both | Runs actual containers (containerd, CRI-O) |
 
-### Pod Lifecycle
+### Internal Working — Step-by-Step Flow
 
 ```
-Pending → Running → Succeeded/Failed/Unknown
-   │
-   ▼
-ContainerCreating → ContainerStarting → Running → (Terminating)
+User Request (kubectl apply)
+        ↓
+[1] kube-apiserver authenticates & validates
+        ↓
+[2] Object written to etcd (desired state stored)
+        ↓
+[3] kube-scheduler detects unscheduled Pod
+        ↓
+[4] Scheduler scores nodes → selects best fit → updates etcd via API
+        ↓
+[5] kubelet on selected worker node polls API Server
+        ↓
+[6] kubelet instructs container runtime (containerd) to pull image & start container
+        ↓
+[7] kubelet reports status back to API Server → etcd updated (actual state)
+        ↓
+[8] Controllers continuously reconcile desired vs actual state
 ```
 
-**Pod phases explained:**
-- **Pending**: Pod accepted by API Server, but containers not yet started. Could be waiting for node assignment, image pull, or resource availability
-- **Running**: At least one container is running (but not necessarily healthy)
-- **Succeeded**: All containers exited with status 0 (common for Jobs)
-- **Failed**: All containers exited, at least one with non-zero status
-- **Unknown**: Can't communicate with the node where pod runs
+### Architecture Flow Diagram (Text)
 
-### Pod YAML with Production Comments
+```
+┌─────────────────── MASTER NODE ──────────────────────┐
+│                                                        │
+│   ┌──────────┐    ┌──────────┐    ┌───────────────┐  │
+│   │   etcd   │◄──►│  kube-   │◄──►│  kube-        │  │
+│   │ (state)  │    │apiserver │    │  scheduler    │  │
+│   └──────────┘    └────┬─────┘    └───────────────┘  │
+│                        │                               │
+│                   ┌────▼──────────────────────┐       │
+│                   │  kube-controller-manager  │       │
+│                   └───────────────────────────┘       │
+└───────────────────────────┬───────────────────────────┘
+                            │ HTTPS API calls
+          ┌─────────────────┼──────────────────┐
+          ▼                 ▼                  ▼
+┌──────────────┐   ┌──────────────┐   ┌──────────────┐
+│  WORKER NODE │   │  WORKER NODE │   │  WORKER NODE │
+│  ┌────────┐  │   │  ┌────────┐  │   │  ┌────────┐  │
+│  │kubelet │  │   │  │kubelet │  │   │  │kubelet │  │
+│  └────────┘  │   │  └────────┘  │   │  └────────┘  │
+│  ┌──────────┐│   │  ┌──────────┐│   │  ┌──────────┐│
+│  │kube-proxy││   │  │kube-proxy││   │  │kube-proxy││
+│  └──────────┘│   │  └──────────┘│   │  └──────────┘│
+│  ┌──────────┐│   │  ┌──────────┐│   │  ┌──────────┐│
+│  │  Pods    ││   │  │  Pods    ││   │  │  Pods    ││
+│  └──────────┘│   │  └──────────┘│   │  └──────────┘│
+└──────────────┘   └──────────────┘   └──────────────┘
+```
+
+### Real-World Production Scenario
+
+**Application:** E-commerce platform (microservices)  
+**Architecture:**  
+- 3 Master nodes (HA control plane with etcd cluster)
+- 10+ Worker nodes across 3 availability zones
+- Each service (cart, checkout, inventory) deployed as Deployments
+
+**Deployment Approach:**  
+All services deployed declaratively via Helm charts. Controllers ensure desired replica counts are always maintained. Scheduler places pods based on node affinity rules (zone-aware placement).
+
+**Failure Handling:**  
+- If a worker node fails → Node Controller detects via missed heartbeats (40s grace + 5min eviction timer) → Pods rescheduled to healthy nodes
+- If master node fails → etcd quorum maintained with 3-node HA cluster; other control plane nodes take over
+
+**Monitoring:**  
+Prometheus + kube-state-metrics tracks pod counts, node health, API server latency.
+
+### Common Mistakes
+- Running only one master node in production (no HA)
+- Not separating etcd from master (high I/O contention)
+- Ignoring node resource capacity leading to over-scheduling
+- Missing pod disruption budgets during node failures
+
+### Debugging & Troubleshooting
+
+```bash
+# Check all control plane pods
+kubectl get pods -n kube-system
+
+# Check component status (older versions)
+kubectl get componentstatus
+
+# Check API server logs (kubeadm setup)
+kubectl logs kube-apiserver-master -n kube-system
+
+# Check node health
+kubectl describe node <node-name>
+kubectl get events --sort-by=.metadata.creationTimestamp
+```
+
+### CKA Exam Tips
+- Know which components run on master vs worker
+- Understand that kube-apiserver is the ONLY component that talks to etcd directly
+- kubelet is NOT deployed by kubeadm automatically on workers — must be installed manually
+- Remember: Controller Manager and Scheduler can be ONE version LOWER than API Server; kubelet/proxy up to TWO versions lower
+
+### Production Best Practices
+- Run odd number of etcd nodes (3 or 5) for quorum
+- Dedicate master nodes — no user workloads
+- Enable audit logging on kube-apiserver
+- Use network policies between control plane and worker communication
+- Regularly test disaster recovery by simulating node failures
+
+---
+
+### 🔎 Summary — Cluster Architecture
+
+- **Master Node** = Brain: runs etcd, API server, scheduler, controller manager
+- **Worker Node** = Muscle: runs kubelet (node agent), kube-proxy, and actual pods
+- **etcd** = Single source of truth — ALL cluster state lives here
+- **kube-apiserver** = ONLY gateway; every component communicates through it
+- **Scheduler** = Decides WHERE pods run (does NOT start them)
+- **kubelet** = ACTUALLY starts containers by talking to container runtime
+- **kube-proxy** = Maintains network rules for service-to-pod routing
+- **Interview Answer:** "Kubernetes architecture separates decision-making (control plane) from execution (worker nodes). The API server is the central hub, etcd stores all state, the scheduler places workloads, controllers maintain desired state, and kubelets execute on each node."
+- **Production Takeaway:** HA control plane (3+ masters, 3+ etcd) is non-negotiable for production. Workers can scale horizontally. Network between master and workers must be secured and monitored.
+
+---
+
+## 2. Docker vs ContainerD
+
+### What Is It?
+A comparison of Docker and ContainerD as container runtimes, explaining the evolution from Docker's monolithic architecture to the leaner, CRI-compatible ContainerD, along with the CLI tools (CTR, NerdCTL, crictl) used to interact with them.
+
+### Why Do We Need It?
+Kubernetes v1.24 removed direct Docker support. Understanding ContainerD and its tooling is critical for:
+- Debugging containers in production Kubernetes clusters
+- Understanding the CRI (Container Runtime Interface) standard
+- Knowing which tool to use for which task (debugging vs. management)
+
+### Key Components
+
+| Component | Purpose | Maintained By |
+|---|---|---|
+| Docker | Full container platform (build, run, push) | Docker Inc. |
+| ContainerD | CRI-compatible runtime (run containers only) | CNCF |
+| CTR | Low-level debug CLI for ContainerD | ContainerD community |
+| NerdCTL | Docker-like CLI for ContainerD | ContainerD community |
+| crictl | Kubernetes-focused debug CLI for any CRI runtime | Kubernetes community |
+
+### Internal Working — The Evolution
+
+```
+Historical Flow (Pre-Kubernetes 1.24):
+kubectl → kube-apiserver → kubelet → dockershim → Docker Engine → containerd → runc → container
+
+Modern Flow (Post-1.24):
+kubectl → kube-apiserver → kubelet → CRI interface → containerd → runc → container
+```
+
+The key change: **dockershim was removed**. Kubernetes now speaks directly to any CRI-compliant runtime (containerd, CRI-O, etc.) via a standardized interface.
+
+### Why Docker Was Removed from Kubernetes
+
+Docker was built BEFORE the CRI standard. It contains many features (build tools, volumes, auth, networking, CLI) that Kubernetes does NOT need. Kubernetes only needs the ability to:
+1. Pull images
+2. Start containers
+3. Stop containers
+4. Inspect container state
+
+ContainerD does exactly this, without the overhead of the full Docker stack.
+
+### Tool Comparison
+
+```
+CTR:
+  - Bundled with ContainerD
+  - Limited features, primarily for debugging
+  - ctr images pull docker.io/library/redis:alpine
+  - NOT recommended for production use
+
+NerdCTL:
+  - Docker-compatible CLI for ContainerD
+  - Supports: encrypted images, lazy pulling, P2P distribution
+  - nerdctl run --name redis redis:alpine
+  - RECOMMENDED for container management with ContainerD
+
+crictl:
+  - Works with ANY CRI-compatible runtime
+  - Kubernetes-maintained, for debugging
+  - crictl ps, crictl logs, crictl pull
+  - Used by Kubernetes admins for node-level debugging
+  - Containers created with crictl may be deleted by kubelet
+```
+
+### CRI Runtime Endpoints (Kubernetes 1.24+)
+
+```bash
+# Manually set runtime endpoint
+crictl --runtime-endpoint unix:///run/containerd/containerd.sock ps
+
+# Or export for session
+export CONTAINER_RUNTIME_ENDPOINT=unix:///run/containerd/containerd.sock
+```
+
+### Real-World Production Scenario
+
+**Problem:** A pod is stuck in `CrashLoopBackOff`. Kubernetes-level logs aren't sufficient.
+
+**Solution with crictl:**
+```bash
+# List all containers including stopped ones
+crictl ps -a
+
+# Get logs from a specific container by container ID
+crictl logs <container-id>
+
+# Inspect container details
+crictl inspect <container-id>
+
+# Execute into a running container
+crictl exec -it <container-id> /bin/sh
+```
+
+### Common Mistakes
+- Using `docker` commands on a node running ContainerD (they won't work)
+- Trying to manage Kubernetes pods with `ctr` directly
+- Manually creating containers with `crictl` without knowing kubelet will remove them
+- Forgetting to set `CONTAINER_RUNTIME_ENDPOINT` when using crictl
+
+### Debugging & Troubleshooting
+
+```bash
+# Find runtime endpoint in use
+cat /var/lib/kubelet/config.yaml | grep containerRuntime
+
+# Check containerd service
+systemctl status containerd
+
+# Check crictl config
+cat /etc/crictl.yaml
+
+# Verify container runtime via kubelet process
+ps -aux | grep kubelet | grep container-runtime
+```
+
+### CKA Exam Tips
+- Know that `crictl` is used for CRI-level debugging on Kubernetes nodes
+- Know that Docker was removed in Kubernetes 1.24
+- `nerdctl` = Docker replacement for ContainerD management
+- `ctr` = low-level debugging only
+- Docker images are OCI-compliant and work fine with ContainerD
+
+### Production Best Practices
+- Use ContainerD as the runtime for production Kubernetes clusters
+- Configure crictl with proper endpoint in `/etc/crictl.yaml`
+- Never create standalone containers with crictl in production (kubelet will delete them)
+- Use nerdctl for any node-level container management tasks outside Kubernetes
+
+---
+
+### 🔎 Summary — Docker vs ContainerD
+
+- **Docker** is a full platform; Kubernetes only needed the runtime part
+- **ContainerD** = Docker's runtime, extracted and made CRI-compatible
+- **CRI** = Standard interface Kubernetes uses to talk to any container runtime
+- **CTR** = Debug only; limited use
+- **NerdCTL** = Daily use with ContainerD (like docker CLI)
+- **crictl** = Kubernetes admin's debugging tool for node-level container inspection
+- **Production Takeaway:** In modern clusters, ContainerD is the default runtime. Use `crictl` to debug pods at the node level when `kubectl logs` is insufficient.
+
+---
+
+## 3. ETCD for Beginners
+
+### What Is It?
+etcd is a **distributed, reliable, key-value store** that is fast, simple, and consistent. It stores data as key-value pairs (not tabular rows/columns like SQL). It is the foundational data store for Kubernetes — the cluster's "long-term memory."
+
+### Why Do We Need It?
+Kubernetes needs a place to store the ENTIRE cluster state:
+- What nodes exist
+- What pods are running
+- What the desired state is
+- Secrets, ConfigMaps, ServiceAccounts, RBAC rules
+
+etcd provides this with:
+- **Consistency** via the Raft consensus algorithm
+- **Reliability** through data replication across nodes
+- **Speed** optimized for read-heavy workloads
+
+### Key Concepts
+
+**Key-Value vs Relational:**
+```
+Relational DB (SQL):
+| Name      | Age | Location  | Salary |
+|-----------|-----|-----------|--------|
+| John Doe  | 45  | New York  | 5000   |
+| Dave Smith| 34  | New York  | 4000   |
+| Aryan (10)| 10  | New York  | NULL   |  ← NULL for non-applicable fields
+
+Key-Value Store (etcd):
+"John Doe" → { "age": 45, "location": "New York", "salary": 5000 }
+"Aryan"    → { "age": 10, "location": "New York", "grade": "A" }
+            ← Each entry is independent; no NULL/schema issues
+```
+
+The key-value model allows each document to have its own structure — perfect for Kubernetes objects which vary widely in their properties.
+
+### Internal Working — Raft Consensus
+
+```
+etcd Cluster (3 nodes):
+  Node A (Leader) ←─── receives write request
+        ↓
+  Sends log entry to Node B and Node C
+        ↓
+  Waits for quorum (majority = 2 of 3)
+        ↓
+  Once quorum acknowledges → commits entry → responds to client
+        ↓
+  Node B and C apply the committed entry
+```
+
+**Quorum formula:** `(n/2) + 1` nodes must agree for a write to succeed.
+- 3 nodes → quorum = 2 → can tolerate 1 failure
+- 5 nodes → quorum = 3 → can tolerate 2 failures
+
+### etcd Version History
+
+| Version | Release Date | Key Feature |
+|---|---|---|
+| 0.1 | August 2013 | Initial release |
+| 2.0 | February 2015 | Raft consensus algorithm added |
+| 3.0 | January 2017 | Performance optimizations, gRPC |
+| CNCF | November 2018 | Graduated as CNCF project |
+
+### API v2 vs v3 Commands
+
+```bash
+# Check API version
+./etcdctl --version
+# etcdctl version: 3.3.11
+# API version: 2  ← default may be v2
+
+# Switch to API v3 (recommended)
+export ETCDCTL_API=3
+./etcdctl version
+# API version: 3
+
+# v2 commands (legacy)
+./etcdctl set key1 value1
+./etcdctl get key1
+
+# v3 commands (current)
+./etcdctl put key1 value1   # "set" → "put" in v3
+./etcdctl get key1
+```
+
+### Installation Quick Reference
+
+```bash
+# Download etcd
+curl -L https://github.com/etcd-io/etcd/releases/download/v3.3.11/etcd-v3.3.11-linux-amd64.tar.gz \
+  -o etcd-v3.3.11-linux-amd64.tar.gz
+
+# Extract
+tar xzvf etcd-v3.3.11-linux-amd64.tar.gz
+
+# Run etcd (default port: 2379)
+./etcd
+```
+
+### CKA Exam Tips
+- Always use `ETCDCTL_API=3` before any etcdctl commands in the exam
+- Default port is **2379** (client), **2380** (peer)
+- Know the v2 vs v3 command differences (`set` → `put`)
+- Remember: `version` is a subcommand in v3, not a flag
+
+### Production Best Practices
+- Always deploy etcd with **TLS** encryption
+- Use **odd numbers** (3 or 5) for cluster size
+- Separate etcd nodes from Kubernetes control plane in large clusters
+- Monitor etcd disk I/O — high I/O = etcd bottleneck
+- Set up regular snapshots for backup
+
+---
+
+### 🔎 Summary — ETCD for Beginners
+
+- **etcd** = Distributed key-value store; Kubernetes' source of truth
+- Stores data as flexible JSON/YAML documents, not rigid tables
+- Uses **Raft consensus** for distributed agreement
+- Default port: **2379** for clients, **2380** for peer communication
+- API v3 uses `put`/`get`; API v2 uses `set`/`get`
+- Always set `ETCDCTL_API=3` in Kubernetes environments
+- **Production Takeaway:** etcd is the most critical component in Kubernetes. Its loss = cluster loss. Protect it with TLS, HA, and regular snapshots.
+
+---
+
+## 4. ETCD in Kubernetes
+
+### What Is It?
+etcd in the Kubernetes context is the **single source of truth** for ALL cluster state. Every object (node, pod, deployment, secret, role, configmap) is stored here. Changes are only "complete" once written to etcd.
+
+### How Kubernetes Uses etcd
+
+```
+kubectl create deployment nginx → API Server → writes to etcd
+                                                    ↓
+kubectl get deployment nginx ← API Server ← reads from etcd
+```
+
+**Every cluster operation = a read or write to etcd.**
+
+### Deployment Methods
+
+#### Method 1: Manual (from scratch)
+```bash
+# Download binary
+wget -q --https-only \
+  "https://github.com/coreos/etcd/releases/download/v3.3.9/etcd-v3.3.9-linux-amd64.tar.gz"
+
+# Service configuration (excerpt)
+ExecStart=/usr/local/bin/etcd \
+  --name ${ETCD_NAME} \
+  --cert-file=/etc/etcd/kubernetes.pem \
+  --key-file=/etc/etcd/kubernetes-key.pem \
+  --initial-advertise-peer-urls https://${INTERNAL_IP}:2380 \
+  --listen-client-urls https://${INTERNAL_IP}:2379,https://127.0.0.1:2379 \
+  --advertise-client-urls https://${INTERNAL_IP}:2379 \
+  --initial-cluster controller-0=https://${CONTROLLER0_IP}:2380,controller-1=https://${CONTROLLER1_IP}:2380 \
+  --data-dir=/var/lib/etcd
+```
+
+#### Method 2: kubeadm (automated)
+```bash
+# kubeadm deploys etcd as a pod in kube-system
+kubectl get pods -n kube-system | grep etcd
+# etcd-master    1/1    Running    0    1h
+
+# View all keys in etcd registry
+kubectl exec etcd-master -n kube-system -- \
+  etcdctl get / --prefix --keys-only
+# Output:
+# /registry/apiregistration.k8s.io/apiservices/v1
+# /registry/pods/default/nginx
+# /registry/deployments/default/my-app
+# ...
+```
+
+### Registry Structure in etcd
+
+```
+/registry/
+├── nodes/
+├── pods/
+│   ├── default/
+│   └── kube-system/
+├── deployments/
+├── services/
+├── secrets/
+├── configmaps/
+├── namespaces/
+├── replicasets/
+└── apiregistration.k8s.io/
+```
+
+### High Availability etcd Configuration
+
+For HA, the `--initial-cluster` parameter lists ALL etcd members:
+```bash
+--initial-cluster \
+  controller-0=https://10.240.0.10:2380,\
+  controller-1=https://10.240.0.11:2380,\
+  controller-2=https://10.240.0.12:2380
+```
+
+### Real-World Production Scenario
+
+**Problem:** Production cluster becomes unresponsive after etcd leader election issue.
+
+**Diagnosis:**
+```bash
+# Check etcd health
+ETCDCTL_API=3 etcdctl \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/etcd/ca.pem \
+  --cert=/etc/etcd/etcd-server.crt \
+  --key=/etc/etcd/etcd-server.key \
+  endpoint health
+
+# Check etcd member list
+ETCDCTL_API=3 etcdctl member list \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/etcd/ca.pem \
+  --cert=/etc/etcd/etcd-server.crt \
+  --key=/etc/etcd/etcd-server.key
+```
+
+**Resolution:** Identified one etcd member with disk I/O saturation causing election timeouts. Replaced the node, rejoined cluster. Took < 15 minutes with proper runbooks.
+
+### Debugging & Troubleshooting
+
+```bash
+# Check etcd pod logs (kubeadm)
+kubectl logs etcd-master -n kube-system
+
+# Check etcd cluster health directly
+ETCDCTL_API=3 etcdctl endpoint health \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+
+# List all cluster members
+ETCDCTL_API=3 etcdctl member list \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key
+```
+
+### CKA Exam Tips
+- Know the difference between kubeadm etcd (pod in kube-system) vs. manually deployed etcd
+- For etcdctl commands, ALWAYS include `--cacert`, `--cert`, `--key` flags
+- The `--advertise-client-urls` value is what the API Server connects to (port 2379)
+- Know where etcd data directory is: typically `/var/lib/etcd`
+
+### Production Best Practices
+- etcd disk should be **SSD** — high IOPS required
+- Monitor `etcd_server_leader_changes_seen_total` metric — frequent changes = unstable cluster
+- Set `--heartbeat-interval=100` and `--election-timeout=1000` for stable clusters
+- Never run etcd on the same disk as the OS
+- Take regular snapshots (see Backup section)
+
+---
+
+### 🔎 Summary — ETCD in Kubernetes
+
+- **All Kubernetes state** lives in etcd — nodes, pods, configs, secrets, RBAC
+- Kubernetes API Server is the **only** component that directly reads/writes etcd
+- Changes are "complete" only after being written to etcd
+- Deploy with kubeadm (pod) or manually (service)
+- HA requires configuring `--initial-cluster` with all member addresses
+- **Production Takeaway:** etcd is the most critical single point of failure. Protect it with HA (3+ nodes), TLS, dedicated SSDs, and automated backups. Losing etcd means losing the entire cluster state.
+
+---
+
+## 5. Kube API Server
+
+### What Is It?
+The **kube-apiserver** is the central management component of Kubernetes — the "front door" to the entire cluster. Every kubectl command, every controller action, every scheduler decision goes through the API server. It is the ONLY component that directly interacts with etcd.
+
+### Why Do We Need It?
+Without the API server, no component in the cluster can communicate. It provides:
+- **Authentication** of all requests
+- **Authorization** (RBAC, ABAC, Webhook)
+- **Admission Control** (validation and mutation)
+- **RESTful API** for all cluster operations
+- **Watch mechanism** for components to detect changes
+
+### Request Lifecycle — Step by Step
+
+```
+[1] Client sends request (kubectl, curl, controller)
+        ↓
+[2] Authentication (certificates, tokens, basic auth)
+        ↓
+[3] Authorization (RBAC: can this user do this action?)
+        ↓
+[4] Admission Controllers (validate/mutate the object)
+        ↓
+[5] Validation (schema validation of the object)
+        ↓
+[6] Persist to etcd
+        ↓
+[7] Return response to client
+
+For Pod creation specifically:
+[6a] API Server stores Pod object in etcd (nodeName = empty)
+[6b] Scheduler detects unscheduled pod → assigns node → updates etcd
+[6c] kubelet on target node detects pod → starts container
+[6d] kubelet reports status back → API Server updates etcd
+```
+
+### Architecture Flow
+
+```
+┌──────────────┐    ┌─────────────────────────────────────────┐
+│  kubectl CLI │───►│           kube-apiserver                │
+└──────────────┘    │  ┌──────────────────────────────────┐   │
+                    │  │ 1. Auth  2. AuthZ  3. Admission  │   │
+┌──────────────┐    │  │ 4. Validate  5. Persist          │   │
+│  Scheduler   │◄──►│  └──────────────────────────────────┘   │
+└──────────────┘    │              ↕                           │
+                    │         ┌────────┐                       │
+┌──────────────┐    │         │  etcd  │                       │
+│  Controllers │◄──►│         └────────┘                       │
+└──────────────┘    └─────────────────────────────────────────┘
+                                 ↕
+┌──────────────┐         ┌──────────────┐
+│   kubelet    │◄────────│ Watch Events │
+└──────────────┘         └──────────────┘
+```
+
+### Key Configuration Options
+
+```bash
+# Typical kube-apiserver startup flags
+kube-apiserver \
+  --advertise-address=${INTERNAL_IP} \          # IP used by other components to reach API server
+  --etcd-servers=https://127.0.0.1:2379 \        # etcd connection
+  --etcd-cafile=/etc/kubernetes/pki/etcd/ca.crt \ # TLS for etcd
+  --authorization-mode=Node,RBAC \               # Auth modes
+  --enable-admission-plugins=NodeRestriction \   # Admission plugins
+  --service-cluster-ip-range=10.96.0.0/12 \      # Service IP range
+  --service-node-port-range=30000-32767 \        # NodePort range
+  --apiserver-count=3 \                          # For HA setups
+  --audit-log-path=/var/log/audit.log            # Audit logging
+```
+
+### Viewing API Server Configuration
+
+```bash
+# kubeadm: API server runs as a pod
+kubectl get pod kube-apiserver-master -n kube-system -o yaml
+
+# Manual installation: check systemd service
+cat /etc/systemd/system/kube-apiserver.service
+
+# Check running process
+ps -aux | grep kube-apiserver
+```
+
+### Real-World Production Scenario
+
+**Issue:** API Server returning 429 (Too Many Requests) under load.
+
+**Root Cause:** Excessive controller reconciliation loops + monitoring scraping hitting API server.
+
+**Solution:**
+```bash
+# Check API server metrics
+curl -sk https://localhost:6443/metrics | grep apiserver_request
+
+# Enable API Priority and Fairness (APF)
+--enable-priority-and-fairness=true
+
+# Tune rate limiting
+--max-requests-inflight=800
+--max-mutating-requests-inflight=200
+```
+
+**Monitoring Implementation:**  
+Alert on `apiserver_request_duration_seconds_p99 > 1s` and `apiserver_request_total{code="429"} > 0`.
+
+### Debugging & Troubleshooting
+
+```bash
+# View API server logs (kubeadm)
+kubectl logs kube-apiserver-master -n kube-system --tail=100
+
+# Check API server health
+curl -k https://localhost:6443/healthz
+
+# Check readiness
+curl -k https://localhost:6443/readyz
+
+# Check available API versions
+kubectl api-versions
+
+# Check API resources
+kubectl api-resources
+```
+
+### CKA Exam Tips
+- Know where API server manifest lives: `/etc/kubernetes/manifests/kube-apiserver.yaml`
+- Remember API server is stateless — etcd holds state
+- Authorization modes are ordered: `Node,RBAC` means Node auth checked first
+- Default service cluster IP range is `10.96.0.0/12`
+- API server is the ONLY component talking to etcd
+
+### Production Best Practices
+- Enable audit logging (`--audit-log-path`)
+- Run 3 API server instances in HA (behind a load balancer)
+- Use RBAC (`--authorization-mode=Node,RBAC`)
+- Enable admission plugins for security (NodeRestriction, PodSecurity)
+- Monitor API server latency and error rates
+
+---
+
+### 🔎 Summary — Kube API Server
+
+- **API Server** = Single entry point for ALL cluster operations
+- Handles: Authentication → Authorization → Admission → Validation → etcd persistence
+- **Only component** that reads/writes etcd directly
+- Scheduler, Controllers, kubelet all communicate ONLY via API Server
+- Exposes RESTful HTTP endpoints; kubectl is just an HTTP client
+- **Interview Answer:** "The kube-apiserver is the control plane's front door. Every operation — from kubectl commands to controller reconciliations — goes through it. It authenticates requests, checks authorization via RBAC, runs admission controllers, and persists objects to etcd."
+- **Production Takeaway:** The API server is stateless (state in etcd), so it scales horizontally. In HA setups, run 3 replicas behind a load balancer. Always enable audit logging.
+
+---
+
+## 6. Kube Controller Manager
+
+### What Is It?
+The **kube-controller-manager** is a single binary that bundles multiple controllers. Each controller is a control loop that watches the current state of the cluster and takes action to move it toward the desired state. Think of it as the "autopilot" of Kubernetes.
+
+### The Controller Pattern
+
+```
+Desired State (in etcd): 3 replicas of nginx
+Current State (actual): 2 replicas running
+                           ↓
+Controller detects drift: 3 desired ≠ 2 actual
+                           ��
+Controller action: Create 1 new Pod
+                           ↓
+State reconciled: 3 replicas running
+```
+
+This **observe → diff → act** loop runs continuously.
+
+### Key Controllers and Their Roles
+
+| Controller | Function |
+|---|---|
+| Node Controller | Monitors node health; evicts pods from failed nodes |
+| Replication Controller | Ensures desired pod count is maintained |
+| Deployment Controller | Manages rolling updates via ReplicaSets |
+| StatefulSet Controller | Manages stateful application pods |
+| DaemonSet Controller | Ensures one pod per node |
+| Job Controller | Manages batch/one-shot jobs |
+| Service Account Controller | Creates default service accounts in namespaces |
+| Namespace Controller | Manages namespace lifecycle |
+| Endpoint Controller | Populates Endpoints objects for Services |
+| PersistentVolume Controller | Binds PVCs to PVs |
+
+### Node Controller Timing Details
+
+```
+Node heartbeat monitoring:
+├── Check interval: every 5 seconds
+├── Grace period before "unreachable": 40 seconds
+└── Eviction timeout: 5 minutes after unreachable
+    └── After 5 min: pods moved to other nodes (if in ReplicaSet)
+```
+
+```bash
+# Node controller options (in controller-manager service)
+--node-monitor-period=5s
+--node-monitor-grace-period=40s
+--pod-eviction-timeout=5m0s
+```
+
+### Installation and Configuration
+
+```bash
+# Download
+wget https://storage.googleapis.com/kubernetes-release/release/v1.13.0/\
+  bin/linux/amd64/kube-controller-manager
+
+# Service configuration
+ExecStart=/usr/local/bin/kube-controller-manager \
+  --cluster-cidr=10.200.0.0/16 \
+  --leader-elect=true \           # Enable HA leader election
+  --kubeconfig=/var/lib/kubernetes/kube-controller-manager.kubeconfig \
+  --controllers=* \               # Enable ALL controllers
+  --use-service-account-credentials=true
+```
+
+### Enabling/Disabling Specific Controllers
+
+```bash
+# Enable all except tokencleaner
+--controllers=*,-tokencleaner
+
+# Enable only specific controllers
+--controllers=deployment,replicaset,node,namespace
+```
+
+### Viewing in a kubeadm Cluster
+
+```bash
+# Controller manager runs as a pod
+kubectl get pod kube-controller-manager-master -n kube-system
+
+# Inspect its manifest
+cat /etc/kubernetes/manifests/kube-controller-manager.yaml
+
+# Check running process
+ps -aux | grep kube-controller-manager
+```
+
+### Real-World Production Scenario
+
+**Scenario:** Deployment stuck at 80% rollout — pods not updating.
+
+**Investigation:**
+```bash
+# Check controller manager logs
+kubectl logs kube-controller-manager-master -n kube-system | grep -i "error\|warn"
+
+# Check deployment rollout status
+kubectl rollout status deployment/my-app
+
+# Check ReplicaSets
+kubectl get rs | grep my-app
+# Shows: old RS with 2 pods + new RS with 8 pods → stuck
+
+# Describe deployment for conditions
+kubectl describe deployment my-app | grep -A 5 "Conditions:"
+# Condition: Available=False, ProgressDeadlineExceeded=True
+```
+
+**Root Cause:** New pods crashing (ImagePullBackOff) — controller stops rollout at minAvailable threshold.
+
+### Debugging & Troubleshooting
+
+```bash
+# Check controller manager logs
+kubectl logs kube-controller-manager-master -n kube-system
+
+# Check events for controller actions
+kubectl get events --sort-by=.metadata.creationTimestamp -n default
+
+# Verify leader election (HA clusters)
+kubectl get endpoints kube-controller-manager -n kube-system -o yaml
+# Look for: control-plane.alpha.kubernetes.io/leader annotation
+```
+
+### CKA Exam Tips
+- Know that ALL controllers are in ONE binary (kube-controller-manager)
+- Node monitor grace period = 40s; eviction timeout = 5 min
+- `--leader-elect=true` is required in HA (multi-master) clusters
+- Can enable/disable individual controllers with `--controllers` flag
+- Controller manager talks to API server, NOT etcd directly
+
+### Production Best Practices
+- Enable `--leader-elect=true` for HA deployments
+- Monitor controller queue depth and reconciliation errors
+- Set `--node-monitor-grace-period` and `--pod-eviction-timeout` based on network reliability
+- Watch for `kube_controller_manager_work_queue_depth` metric — spikes indicate issues
+
+---
+
+### 🔎 Summary — Kube Controller Manager
+
+- **Single binary** containing many controllers
+- Each controller follows: **observe → diff → act** (reconciliation loop)
+- Node Controller: health check every 5s, mark unreachable after 40s, evict after 5min
+- **Replication Controller**: ensures desired pod count
+- Talks to API Server, NOT etcd directly
+- Uses **leader election** for HA; only ONE instance actively reconciles at a time
+- **Production Takeaway:** Controllers are the self-healing mechanism of Kubernetes. If a pod dies, a node fails, or a deployment is updated, controllers automatically bring the cluster to the desired state.
+
+---
+
+## 7. Kube Scheduler
+
+### What Is It?
+The **kube-scheduler** is responsible for deciding **which node** a pod should run on. It does NOT actually start the pod — that's kubelet's job. The scheduler only updates the `nodeName` field in the pod spec.
+
+### Why Do We Need It?
+Without intelligent scheduling:
+- Nodes would be overloaded while others sit idle
+- Pods with special hardware requirements might land on wrong nodes
+- Multi-zone deployments wouldn't be balanced
+
+### Two-Phase Scheduling Process
+
+#### Phase 1: Filtering
+Eliminate nodes that **cannot** host the pod:
+```
+Filters applied:
+├── NodeResourcesFit: Does node have enough CPU/memory?
+├── NodeName: Does pod specify a specific nodeName?
+├── NodeUnschedulable: Is node cordoned/drained?
+├── TaintToleration: Does pod tolerate node taints?
+├── NodeAffinity: Does node match affinity rules?
+└── PodTopologySpread: Spread constraints satisfied?
+```
+
+#### Phase 2: Scoring
+Score remaining nodes (0–10) to find the **best fit**:
+```
+Scoring plugins:
+├── LeastAllocated: Prefers nodes with more free resources
+├── MostAllocated: Prefers nodes with less free resources (bin packing)
+├── ImageLocality: Prefers nodes that already have the image
+├── NodeAffinity: Higher score for preferred affinity rules
+└── TaintToleration: Score based on toleration matches
+```
+
+The pod is scheduled on the node with the **highest score**.
+
+### Example — CPU Scoring
+
+```
+Pod needs: 10 CPU
+
+Node A: 16 CPU total, 4 allocated → 12 free
+Node B: 12 CPU total, 6 allocated → 6 free
+Node C: 8 CPU total → FILTERED OUT (not enough)
+
+Scoring (LeastAllocated):
+Node A: (12 free / 16 total) = 75% score = 7.5
+Node B: (6 free / 12 total) = 50% score = 5.0
+
+Winner: Node A (more free resources after scheduling)
+```
+
+### Installation
+
+```bash
+# Download
+wget https://storage.googleapis.com/kubernetes-release/release/v1.13.0/\
+  bin/linux/amd64/kube-scheduler
+
+# Service file
+ExecStart=/usr/local/bin/kube-scheduler \
+  --config=/etc/kubernetes/config/kube-scheduler.yaml \
+  --v=2
+```
+
+### Verify Scheduler
+
+```bash
+# kubeadm: scheduler is a pod
+kubectl get pod kube-scheduler-master -n kube-system
+
+# Check running process
+ps -aux | grep kube-scheduler
+
+# Check scheduler manifest
+cat /etc/kubernetes/manifests/kube-scheduler.yaml
+```
+
+### Real-World Production Scenario
+
+**Problem:** All pods being scheduled on 2 of 10 nodes; 8 nodes idle.
+
+**Root Cause:** LeastAllocated scoring was working correctly, but 8 nodes had taints applied for maintenance and forgotten.
+
+**Fix:**
+```bash
+# List tainted nodes
+kubectl get nodes -o custom-columns=NAME:.metadata.name,\
+TAINTS:.spec.taints
+
+# Remove forgotten maintenance taints
+kubectl taint nodes node3 maintenance:NoSchedule-
+
+# Verify scheduling spreads
+kubectl get pods -o wide | awk '{print $7}' | sort | uniq -c
+```
+
+### Debugging & Troubleshooting
+
+```bash
+# Pod stuck in Pending? Check why scheduler didn't assign it
+kubectl describe pod <pod-name>
+# Look for: "Events: Warning FailedScheduling"
+# Example: "0/3 nodes are available: 3 Insufficient cpu"
+
+# Check scheduler logs
+kubectl logs kube-scheduler-master -n kube-system
+
+# Get events for scheduling failures
+kubectl get events | grep FailedScheduling
+```
+
+### CKA Exam Tips
+- Scheduler ONLY sets `nodeName` — does NOT start containers
+- Default scheduling: Filter → Score → Bind
+- If no suitable node found → Pod stays `Pending`
+- Know the most common `FailedScheduling` reasons: Insufficient CPU/memory, taint mismatch, affinity mismatch
+- Can have multiple schedulers — pods specify `schedulerName` field
+
+### Production Best Practices
+- Monitor `scheduler_scheduling_algorithm_duration_seconds` for performance
+- Use pod topology spread constraints for zone-aware placement
+- Combine node affinity + taints/tolerations for guaranteed isolation
+- Use `--leader-elect=true` for HA
+- Set resource requests on ALL pods for accurate scheduling
+
+---
+
+### 🔎 Summary — Kube Scheduler
+
+- **Scheduler decides WHERE pods run** — it does NOT start them
+- Two-phase process: **Filter** (eliminate) → **Score** (rank) → **Bind** (assign nodeName)
+- Common filter: CPU/memory fit, taints, affinity rules, node unschedulable
+- Scoring plugins optimize for resource utilization or locality
+- Pods without `nodeName` sit in **Pending** until scheduler assigns one
+- **Production Takeaway:** Proper resource requests are critical. Without them, the scheduler can't make informed decisions, leading to node overloads and poor workload distribution.
+
+---
+
+## 8. Kubelet
+
+### What Is It?
+The **kubelet** is the primary node agent that runs on every worker node. It is the "captain" of the node — receiving instructions from the kube-apiserver and ensuring containers are running as expected.
+
+### Key Responsibilities
+1. Registers the node with the Kubernetes cluster
+2. Watches the kube-apiserver for pods assigned to its node
+3. Instructs the container runtime to start/stop containers
+4. Monitors container and pod health
+5. Reports node and pod status back to the API server
+6. Manages container lifecycle: restarts, liveness probes, readiness probes
+
+### Internal Working Flow
+
+```
+[1] kubelet registers node with API Server
+        ↓
+[2] kubelet polls API Server for pods assigned to this node
+        ↓
+[3] For each new pod:
+    a. Pull container images via container runtime (containerd)
+    b. Create pod sandbox (network namespace)
+    c. Start containers
+    d. Run liveness/readiness probes
+        ↓
+[4] kubelet continuously monitors containers
+        ↓
+[5] kubelet reports status to API Server every:
+    - nodeStatusUpdateFrequency: 10s (heartbeat)
+    - node lease: every 10s to kube-node-lease namespace
+```
+
+### IMPORTANT: kubelet is NOT deployed by kubeadm
+
+Unlike other control plane components, **kubelet must be installed manually** on worker nodes:
+
+```bash
+# Download kubelet binary
+wget https://storage.googleapis.com/kubernetes-release/release/v1.13.0/\
+  bin/linux/amd64/kubelet
+
+# Configure and run as a service
+ExecStart=/usr/local/bin/kubelet \
+  --config=/var/lib/kubelet/kubelet-config.yaml \
+  --container-runtime=remote \
+  --container-runtime-endpoint=unix:///var/run/containerd/containerd.sock \
+  --kubeconfig=/var/lib/kubelet/kubeconfig \
+  --network-plugin=cni \
+  --register-node=true
+```
+
+### kubelet-config.yaml (Key Settings)
 
 ```yaml
+# /var/lib/kubelet/kubelet-config.yaml
+kind: KubeletConfiguration
+apiVersion: kubelet.config.k8s.io/v1beta1
+authentication:
+  anonymous:
+    enabled: false
+  webhook:
+    enabled: true
+authorization:
+  mode: Webhook
+clusterDomain: "cluster.local"
+clusterDNS:
+  - "10.96.0.10"
+staticPodPath: /etc/kubernetes/manifests  # Where static pod definitions live
+evictionHard:
+  memory.available: "100Mi"              # Evict pods if < 100Mi memory free
+  nodefs.available: "10%"                # Evict if disk < 10% free
+containerRuntime: remote
+containerRuntimeEndpoint: unix:///var/run/containerd/containerd.sock
+```
+
+### Verify Kubelet
+
+```bash
+# Check kubelet process
+ps -aux | grep kubelet
+
+# Check kubelet service status
+systemctl status kubelet
+
+# View kubelet logs
+journalctl -u kubelet -f
+
+# Check node registration
+kubectl get nodes
+```
+
+### Real-World Production Scenario
+
+**Problem:** Node shows `NotReady` in `kubectl get nodes`.
+
+**Diagnosis:**
+```bash
+# Check kubelet service
+systemctl status kubelet
+# Output: Active: failed (Result: exit-code)
+
+# Check kubelet logs
+journalctl -u kubelet --since "5 minutes ago"
+# Output: "failed to run Kubelet: unable to determine runtime API version"
+
+# Root cause: Container runtime (containerd) crashed
+systemctl status containerd
+# Output: inactive
+
+# Fix
+systemctl restart containerd
+systemctl restart kubelet
+
+# Verify
+kubectl get nodes
+# Node: Ready
+```
+
+### Debugging & Troubleshooting
+
+```bash
+# Most common kubelet issues
+
+# 1. Check kubelet logs
+journalctl -u kubelet -n 100 --no-pager
+
+# 2. Check node conditions
+kubectl describe node <node-name> | grep -A 20 "Conditions:"
+
+# 3. Check kubelet config
+cat /var/lib/kubelet/kubelet-config.yaml
+cat /var/lib/kubelet/kubeconfig
+
+# 4. Check container runtime socket
+ls /run/containerd/containerd.sock
+
+# 5. Certificate issues
+cat /var/lib/kubelet/pki/kubelet-client-current.pem | openssl x509 -noout -dates
+```
+
+### CKA Exam Tips
+- kubelet is the ONLY component that runs directly as a **systemd service** on worker nodes (not a pod)
+- kubelet must be manually installed — kubeadm doesn't deploy it automatically
+- kubelet talks to container runtime via CRI socket
+- Static pods are created by kubelet directly from manifest files
+- Node `NotReady` → almost always a kubelet or container runtime issue
+
+### Production Best Practices
+- Set proper `evictionHard` thresholds to prevent OOM on nodes
+- Enable TLS bootstrapping for secure kubelet certificate rotation
+- Monitor `kubelet_node_name`, `kubelet_running_pods`, `kubelet_volume_stats_*`
+- Configure `--protect-kernel-defaults=true` for security hardening
+- Use systemd cgroup driver consistently with container runtime
+
+---
+
+### 🔎 Summary — Kubelet
+
+- **kubelet** = Node agent; runs on every worker node as a systemd service
+- Receives pod specs from API Server, instructs container runtime to create containers
+- Reports node and pod health back to API Server (heartbeat every 10s)
+- **NOT deployed by kubeadm** — must be installed manually on workers
+- Node `NotReady` = suspect kubelet first
+- Manages static pods from `/etc/kubernetes/manifests` directory
+- **Production Takeaway:** kubelet is the critical bridge between the cluster control plane and the actual container workloads. If kubelet fails, the node stops reporting and pods won't start or restart.
+
+---
+
+## 9. Kube Proxy
+
+### What Is It?
+**kube-proxy** is a network agent that runs on every node. It maintains network rules (iptables/IPVS) that allow pods across nodes to communicate with each other via Kubernetes Services. When you create a Service, kube-proxy makes it reachable across the entire cluster.
+
+### The Problem It Solves
+
+```
+Without kube-proxy:
+Pod A (10.244.1.5, Node 1) wants to reach Pod B (10.244.2.3, Node 2)
+→ No direct route between pod network CIDRs on different nodes
+→ Pod A would need to know Pod B's exact IP (which changes on restart!)
+
+With Services + kube-proxy:
+Pod A → Service "backend" (ClusterIP: 10.96.100.50) → Pod B
+→ Service IP is stable
+→ kube-proxy has iptables rules on every node to route 10.96.100.50 → 10.244.2.3
+```
+
+### How kube-proxy Works
+
+```
+[1] Service created: ClusterIP 10.96.100.50, targetPort 8080
+        ↓
+[2] kube-proxy watches API Server for Service/Endpoint changes
+        ↓
+[3] kube-proxy creates iptables (or IPVS) rules on THIS node:
+    "If destination is 10.96.100.50:80, DNAT to 10.244.2.3:8080"
+        ↓
+[4] Same rules created on ALL other nodes
+        ↓
+[5] Any pod on any node can reach the service via ClusterIP
+```
+
+### Proxy Modes
+
+| Mode | Technology | Performance | Description |
+|---|---|---|---|
+| iptables | iptables rules | Medium | Default; random selection |
+| IPVS | kernel IPVS | High | Better LB algorithms; preferred for large clusters |
+| userspace | userspace proxy | Low | Legacy; avoid in production |
+
+### Installation
+
+```bash
+# kubeadm deploys kube-proxy as a DaemonSet
+kubectl get daemonset kube-proxy -n kube-system
+# NAME         DESIRED   CURRENT   READY   ...
+# kube-proxy   3         3         3       ...
+
+# One kube-proxy pod per node
+kubectl get pods -n kube-system | grep kube-proxy
+```
+
+### Verifying iptables Rules
+
+```bash
+# See NAT rules created by kube-proxy for a service
+sudo iptables -t nat -L KUBE-SERVICES | grep <service-cluster-ip>
+
+# See full chain
+sudo iptables -t nat -L -n | grep 10.96.100.50
+
+# IPVS rules (if using IPVS mode)
+ipvsadm -Ln | grep 10.96.100.50
+```
+
+### Real-World Production Scenario
+
+**Problem:** Pods can reach each other by IP but cannot reach services by ClusterIP.
+
+**Diagnosis:**
+```bash
+# 1. Check kube-proxy pod health
+kubectl get pods -n kube-system | grep kube-proxy
+kubectl logs kube-proxy-xxxx -n kube-system
+
+# 2. Verify iptables rules exist
+iptables -t nat -L KUBE-SERVICES | grep <service-ip>
+
+# 3. Check if kube-proxy config is correct
+kubectl get configmap kube-proxy -n kube-system -o yaml
+
+# 4. Check kube-proxy DaemonSet
+kubectl describe daemonset kube-proxy -n kube-system
+```
+
+**Root Cause:** kube-proxy pods were crashing due to a misconfigured `clusterCIDR` in the ConfigMap after a cluster upgrade.
+
+### CKA Exam Tips
+- kube-proxy is deployed as a **DaemonSet** (one pod per node)
+- Services are virtual — they don't have a corresponding network interface
+- kube-proxy creates the NAT rules that make Services work
+- In IPVS mode: `ipvsadm -Ln` to view virtual servers
+- kube-proxy needs access to API Server to watch Endpoint changes
+
+### Production Best Practices
+- Use **IPVS mode** for clusters with 1000+ services (better performance)
+- Monitor `kube_proxy_sync_proxy_rules_duration_seconds` metric
+- Ensure kube-proxy DaemonSet has `tolerations` for master node taints (for debugging)
+- Use `--metrics-bind-address=0.0.0.0:10249` to expose kube-proxy metrics
+
+---
+
+### 🔎 Summary — Kube Proxy
+
+- **kube-proxy** = Network rules agent; one pod per node (DaemonSet)
+- Watches API Server for Service/Endpoint changes
+- Creates **iptables or IPVS rules** to route service traffic to backing pods
+- Services without kube-proxy = unreachable ClusterIPs
+- Deployed automatically by kubeadm as a DaemonSet
+- **Production Takeaway:** If services are unreachable but pods have working IPs, kube-proxy is the first thing to check. Verify its pod health and the iptables/IPVS rules it has created.
+
+---
+
+## 10. Pods
+
+### What Is It?
+A **Pod** is the smallest deployable unit in Kubernetes. It wraps one or more containers into a single logical unit that shares:
+- **Network namespace** (same IP address; containers communicate via localhost)
+- **Storage volumes** (shared filesystem access)
+- **Lifecycle** (created and terminated together)
+
+### Why Not Deploy Containers Directly?
+Kubernetes doesn't manage containers directly — it manages Pods. This abstraction allows:
+- Multiple related containers to be co-located
+- Sidecar patterns (logging agent, proxy)
+- Shared storage without complex volume configurations
+- Helper containers for initialization (init containers)
+
+### Single Container vs Multi-Container Pods
+
+```
+Single-Container Pod (most common):
+┌─────────────────────────────┐
+│  Pod                        │
+│  ┌─────────────────────┐    │
+│  │  nginx container    │    │
+│  └─────────────────────┘    │
+│  IP: 10.244.1.5             │
+└─────────────────────────────┘
+
+Multi-Container Pod (sidecar pattern):
+┌──────────────────────────────────┐
+│  Pod: 10.244.1.5                 │
+│  ┌──────────────┐ ┌───────────┐  │
+│  │  App (8080)  │ │ log-agent │  │
+│  └──────────────┘ └───────────┘  │
+│  Shared volume, same IP          │
+└──────────────────────────────────┘
+```
+
+### Pod Lifecycle States
+
+```
+Pending → ContainerCreating → Running → Succeeded/Failed → (Terminating)
+```
+
+| State | Meaning |
+|---|---|
+| Pending | Scheduled but image not pulled or containers not started yet |
+| ContainerCreating | Image being pulled, container being created |
+| Running | All containers started and running |
+| CrashLoopBackOff | Container keeps crashing and restarting |
+| OOMKilled | Container killed due to out-of-memory |
+| ImagePullBackOff | Cannot pull the container image |
+| Completed | All containers exited with status 0 (Jobs) |
+
+### Creating Pods
+
+```bash
+# Imperative (quick testing)
+kubectl run nginx --image=nginx
+
+# From YAML (recommended for production)
+kubectl apply -f pod.yaml
+
+# Check status
+kubectl get pods
+kubectl get pods -o wide    # Shows IP and Node
+kubectl describe pod nginx  # Detailed info including events
+```
+
+### Pod YAML with Complete Annotations
+
+```yaml
+# pod-production.yaml
 apiVersion: v1
 kind: Pod
 metadata:
@@ -266,569 +1448,985 @@ metadata:
   labels:
     app: webapp
     tier: frontend
-    version: "1.0.0"
+    version: "2.1"
   annotations:
-    # Annotations are non-identifying metadata — great for tools, monitoring, CI/CD
-    prometheus.io/scrape: "true"
-    prometheus.io/port: "8080"
-    git-commit: "abc123def"
+    description: "Frontend web application"
+    buildVersion: "2.1.0-abc123"
 spec:
-  # ─── SCHEDULING HINTS ───────────────────────────────────────────
-  # Prefer to run on nodes labeled with "type=web"
-  # nodeSelector is a simple key-value match — use affinity for complex rules
-  nodeSelector:
-    type: web
-
-  # ─── CONTAINERS ──────────────────────────────────────────────────
+  # nodeName: node01  ← Uncomment for manual scheduling
   containers:
   - name: webapp
-    image: nginx:1.21.6
-    # PRODUCTION ISSUE: Never use 'latest' tag in production!
-    # 'latest' causes ImagePullBackOff surprises during rollouts and breaks reproducibility
-    # Always use specific, immutable tags like sha256 digests in GitOps pipelines
-
+    image: myregistry/webapp:2.1
+    # ImagePullBackOff occurs if:
+    # - Image name is wrong
+    # - Registry is unreachable
+    # - Authentication credentials missing
+    # Fix: kubectl describe pod webapp-pod → check Events
+    
     ports:
-    - containerPort: 80
-      protocol: TCP
-
-    # ─── RESOURCE MANAGEMENT (CRITICAL!) ─────────────────────────
+    - containerPort: 8080
+    
     resources:
       requests:
-        # requests = what the scheduler uses for placement decisions
-        # If no request is set, pod can be placed on any node (including overloaded ones)
-        cpu: "250m"      # 250 millicores = 0.25 CPU core
-        memory: "128Mi"
+        cpu: "250m"          # Guaranteed minimum CPU
+        memory: "256Mi"      # Guaranteed minimum memory
       limits:
-        # limits = hard ceiling the kernel enforces
-        # PRODUCTION ISSUE - OOMKilled: If your app uses MORE than memory limit,
-        # the Linux kernel OOM killer will terminate the container.
-        # Symptom: pod restarts with reason OOMKilled
-        # Fix: Increase memory limit OR fix memory leak in application
-        # Check: kubectl describe pod <name> → look for "OOMKilled" in Last State
-        memory: "256Mi"
-        # PRODUCTION ISSUE - CPU Throttling: When container hits CPU limit,
-        # the kernel throttles (slows down) the container — it doesn't kill it.
-        # Symptom: high latency, slow responses, high CPU throttle % in metrics
-        # Fix: Increase CPU limit or optimize application CPU usage
-        # Monitoring: container_cpu_cfs_throttled_seconds_total metric in Prometheus
-        cpu: "500m"
-
-    # ─── HEALTH PROBES ──────────────────────────────────────────
-    livenessProbe:
-      # liveness: "Is the container still alive and working?"
-      # If this fails, Kubernetes RESTARTS the container
-      # PRODUCTION ISSUE - CrashLoopBackOff: If liveness probe keeps failing,
-      # container keeps restarting. Each restart has increasing backoff delay.
-      # Common cause: app deadlock, startup too slow, probe path wrong
+        cpu: "500m"          # Max CPU — hitting this causes throttling
+        memory: "512Mi"      # Max memory — exceeding this causes OOMKilled
+        # OOMKilled occurs when: traffic spike causes memory usage > 512Mi
+        # Fix: Increase memory limit or profile for memory leaks
+        # Debug: kubectl describe pod <name> | grep -i "OOM\|killed"
+    
+    livenessProbe:           # If this fails → container restarted
       httpGet:
         path: /health
-        port: 80
-      initialDelaySeconds: 15  # Wait 15s before first probe (allow app startup)
+        port: 8080
+      initialDelaySeconds: 30
       periodSeconds: 10
-      failureThreshold: 3
-
-    readinessProbe:
-      # readiness: "Is the container ready to serve traffic?"
-      # If this fails, pod is REMOVED from Service endpoints (no traffic sent)
-      # Container is NOT restarted — just temporarily taken out of rotation
-      # PRODUCTION USE: Use this during rolling updates to prevent serving traffic
-      # before the app is fully initialized (DB connections, cache warming, etc.)
+      # CrashLoopBackOff occurs when:
+      # - App fails to start, liveness probe fails repeatedly
+      # - Fix: kubectl logs <pod> --previous
+    
+    readinessProbe:          # If this fails → pod removed from Service endpoints
       httpGet:
         path: /ready
-        port: 80
-      initialDelaySeconds: 5
+        port: 8080
+      initialDelaySeconds: 10
       periodSeconds: 5
-
-    # ─── ENVIRONMENT VARIABLES ──────────────────────────────────
+    
     env:
-    - name: ENV
+    - name: APP_ENV
       value: "production"
     - name: DB_PASSWORD
       valueFrom:
         secretKeyRef:
-          name: db-secret
-          key: password
-          # PRODUCTION ISSUE: If the secret doesn't exist, pod will fail with
-          # status "CreateContainerConfigError" — it won't even try to start
-          # Always ensure secrets/configmaps exist before deploying pods
-
-    # ─── VOLUME MOUNTS ──────────────────────────────────────────
+          name: app-secrets
+          key: db-password
+    
     volumeMounts:
-    - name: config-volume
-      mountPath: /etc/config
-      readOnly: true   # Best practice: mount config as read-only
-
-  # ─── VOLUMES ────────────────────────────────────────────────────
+    - name: app-config
+      mountPath: /etc/app
+      readOnly: true
+  
   volumes:
-  - name: config-volume
+  - name: app-config
     configMap:
       name: webapp-config
-
-  # ─── RESTART POLICY ─────────────────────────────────────────────
-  restartPolicy: Always
-  # Options: Always (default), OnFailure (for Jobs), Never
-
-  # ─── TERMINATION GRACE PERIOD ───────────────────────────────────
+  
+  restartPolicy: Always      # Always | OnFailure | Never
+  
+  # Graceful shutdown
   terminationGracePeriodSeconds: 30
-  # When pod is terminated, SIGTERM is sent. App has 30s to clean up.
-  # After 30s, SIGKILL is sent. If your app needs longer shutdown (draining
-  # connections), increase this. Common production setting: 60-120s
 ```
 
-### Common Pod Failure Scenarios
+### Real-World Production Scenario
 
-| Error | What It Means | How to Debug |
-|-------|--------------|--------------|
-| `CrashLoopBackOff` | Container starts and immediately crashes, repeatedly | `kubectl logs <pod> --previous` to see last crash logs |
-| `OOMKilled` | Container exceeded memory limit, kernel killed it | `kubectl describe pod <name>` → check Last State |
-| `ImagePullBackOff` | Cannot pull container image (wrong name, tag, or no credentials) | `kubectl describe pod` → look at Events section |
-| `CreateContainerConfigError` | Referenced ConfigMap/Secret doesn't exist | Check if the referenced resources exist |
-| `Pending` (stuck) | No node can satisfy pod's requirements | `kubectl describe pod` → check Events for scheduling failures |
+**Application:** Stateless Node.js microservice  
+**Problem:** Pod intermittently enters `CrashLoopBackOff`
+
+```bash
+# Step 1: Check pod status
+kubectl get pods
+# webapp-pod   0/1   CrashLoopBackOff   5   3m
+
+# Step 2: Get logs from current container
+kubectl logs webapp-pod
+
+# Step 3: Get logs from PREVIOUS (crashed) container
+kubectl logs webapp-pod --previous
+# Output: "Error: Cannot connect to database: timeout"
+
+# Step 4: Check events
+kubectl describe pod webapp-pod | tail -20
+# Event: "Back-off restarting failed container"
+
+# Step 5: Check if DB service is reachable from pod
+kubectl exec -it webapp-pod -- curl http://db-service:5432
+
+# Root cause: Database connection string in env variable is wrong
+# Fix: Update ConfigMap/Secret with correct DB endpoint
+```
+
+### Debugging & Troubleshooting
+
+```bash
+# Comprehensive pod debugging workflow
+
+# 1. Initial state check
+kubectl get pods -n <namespace>
+
+# 2. Describe for events and conditions
+kubectl describe pod <pod-name> -n <namespace>
+
+# 3. Live logs
+kubectl logs <pod-name> -n <namespace> -f
+
+# 4. Previous container logs (after crash)
+kubectl logs <pod-name> -n <namespace> --previous
+
+# 5. Exec into running container
+kubectl exec -it <pod-name> -n <namespace> -- /bin/sh
+
+# 6. Resource usage
+kubectl top pod <pod-name> -n <namespace>
+
+# 7. Copy files from/to pod
+kubectl cp <pod-name>:/var/log/app.log ./app.log
+```
+
+### CKA Exam Tips
+- `kubectl run` creates a Pod, NOT a Deployment (since K8s 1.18)
+- `kubectl run nginx --image=nginx --dry-run=client -o yaml` generates YAML without creating
+- Pod `Pending` = scheduling issue (node resources, taints, affinity)
+- Pod `CrashLoopBackOff` = check `kubectl logs <pod> --previous`
+- `kubectl explain pod.spec.containers` for quick field reference in exam
+
+### Production Best Practices
+- Always set resource requests AND limits
+- Always define liveness AND readiness probes
+- Use namespaces to isolate environments
+- Never run containers as root (use `securityContext.runAsNonRoot: true`)
+- Use labels consistently for all pods (for selection, monitoring, network policies)
 
 ---
 
-## 1.3 ReplicaSets — Self-Healing Guarantees
+### 🔎 Summary — Pods
 
-### What is a ReplicaSet?
+- **Pod** = Smallest K8s unit; wraps 1+ containers sharing network and storage
+- Single IP per pod; containers in same pod communicate via `localhost`
+- Key states: `Pending`, `Running`, `CrashLoopBackOff`, `OOMKilled`, `ImagePullBackOff`
+- Always define **resource requests** (for scheduling) and **limits** (for safety)
+- **Probes**: liveness (restart on failure), readiness (remove from LB on failure)
+- **Interview Answer:** "A Pod is the atomic unit of deployment in Kubernetes. It provides a shared execution environment for one or more containers — same network namespace, same volumes, same lifecycle."
+- **Production Takeaway:** Pods are ephemeral. Never connect directly to pod IPs in production. Always use Services. Resource limits prevent one pod from starving others.
 
-A ReplicaSet is a Kubernetes controller that ensures a **specified number of identical pod replicas are always running**. It's the mechanism behind Kubernetes' self-healing capability.
+---
 
-**Why does it exist?** Individual Pods are ephemeral. If a Pod crashes or a node goes down, the Pod is gone. A ReplicaSet continuously watches the cluster and automatically creates replacement Pods when existing ones disappear.
+## 11. Pods with YAML
 
-**How it works internally:**
-1. The ReplicaSet controller runs a reconciliation loop
-2. It counts pods matching its `selector`
-3. If actual count < desired count: creates new pods
-4. If actual count > desired count: deletes excess pods
-5. This loop runs continuously
+### Understanding YAML Structure
+
+Every Kubernetes resource file has exactly 4 mandatory top-level fields:
+
+```yaml
+apiVersion: <version>   # Which API version to use
+kind: <type>            # What kind of resource
+metadata:               # Identifying information
+  name:
+  namespace:
+  labels:
+spec:                   # Resource-specific configuration
+```
+
+### API Version Reference
+
+| Kind | apiVersion |
+|---|---|
+| Pod | v1 |
+| Service | v1 |
+| ReplicationController | v1 |
+| Namespace | v1 |
+| ConfigMap | v1 |
+| Secret | v1 |
+| ReplicaSet | apps/v1 |
+| Deployment | apps/v1 |
+| DaemonSet | apps/v1 |
+| StatefulSet | apps/v1 |
+| HorizontalPodAutoscaler | autoscaling/v2 |
+| Ingress | networking.k8s.io/v1 |
+
+### Complete Pod YAML Workflow
+
+```bash
+# Method 1: Write YAML manually and apply
+vim pod.yaml
+kubectl apply -f pod.yaml
+
+# Method 2: Generate YAML with dry-run (exam trick)
+kubectl run nginx --image=nginx --dry-run=client -o yaml > nginx-pod.yaml
+vim nginx-pod.yaml   # Customize as needed
+kubectl apply -f nginx-pod.yaml
+
+# Method 3: Export existing resource to YAML
+kubectl get pod nginx -o yaml > existing-pod.yaml
+```
+
+### Quick Commands Reference
+
+```bash
+# Create
+kubectl create -f pod-definition.yaml
+kubectl apply -f pod-definition.yaml  # create or update
+
+# Read
+kubectl get pods
+kubectl get pods -o wide           # with IP and node
+kubectl get pods -o yaml           # full YAML output
+kubectl describe pod myapp-pod     # human-readable detail
+
+# Delete
+kubectl delete pod myapp-pod
+kubectl delete -f pod-definition.yaml
+
+# Generate template
+kubectl run <name> --image=<image> --dry-run=client -o yaml
+```
+
+### CKA Exam Tips
+- Use `--dry-run=client -o yaml` to generate templates — don't write from scratch
+- `kubectl explain <resource>.<field>` for documentation in the exam
+- `kubectl explain pod.spec.containers.resources` is very useful
+- Practice tabbing through YAML (2-space indentation is standard)
+- Know the 4 mandatory fields by heart: `apiVersion`, `kind`, `metadata`, `spec`
+
+---
+
+### 🔎 Summary — Pods with YAML
+
+- YAML is the **declarative language** of Kubernetes
+- 4 mandatory fields: `apiVersion`, `kind`, `metadata`, `spec`
+- Use `--dry-run=client -o yaml` to generate valid YAML quickly
+- `kubectl apply` is idempotent; use it for both create and update
+- Store all YAML files in version control for team collaboration
+- **Production Takeaway:** Never manage production resources imperatively. Always maintain YAML files in git. Use `kubectl diff -f file.yaml` before applying changes to see what will change.
+
+---
+
+## 12. ReplicaSets
+
+### What Is It?
+A **ReplicaSet** ensures that a specified number of pod replicas are running at all times. If a pod dies, the ReplicaSet creates a replacement. It is the successor to the older ReplicationController.
 
 ### ReplicaSet vs ReplicationController
 
-`ReplicationController` is the older API (still works but deprecated). `ReplicaSet` is the modern replacement. The key difference: **ReplicaSet supports set-based label selectors** (`In`, `NotIn`, `Exists`) while ReplicationController only supports equality-based selectors (`=`).
+| Feature | ReplicationController | ReplicaSet |
+|---|---|---|
+| API Version | v1 | apps/v1 |
+| Label Selector | Equality only | Equality + Set-based |
+| Used Directly? | Legacy (avoid) | Yes, but prefer Deployments |
+| Supports matchExpressions? | No | Yes |
 
-**In practice:** You almost never create ReplicaSets directly. Deployments create and manage them. Use Deployments instead.
+### How ReplicaSet Works
+
+```
+Desired state: replicas=3
+Current state: 2 pods running (1 died)
+
+ReplicaSet Controller loop:
+[1] Watch API Server for pod changes
+[2] Count pods matching selector: label app=myapp
+[3] 2 running < 3 desired → CREATE 1 new pod
+[4] New pod created → 3 running = 3 desired ✓
+```
+
+### The Role of Labels and Selectors
+
+The ReplicaSet uses a **label selector** to identify which pods it manages. This is critical:
+- Pods created BEFORE the ReplicaSet exist → if they match the selector, ReplicaSet adopts them
+- If ReplicaSet creates pods, those pods carry matching labels
+
+```
+scenario: 3 pods already running with label "app=frontend"
+          ReplicaSet created with selector "app=frontend" and replicas=3
+Result:   ReplicaSet ADOPTS all 3 existing pods; creates 0 new pods
+```
+
+### Complete ReplicaSet YAML
 
 ```yaml
+# replicaset-production.yaml
 apiVersion: apps/v1
 kind: ReplicaSet
 metadata:
   name: webapp-rs
   namespace: production
+  labels:
+    app: webapp                # Label FOR the RS itself (not for pod selection)
+    tier: frontend
 spec:
-  replicas: 3  # Always maintain exactly 3 pods
-
-  # CRITICAL: The selector MUST match the template labels
-  # Mismatch causes the ReplicaSet to ignore existing pods and over-provision
-  selector:
+  replicas: 3                  # Desired number of pods
+  
+  selector:                    # Which pods this RS manages
     matchLabels:
-      app: webapp
-      tier: frontend
-
-  template:
+      app: webapp              # Must match template.metadata.labels
+    # matchExpressions:        # Advanced: Set-based selector
+    # - key: app
+    #   operator: In
+    #   values: ["webapp", "webapp-v2"]
+  
+  template:                    # Blueprint for new pods
     metadata:
       labels:
-        app: webapp      # Must match selector
-        tier: frontend   # Must match selector
+        app: webapp            # MUST match selector.matchLabels
+        tier: frontend
+        version: "1.0"
     spec:
       containers:
       - name: webapp
-        image: nginx:1.21.6
+        image: myregistry/webapp:1.0
         resources:
           requests:
             cpu: "100m"
-            memory: "64Mi"
-          limits:
-            # PRODUCTION ISSUE: OOMKilled example
-            # If nginx serves large files and memory exceeds 128Mi,
-            # kernel kills container. Monitor with:
-            # kubectl top pods -n production
             memory: "128Mi"
+          limits:
             cpu: "200m"
+            memory: "256Mi"
+        ports:
+        - containerPort: 8080
 ```
 
-### Key ReplicaSet Behaviors
+### Scaling a ReplicaSet
 
-**Label ownership:** ReplicaSets own any pods that match their selector, regardless of who created them. This means if you manually create a pod with matching labels, the ReplicaSet may delete it to maintain the count. This is a **common production gotcha**.
-
-**Scaling:**
 ```bash
-# Scale imperatively
-kubectl scale replicaset webapp-rs --replicas=5
+# Method 1: Edit the YAML file and apply
+# Change replicas: 3 → replicas: 6
+kubectl apply -f replicaset-production.yaml
 
-# Scale declaratively (preferred in production)
-# Edit the YAML and kubectl apply
+# Method 2: kubectl scale (doesn't update file)
+kubectl scale replicaset webapp-rs --replicas=6
+
+# Method 3: kubectl edit (live edit)
+kubectl edit replicaset webapp-rs
+
+# Verify
+kubectl get replicaset webapp-rs
+# NAME        DESIRED   CURRENT   READY
+# webapp-rs   6         6         6
 ```
 
-**Pod template updates:** Changing the pod template in a ReplicaSet does **NOT** update existing pods. Only newly created pods use the new template. This is why you use **Deployments** — they handle the rollout of template changes.
+### ReplicaSet Commands Summary
+
+```bash
+kubectl create -f replicaset.yaml
+kubectl get replicaset                         # or: kubectl get rs
+kubectl describe replicaset webapp-rs
+kubectl delete replicaset webapp-rs            # deletes RS and all its pods
+kubectl replace -f replicaset.yaml             # update RS from file
+kubectl scale --replicas=6 -f replicaset.yaml  # scale from file
+kubectl scale --replicas=6 rs webapp-rs        # scale by name
+```
+
+### CKA Exam Tips
+- ReplicaSet does NOT support rolling updates — use Deployments for that
+- The `template` section's labels MUST match the `selector`
+- ReplicaSet is what Deployments create and manage internally
+- `kubectl get rs` is the shorthand
+- If pods exist with matching labels before RS creation, RS adopts them (no new pods created if count matches)
+
+### Production Best Practices
+- **Don't use ReplicaSets directly** — use Deployments (they manage RS for you)
+- ReplicaSets are useful to understand for debugging Deployments
+- Monitor replica count vs. desired count with `kube_replicaset_status_replicas`
 
 ---
 
-## 1.4 Deployments — Rolling Updates & Rollbacks
+### 🔎 Summary — ReplicaSets
 
-### What is a Deployment?
+- **ReplicaSet** = Ensures N pods with matching labels are always running
+- Uses label selectors to identify managed pods
+- Can adopt existing pods if labels match
+- Supports set-based selectors (unlike old ReplicationController)
+- **Don't use directly in production** — use Deployments which manage ReplicaSets
+- **Production Takeaway:** ReplicaSets are the self-healing mechanism for pods. But in practice, you'll interact with them through Deployments. Understanding RS is key to debugging failed rollouts.
 
-A Deployment is the **recommended way to run stateless applications in Kubernetes**. It wraps ReplicaSets and adds:
-- **Rolling updates**: gradually replace old pods with new ones
-- **Rollback capability**: revert to previous versions
-- **Revision history**: track all changes
-- **Pause/resume**: control update progression
+---
 
-### The Deployment → ReplicaSet → Pod Hierarchy
+## 13. Deployments
+
+### What Is It?
+A **Deployment** is a higher-level abstraction over ReplicaSets. It provides:
+- **Rolling updates** (update pods gradually without downtime)
+- **Rollbacks** (revert to previous version)
+- **Pause/Resume** (batch multiple changes together)
+- **Version history** (track what changed and when)
+
+### Deployment → ReplicaSet → Pod Hierarchy
 
 ```
-Deployment (webapp-deployment)
-    │
-    ├── ReplicaSet v1 (webapp-deployment-7d8f9b4c6)   ← Old RS (scaled to 0)
-    │       └── [pods deleted]
-    │
-    └── ReplicaSet v2 (webapp-deployment-9c7b2a1d3)   ← Current RS (3 replicas)
-            ├── Pod 1 (webapp-deployment-9c7b2a1d3-xk2p9)
-            ├── Pod 2 (webapp-deployment-9c7b2a1d3-m7n4l)
-            └── Pod 3 (webapp-deployment-9c7b2a1d3-p5q8r)
+Deployment (myapp-deployment)
+    └── ReplicaSet (myapp-deployment-abc123)      ← current version
+            ├── Pod (myapp-deployment-abc123-xyz1)
+            ├── Pod (myapp-deployment-abc123-xyz2)
+            └── Pod (myapp-deployment-abc123-xyz3)
+    └── ReplicaSet (myapp-deployment-def456)      ← old version (scaled to 0)
 ```
 
-**Each Deployment update creates a new ReplicaSet.** The old ReplicaSet is kept (scaled to 0) to enable rollbacks. This is why you see multiple ReplicaSets in production (`kubectl get rs`).
+When you update an image, a NEW ReplicaSet is created and the old one is scaled down.
 
-### Deployment Strategies
-
-#### 1. RollingUpdate (Default)
-Gradually replaces old pods with new ones. Zero downtime (assuming proper readiness probes).
+### Complete Deployment YAML
 
 ```yaml
+# deployment-production.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: webapp-deployment
   namespace: production
+  labels:
+    app: webapp
+    version: "2.0"
   annotations:
-    # Record change cause for rollout history
-    kubernetes.io/change-cause: "Updated nginx from 1.21 to 1.23 - security patches"
+    kubernetes.io/change-cause: "Update to webapp v2.0"  # Shown in rollout history
 spec:
-  replicas: 6
-  revisionHistoryLimit: 5  # Keep last 5 RS for rollback (default is 10)
-
+  replicas: 3
+  
   selector:
     matchLabels:
       app: webapp
-
+  
   strategy:
-    type: RollingUpdate
+    type: RollingUpdate          # RollingUpdate (default) or Recreate
     rollingUpdate:
-      # maxUnavailable: How many pods can be unavailable during update
-      # Can be absolute number or percentage
-      # PRODUCTION CONSIDERATION: Set based on your redundancy needs
-      # If you have 3 replicas and set maxUnavailable: 1, you always have 2 running
-      maxUnavailable: 1
-
-      # maxSurge: How many extra pods can be created above desired count
-      # Creates new pods before deleting old ones when maxUnavailable: 0
-      # Temporarily uses more resources but ensures zero downtime
-      maxSurge: 1
-
+      maxUnavailable: 1          # Max pods unavailable during update (or %)
+      maxSurge: 1                # Max pods over desired count during update
+      # maxUnavailable: 25%      # Percentage-based (common in production)
+      # maxSurge: 25%
+  
+  minReadySeconds: 10            # Wait 10s after pod is ready before moving on
+  progressDeadlineSeconds: 600   # Fail rollout if not done within 600s
+  revisionHistoryLimit: 10       # Keep 10 RS revisions for rollback
+  
   template:
     metadata:
       labels:
         app: webapp
-        version: "1.23.0"
+        version: "2.0"
     spec:
       containers:
       - name: webapp
-        image: nginx:1.23.0  # Update this to trigger a rollout
-
+        image: myregistry/webapp:2.0
+        
         resources:
           requests:
             cpu: "250m"
             memory: "256Mi"
           limits:
-            memory: "512Mi"
-            cpu: "500m"
-
-        readinessProbe:
-          # CRITICAL for zero-downtime rolling updates!
-          # Without this, new pod receives traffic before it's ready
-          # causing HTTP 502/503 errors during deployments
+            cpu: "500m"          # CPU throttling if burst exceeds 500m
+            memory: "512Mi"      # OOMKilled if exceeds 512Mi
+        
+        readinessProbe:          # Critical for safe rolling updates
           httpGet:
             path: /ready
-            port: 80
-          initialDelaySeconds: 10
+            port: 8080
+          initialDelaySeconds: 15
           periodSeconds: 5
-          # Pod stays in "old RS's traffic" until new pods pass readiness
-          # This is how Kubernetes ensures zero-downtime updates
-
+          failureThreshold: 3
+        
         livenessProbe:
           httpGet:
             path: /health
-            port: 80
-          initialDelaySeconds: 15
+            port: 8080
+          initialDelaySeconds: 30
           periodSeconds: 10
-          # PRODUCTION ISSUE - CrashLoopBackOff during deployment:
-          # If new version has a bug and liveness probe fails,
-          # pods keep restarting. The deployment will PAUSE
-          # (won't continue replacing old pods) if maxUnavailable is reached
-          # This is actually GOOD — protects production
-          # Command: kubectl rollout undo deployment/webapp-deployment
 ```
 
-#### 2. Recreate Strategy
-
-Kills ALL old pods first, then creates new ones. **Always causes downtime.** Use only when:
-- Application cannot run two versions simultaneously (e.g., incompatible database migrations)
-- Development/non-critical environments
-
-```yaml
-strategy:
-  type: Recreate
-  # NO rollingUpdate configuration needed
-  # All pods will be terminated before new ones start
-```
-
-### Rolling Update Flow
+### Rolling Update Deep Dive
 
 ```
-Initial State: [v1] [v1] [v1] [v1] [v1] [v1]  (6 pods, maxUnavailable:1, maxSurge:1)
+Initial state: 3 pods running v1.0 (RS1)
 
-Step 1: Create 1 new v2 pod
-[v1] [v1] [v1] [v1] [v1] [v1] [v2]  (7 pods total - surge)
+Update to v2.0 triggered:
 
-Step 2: Wait for v2 pod to pass readiness probe
+Step 1: Create RS2 with v2.0 template, scale RS2 to 1
+        RS1: [pod1-v1, pod2-v1, pod3-v1]
+        RS2: [pod4-v2] ← starting
 
-Step 3: Terminate 1 v1 pod
-[v1] [v1] [v1] [v1] [v1] [v2]  (back to 6 pods)
+Step 2: pod4-v2 passes readiness → RS1 scaled down by 1
+        RS1: [pod1-v1, pod2-v1]
+        RS2: [pod4-v2]
 
-Step 4: Repeat...
+Step 3: RS2 scales to 2, RS1 scales to 1
+        RS1: [pod1-v1]
+        RS2: [pod4-v2, pod5-v2]
 
-Final State: [v2] [v2] [v2] [v2] [v2] [v2]  (6 pods, all v2)
+Step 4: RS2 scales to 3, RS1 scales to 0
+        RS1: []
+        RS2: [pod4-v2, pod5-v2, pod6-v2] ← COMPLETE
+
+Throughout: Application always has 2-3 pods serving traffic
 ```
 
-### Rollback Operations
+### Deployment Commands
 
 ```bash
-# View rollout history
+# Create
+kubectl apply -f deployment.yaml
+
+# Update image
+kubectl set image deployment/webapp-deployment webapp=myregistry/webapp:2.1
+
+# Check rollout status
+kubectl rollout status deployment/webapp-deployment
+
+# View history
 kubectl rollout history deployment/webapp-deployment
+# REVISION  CHANGE-CAUSE
+# 1         Initial deployment v1.0
+# 2         Update to webapp v2.0
+# 3         Update to webapp v2.1
 
-# View specific revision details
-kubectl rollout history deployment/webapp-deployment --revision=3
-
-# Rollback to previous version
+# Rollback to previous
 kubectl rollout undo deployment/webapp-deployment
 
 # Rollback to specific revision
-kubectl rollout undo deployment/webapp-deployment --to-revision=2
+kubectl rollout undo deployment/webapp-deployment --to-revision=1
 
-# Check rollout status (great for CI/CD pipelines)
-kubectl rollout status deployment/webapp-deployment
-# Returns exit code 0 on success, non-zero on failure — perfect for pipeline gates
-
-# Pause a rolling update (to manually inspect)
+# Pause rollout (for batching multiple changes)
 kubectl rollout pause deployment/webapp-deployment
-
-# Resume after pausing
+kubectl set image deployment/webapp-deployment webapp=myregistry/webapp:2.2
+kubectl set resources deployment/webapp-deployment -c webapp --limits=cpu=1
 kubectl rollout resume deployment/webapp-deployment
+
+# Scale
+kubectl scale deployment webapp-deployment --replicas=10
 ```
 
-> **CKA Exam Insight:** The exam frequently tests `kubectl rollout` commands. Know how to check status, view history, and perform rollbacks. The `--record` flag is deprecated but might appear — use annotations instead.
+### Recreate vs RollingUpdate
+
+```
+Recreate Strategy:
+- Scale down ALL old pods to 0
+- Scale up ALL new pods to desired
+- Results in DOWNTIME
+- Use case: Major breaking changes, DB migrations requiring downtime
+
+RollingUpdate Strategy (default):
+- Gradually replace old pods with new
+- Configurable maxUnavailable and maxSurge
+- Zero downtime (if readiness probes properly configured)
+- Use case: Most production updates
+```
+
+### Real-World Production Scenario
+
+**Application:** Microservices e-commerce platform, 50 replicas of checkout service
+
+**Rolling Update Strategy:**
+- `maxUnavailable: 10%` (5 pods max unavailable)
+- `maxSurge: 10%` (5 extra pods during update)
+- `minReadySeconds: 30` (30s after ready before advancing)
+
+**Failure Handling:**  
+Deployment stuck at 60% — new pods failing readiness probe:
+```bash
+# Check rollout status
+kubectl rollout status deployment/checkout
+# Waiting for deployment "checkout" rollout to finish: 25 out of 50 new replicas have been updated...
+
+# Get logs from failing new pod
+kubectl logs checkout-deployment-newrs-xyz --previous
+
+# Immediate rollback
+kubectl rollout undo deployment/checkout
+# deployment.apps/checkout rolled back
+
+# Verify
+kubectl rollout status deployment/checkout
+# deployment "checkout" successfully rolled out
+```
+
+### CKA Exam Tips
+- Deployment uses `RollingUpdate` strategy by default
+- `kubectl rollout undo` reverts to previous ReplicaSet
+- `kubectl rollout history` shows revisions (set `--record` or annotation for CHANGE-CAUSE)
+- Deployment creates ReplicaSets; ReplicaSets create Pods
+- `kubectl get all` shows Deployment + RS + Pods together
+
+### Production Best Practices
+- Always define readiness probes — they control rolling update progression
+- Use `minReadySeconds` to ensure traffic is actually flowing before proceeding
+- Set `revisionHistoryLimit` to control RS retention
+- Use `progressDeadlineSeconds` to auto-fail stuck rollouts
+- Tag images with versions, never use `latest` in production
 
 ---
 
-## 1.5 Services — Stable Networking for Pods
+### 🔎 Summary — Deployments
 
-### Why Services Exist
+- **Deployment** = Production-grade Pod manager with rollout/rollback
+- Creates and manages **ReplicaSets** which create/manage **Pods**
+- `RollingUpdate` = default; replaces pods gradually, zero downtime
+- `Recreate` = all pods down at once; causes downtime
+- Rollback via `kubectl rollout undo` — restores previous ReplicaSet
+- **Always define readiness probes** — they gate rolling update progression
+- **Interview Answer:** "A Deployment manages ReplicaSets which manage Pods. It provides declarative rollout/rollback capabilities and ensures application availability during updates by controlling maxUnavailable and maxSurge parameters."
+- **Production Takeaway:** Deployments are the primary workload resource for stateless applications. Version control your Deployment YAML. Use annotations for change-cause tracking.
 
-Pods are **ephemeral**. When a Pod dies and is replaced, it gets a **new IP address**. Your application clients cannot rely on Pod IP addresses.
+---
 
-A Service provides a **stable, virtual IP address** (ClusterIP) and DNS name that forwards traffic to the currently running Pods matching its selector. This is fundamentally a **level of indirection** that decouples consumers from the volatile nature of Pods.
+## 14. Services — NodePort
 
-### How Services Work Internally
+### What Is It?
+A **Service** is a stable networking abstraction that provides a consistent endpoint to access a group of pods. Services solve the problem of pod IP instability — pod IPs change when pods restart, but Service IPs remain constant.
 
-When a Service is created:
-1. API Server assigns a ClusterIP from the service CIDR range
-2. CoreDNS creates a DNS record: `service-name.namespace.svc.cluster.local → ClusterIP`
-3. kube-proxy on every node creates **iptables rules** (or IPVS rules) that redirect traffic from ClusterIP to one of the matching Pod IPs
+**NodePort** specifically maps a high-numbered port on every cluster node (30000–32767) to a service, making it accessible from outside the cluster.
 
-**kube-proxy in action:**
+### NodePort Port Mapping
+
 ```
-Client Pod → Service ClusterIP (10.96.0.50:80)
-    │
-    ▼ iptables/IPVS DNAT rule
-    │
-    ├── Pod 1 IP (10.244.1.5:8080)   ← randomly selected (default round-robin)
-    ├── Pod 2 IP (10.244.2.3:8080)
-    └── Pod 3 IP (10.244.3.7:8080)
+External User Browser
+        ↓
+Node IP: 192.168.1.2 : 30008  (NodePort — external access point)
+        ↓
+Service ClusterIP: 10.96.100.50 : 80  (internal service port)
+        ↓
+Pod IP: 10.244.0.2 : 8080  (targetPort — actual container port)
 ```
 
-### Service Types
+Three ports in a NodePort service:
+- **nodePort** (30000–32767): Port on the node; external entry point
+- **port** (80): Port on the Service object itself
+- **targetPort** (8080): Port the container is listening on
 
-#### 1. ClusterIP (Default)
-
-Only accessible **within the cluster**. Perfect for:
-- Database services (MySQL, PostgreSQL, Redis)
-- Internal microservices that only talk to each other
-- Anything that should never be exposed externally
+### NodePort Service YAML
 
 ```yaml
+# service-nodeport.yaml
 apiVersion: v1
 kind: Service
 metadata:
-  name: db-service
+  name: webapp-service
   namespace: production
-spec:
-  type: ClusterIP  # This is the default; you can omit this line
-  selector:
-    app: mysql
-    tier: database
-  ports:
-  - protocol: TCP
-    port: 3306       # Port clients use (Service port)
-    targetPort: 3306  # Port the container listens on (Pod port)
-    # These can be different! Example: port: 80, targetPort: 8080
-    # This lets you change the container port without changing client configuration
-```
-
-#### 2. NodePort
-
-Exposes the Service on a **specific port on every node** (range: 30000-32767). Traffic reaches the cluster through `NodeIP:NodePort`.
-
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: webapp-nodeport
+  labels:
+    app: webapp
 spec:
   type: NodePort
+  
   selector:
-    app: webapp
+    app: webapp        # Routes to pods with this label
+    tier: frontend     # Multiple selectors = AND condition
+  
   ports:
-  - protocol: TCP
-    port: 80          # ClusterIP port (within cluster)
-    targetPort: 8080  # Container port
-    nodePort: 30080   # Port on each node (30000-32767)
-                      # If omitted, Kubernetes auto-assigns one
+  - name: http
+    protocol: TCP
+    port: 80           # Service port (ClusterIP:80)
+    targetPort: 8080   # Pod/container port
+    nodePort: 30080    # External port on node (30000-32767)
+                       # If omitted, Kubernetes auto-assigns
+  
+  # sessionAffinity: ClientIP  # Sticky sessions (optional)
+  # sessionAffinityConfig:
+  #   clientIP:
+  #     timeoutSeconds: 10800
 ```
 
-**Production use of NodePort:** Typically used in:
-- Bare-metal clusters where cloud LoadBalancers aren't available
-- Development/testing environments
-- When using a separate external load balancer (like HAProxy or F5) in front of cluster nodes
+### How NodePort Works Across Multiple Pods
 
-**NOT recommended** for production as the primary exposure mechanism because:
-- Exposes all nodes' IPs
-- Uses high port numbers (user-facing URLs look ugly)
-- No built-in health checking at the load balancer level
+```
+Service selector: app=webapp
 
-#### 3. LoadBalancer
+Pods:
+- webapp-pod-1: 10.244.1.2 (Node 1)
+- webapp-pod-2: 10.244.1.3 (Node 1)
+- webapp-pod-3: 10.244.2.2 (Node 2)
 
-Creates a **cloud provider load balancer** (AWS ALB/NLB, GCP Load Balancer, Azure Load Balancer) that routes external traffic to the Service.
+NodePort 30080 mapped on ALL nodes
+kube-proxy load balances traffic round-robin across all 3 pods
 
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: webapp-lb
-  namespace: production
-  annotations:
-    # AWS-specific annotations for NLB (Network Load Balancer)
-    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
-    service.beta.kubernetes.io/aws-load-balancer-internal: "false"
-spec:
-  type: LoadBalancer
-  selector:
-    app: webapp
-  ports:
-  - protocol: TCP
-    port: 80
-    targetPort: 8080
-  # The cloud provider assigns an external IP (may take 1-2 minutes)
-  # Check with: kubectl get service webapp-lb
-  # Look for EXTERNAL-IP column
+curl http://192.168.1.1:30080 → routes to any of 3 pods
+curl http://192.168.1.2:30080 → routes to any of 3 pods
 ```
 
-> **Production Tip:** In production EKS, use AWS Load Balancer Controller with Ingress instead of LoadBalancer services. Each LoadBalancer service creates a separate cloud LB which is expensive. Ingress shares one LB across multiple services.
-
-#### 4. ExternalName
-
-Maps a Service to an external DNS name. No proxying — just DNS CNAME record.
-
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: external-db
-  namespace: production
-spec:
-  type: ExternalName
-  externalName: mydb.company.aws.rds.amazonaws.com
-  # Now pods can use "external-db.production.svc.cluster.local"
-  # and it resolves to the RDS endpoint
-  # PRODUCTION USE: Great for migrating from external to internal DB
-  # without changing application code
-```
-
-### Endpoints — Under the Hood
-
-When you create a Service with a selector, Kubernetes automatically creates an **Endpoints** object that tracks the IPs of matching Pods:
+### Debugging & Troubleshooting
 
 ```bash
-kubectl get endpoints webapp-service
-# Shows the actual pod IPs being load-balanced
-NAME             ENDPOINTS                                    AGE
-webapp-service   10.244.1.5:8080,10.244.2.3:8080,...        5m
+# Create service
+kubectl apply -f service-nodeport.yaml
 
-# If endpoints is empty, either no pods match the selector or pods aren't ready
-# This is a common debugging step when a service isn't routing traffic
+# Verify service
+kubectl get services
+# NAME            TYPE       CLUSTER-IP     EXTERNAL-IP   PORT(S)
+# webapp-service  NodePort   10.96.100.50   <none>        80:30080/TCP
+
+# Check endpoints (pods selected by service)
+kubectl get endpoints webapp-service
+# If endpoints empty: selector doesn't match any pod labels
+
+# Describe service
+kubectl describe service webapp-service
+
+# Test connectivity
+curl http://<node-ip>:30080
 ```
+
+### CKA Exam Tips
+- NodePort range: **30000–32767**
+- If `nodePort` omitted → auto-assigned in range
+- If `targetPort` omitted → defaults to same as `port`
+- Service type: `NodePort` (capital N and P)
+- NodePort maps the port on ALL nodes, not just one
 
 ---
 
-## 1.6 Namespaces — Logical Cluster Isolation
+### 🔎 Summary — Services (NodePort)
 
-### What Are Namespaces?
+- **Service** = Stable network endpoint for pods
+- **NodePort** = Exposes service on a static port on every node
+- Three ports: nodePort (external) → port (service) → targetPort (container)
+- kube-proxy creates iptables rules to enable routing
+- Best for: dev/test, on-premise without cloud LB, direct node access
+- **Production Takeaway:** NodePort is rarely used directly in production (prefer LoadBalancer or Ingress). However, understanding it is foundational to understanding how Kubernetes networking works.
 
-Namespaces provide **logical separation** within a Kubernetes cluster. They allow multiple teams, projects, or environments to share the same physical cluster infrastructure while maintaining isolation.
+---
 
-**Key characteristics:**
-- Resources within a namespace are isolated from other namespaces
-- Resource names must be unique within a namespace but can be duplicated across namespaces
-- Some resources are **cluster-scoped** (nodes, PersistentVolumes, StorageClasses, ClusterRoles) and don't belong to any namespace
+## 15. Services — ClusterIP
+
+### What Is It?
+**ClusterIP** is the default Service type. It creates a **virtual IP** accessible only within the cluster. It's used for internal pod-to-pod communication in microservices architectures.
+
+### When to Use ClusterIP
+
+```
+Microservices Communication:
+frontend → [ClusterIP Service] → backend
+backend  → [ClusterIP Service] → database
+database → [ClusterIP Service] → redis-cache
+
+Each service provides stable, load-balanced access to a group of pods
+No external access needed — purely internal communication
+```
+
+### ClusterIP Service YAML
+
+```yaml
+# service-clusterip.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  namespace: production
+spec:
+  type: ClusterIP        # Default; can omit "type" field entirely
+  
+  selector:
+    app: backend
+    tier: api
+  
+  ports:
+  - name: http
+    port: 80             # Port other pods connect to
+    targetPort: 3000     # Port the backend container listens on
+  - name: metrics
+    port: 9090           # Metrics endpoint for Prometheus scraping
+    targetPort: 9090
+```
+
+### DNS Resolution for Services
+
+Kubernetes CoreDNS automatically creates DNS entries for services:
+
+```
+Full DNS format: <service-name>.<namespace>.svc.cluster.local
+Example:         backend-service.production.svc.cluster.local
+
+Short forms (within same namespace): 
+                 backend-service
+                 backend-service.production
+```
+
+```bash
+# Test DNS resolution from within a pod
+kubectl exec -it frontend-pod -n production -- \
+  nslookup backend-service.production.svc.cluster.local
+
+# Connect to backend service from frontend
+kubectl exec -it frontend-pod -- curl http://backend-service/api/health
+```
+
+### Real-World Production Scenario
+
+**Microservices Setup:**
+```
+  [Browser]
+      ↓
+[Ingress Controller]
+      ↓
+[ClusterIP: frontend-service:80]  → [Frontend pods]
+      ↓ (via env var)
+[ClusterIP: backend-service:8080] → [Backend pods]
+      ↓ (via env var)
+[ClusterIP: db-service:5432]      → [PostgreSQL pods]
+      ↓
+[ClusterIP: redis-service:6379]   → [Redis pods]
+```
+
+Each tier communicates with the next via ClusterIP service names — pod IPs are irrelevant.
+
+### Production Best Practices
+- Use ClusterIP for all internal microservice communication
+- Set `app.kubernetes.io/name` labels for service mesh (Istio/Linkerd) compatibility
+- Configure `sessionAffinity: ClientIP` when stateful HTTP sessions are needed
+
+---
+
+### 🔎 Summary — Services (ClusterIP)
+
+- **ClusterIP** = Internal-only virtual IP for pod-to-pod communication
+- Default Service type — omitting `type` creates a ClusterIP service
+- DNS name auto-created: `<service>.<namespace>.svc.cluster.local`
+- kube-proxy load balances traffic across all healthy pods in selector
+- **Production Takeaway:** ClusterIP is the backbone of microservices in Kubernetes. Every microservice should have a ClusterIP service. Never hardcode pod IPs — always use service DNS names.
+
+---
+
+## 16. Services — LoadBalancer
+
+### What Is It?
+**LoadBalancer** extends NodePort by additionally provisioning an **external cloud load balancer** (AWS ELB, GCP Load Balancer, Azure LB). It provides a single external IP/DNS name that routes to the cluster.
+
+### LoadBalancer vs NodePort
+
+```
+NodePort: External User → Node1:30080 OR Node2:30080 OR Node3:30080
+          User must know which node IP to use
+
+LoadBalancer: External User → 34.100.50.10:80 (single stable external IP)
+              Cloud LB distributes to all nodes → kube-proxy routes to pods
+```
+
+### Service Type Hierarchy
+
+```
+ClusterIP (internal only)
+    └── NodePort (adds external node port)
+            └── LoadBalancer (adds cloud LB in front of NodePort)
+```
+
+### LoadBalancer Service YAML
+
+```yaml
+# service-loadbalancer.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-lb-service
+  namespace: production
+  annotations:
+    # AWS-specific annotations
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+spec:
+  type: LoadBalancer
+  
+  selector:
+    app: frontend
+  
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+  - name: https
+    port: 443
+    targetPort: 8443
+  
+  loadBalancerSourceRanges:   # Restrict access by IP range
+  - "10.0.0.0/8"
+  - "203.0.113.0/24"
+```
+
+### When LoadBalancer Is Not Available
+
+On bare metal or VirtualBox environments, LoadBalancer type falls back to NodePort behavior — no external IP is provisioned:
+
+```bash
+kubectl get service frontend-lb-service
+# NAME                  TYPE           CLUSTER-IP    EXTERNAL-IP
+# frontend-lb-service   LoadBalancer   10.96.100.50  <pending>
+#                                                     ↑ stuck pending on bare metal
+```
+
+**Solutions for bare metal:**
+- **MetalLB**: Software load balancer for bare metal clusters
+- **Ingress Controller**: More powerful alternative (single LB for multiple services)
+
+### Production Best Practices
+- **Prefer Ingress over LoadBalancer** for HTTP/HTTPS traffic — one LB can serve many services
+- Use LoadBalancer for non-HTTP protocols (TCP/UDP)
+- Configure `loadBalancerSourceRanges` for security
+- Use cloud-specific annotations for advanced LB configuration (health check paths, timeouts)
+
+---
+
+### 🔎 Summary — Services (LoadBalancer)
+
+- **LoadBalancer** = NodePort + external cloud load balancer
+- Provisions real cloud LB (AWS ELB, GCP LB, Azure LB) automatically
+- On bare metal: falls back to NodePort behavior (`<pending>` external IP)
+- Best for: production cloud deployments with external traffic
+- **Production Takeaway:** For HTTP/HTTPS traffic, use Ingress (more efficient, one LB for many services). Use LoadBalancer type for TCP/UDP protocols or when Ingress is insufficient.
+
+---
+
+## 17. Namespaces
+
+### What Is It?
+**Namespaces** are virtual clusters within a Kubernetes cluster. They partition resources into separate groups for isolation, organization, and multi-tenancy.
 
 ### Default Namespaces
 
-Kubernetes creates four namespaces by default:
-
 | Namespace | Purpose |
-|-----------|---------|
-| `default` | Where resources go when no namespace is specified |
-| `kube-system` | Kubernetes system components (CoreDNS, kube-proxy, metrics-server) |
-| `kube-public` | Publicly readable, for cluster info (rarely used) |
-| `kube-node-lease` | Node heartbeat leases for efficient node health detection |
+|---|---|
+| `default` | Where resources go if no namespace specified |
+| `kube-system` | Kubernetes control plane components (apiserver, scheduler, coredns) |
+| `kube-public` | Publicly readable, used for cluster-info |
+| `kube-node-lease` | Node heartbeat lease objects |
 
-### Namespace DNS Resolution
+### Namespace Use Cases
 
 ```
-Service: webapp-service in namespace: production
-    │
-    ├── Within same namespace:  webapp-service
-    ├── From other namespace:   webapp-service.production
-    ├── Short form (with DNS):  webapp-service.production.svc
-    └── Fully Qualified:        webapp-service.production.svc.cluster.local
+Development team setup:
+├── namespace: dev       ← Development environment
+├── namespace: staging   ← Staging/QA environment
+├── namespace: prod      ← Production environment
+└── namespace: monitoring ← Prometheus, Grafana, etc.
+
+Benefits:
+- Resource isolation (quotas per namespace)
+- Access control (RBAC per namespace)
+- Network policies per namespace
+- Independent lifecycle management
 ```
 
-This DNS hierarchy allows services to reference each other across namespaces without hardcoding IPs.
+### Cross-Namespace Communication
 
-### Production Namespace Strategy
+Pods in different namespaces can communicate, but must use the **fully qualified DNS name**:
 
-In real production environments, namespaces are used for:
+```bash
+# Same namespace: short name works
+mysql.connect("db-service")
+
+# Different namespace: must use full DNS name
+mysql.connect("db-service.dev.svc.cluster.local")
+
+# Format: <service>.<namespace>.svc.cluster.local
 ```
-cluster
-├── production          # Live workloads
-├── staging             # Pre-production testing
-├── development         # Developer sandbox
-├── monitoring          # Prometheus, Grafana, Alertmanager
-├── logging             # Elasticsearch, Fluentd, Kibana
-└── kube-system         # Kubernetes system components
+
+### Namespace Management Commands
+
+```bash
+# List all namespaces
+kubectl get namespaces    # or: kubectl get ns
+
+# Create namespace
+kubectl create namespace development    # imperative
+kubectl apply -f namespace.yaml         # declarative
+
+# Work in a specific namespace
+kubectl get pods -n kube-system
+kubectl get pods --namespace=monitoring
+
+# Set default namespace for context
+kubectl config set-context --current --namespace=production
+
+# List resources across ALL namespaces
+kubectl get pods --all-namespaces
+kubectl get pods -A                    # shorthand
 ```
+
+### Namespace YAML
 
 ```yaml
-# Namespace with resource quotas (production best practice)
+# namespace-production.yaml
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -836,8 +2434,12 @@ metadata:
   labels:
     environment: production
     team: platform
----
-# ResourceQuota prevents one team from consuming all cluster resources
+```
+
+### Resource Quotas
+
+```yaml
+# resource-quota.yaml — Limit resources per namespace
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -845,2554 +2447,895 @@ metadata:
   namespace: production
 spec:
   hard:
-    # Compute limits
-    requests.cpu: "20"      # Total requested CPU across all pods
-    requests.memory: 40Gi
-    limits.cpu: "40"
-    limits.memory: 80Gi
-    # Object count limits
-    pods: "100"
-    services: "20"
-    persistentvolumeclaims: "20"
-    secrets: "50"
-    configmaps: "50"
+    pods: "50"                    # Max pods in namespace
+    requests.cpu: "20"            # Total CPU requests
+    requests.memory: "40Gi"       # Total memory requests
+    limits.cpu: "40"              # Total CPU limits
+    limits.memory: "80Gi"         # Total memory limits
+    persistentvolumeclaims: "10"  # Max PVCs
+    services.loadbalancers: "2"   # Max LoadBalancer services
 ```
 
-```bash
-# Set default namespace for your kubectl context
-kubectl config set-context --current --namespace=production
-
-# Now kubectl get pods shows production namespace by default
-kubectl get pods
-
-# Cross-namespace operations
-kubectl get pods -n kube-system
-kubectl get pods --all-namespaces  # or -A
-```
-
----
-
-## 1.7 ConfigMaps & Secrets — Externalizing Configuration
-
-### ConfigMaps — Non-Sensitive Configuration
-
-ConfigMaps store **non-sensitive configuration data** as key-value pairs. The goal is to separate application code from environment-specific configuration — the **12-Factor App** principle.
-
-**Why not hardcode config in container images?**
-- Different environments (dev/staging/prod) need different values
-- Rebuilding an image for every config change is slow and wasteful
-- Changes should be deployable without touching the container image
+### LimitRange (Default Resource Limits)
 
 ```yaml
-# ─── ConfigMap Definition ──────────────────────────────────────────
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: webapp-config
-  namespace: production
-data:
-  # Simple key-value pairs
-  LOG_LEVEL: "INFO"
-  APP_PORT: "8080"
-  CACHE_TTL: "300"
-
-  # Multi-line configuration file (great for nginx.conf, app.properties, etc.)
-  nginx.conf: |
-    server {
-        listen 8080;
-        location / {
-            proxy_pass http://localhost:3000;
-        }
-    }
----
-# ─── Pod using ConfigMap ──────────────────────────────────────────
-apiVersion: v1
-kind: Pod
-metadata:
-  name: webapp
-spec:
-  containers:
-  - name: webapp
-    image: myapp:1.0
-
-    # Method 1: Load ALL ConfigMap keys as environment variables
-    envFrom:
-    - configMapRef:
-        name: webapp-config
-
-    # Method 2: Load specific key as environment variable
-    env:
-    - name: LOG_LEVEL       # Name in container (can differ from ConfigMap key)
-      valueFrom:
-        configMapKeyRef:
-          name: webapp-config
-          key: LOG_LEVEL
-
-    # Method 3: Mount as file (best for config files)
-    volumeMounts:
-    - name: nginx-config
-      mountPath: /etc/nginx/nginx.conf
-      subPath: nginx.conf   # Mount only one key as a file (not the whole ConfigMap)
-      # Without subPath, the whole mountPath directory is replaced by ConfigMap keys
-
-  volumes:
-  - name: nginx-config
-    configMap:
-      name: webapp-config
-```
-
-> **Production Consideration:** ConfigMaps mounted as volumes **automatically update** when the ConfigMap changes (within ~1 minute). Environment variables from ConfigMaps do **NOT** update automatically — the Pod must be restarted. This is important when doing live config updates.
-
-### Secrets — Sensitive Configuration
-
-Secrets store **sensitive data** (passwords, tokens, certificates) with base64 encoding. 
-
-**Critical understanding:** Base64 is **NOT encryption**. It's just encoding. Anyone with access to the Secret can decode it. For true security:
-- Enable **encryption at rest** in etcd (covered in Security section)
-- Use **RBAC** to restrict who can read Secrets
-- Consider external solutions (AWS Secrets Manager, HashiCorp Vault, Sealed Secrets)
-
-```yaml
-# Create a Secret declaratively
-# ALWAYS use base64 encoded values
-# echo -n 'mypassword' | base64
-# → bXlwYXNzd29yZA==
-apiVersion: v1
-kind: Secret
-metadata:
-  name: db-credentials
-  namespace: production
-type: Opaque  # Generic secret type (most common)
-             # Other types: kubernetes.io/tls, kubernetes.io/dockerconfigjson
-data:
-  DB_HOST: bXlzcWw=        # mysql
-  DB_USER: cm9vdA==        # root
-  DB_PASSWORD: bXlwYXNzd29yZA==  # mypassword
----
-# Using Secrets in a Pod
-apiVersion: v1
-kind: Pod
-metadata:
-  name: app-with-secrets
-spec:
-  containers:
-  - name: app
-    image: myapp:1.0
-
-    # Method 1: Inject as environment variables (simple but not most secure)
-    envFrom:
-    - secretRef:
-        name: db-credentials
-
-    # Method 2: Mount as files (more secure — processes can't see env vars of other processes)
-    volumeMounts:
-    - name: db-creds
-      mountPath: /etc/secrets
-      readOnly: true  # ALWAYS mount secrets read-only
-
-  volumes:
-  - name: db-creds
-    secret:
-      secretName: db-credentials
-      # Each key becomes a file: /etc/secrets/DB_HOST, /etc/secrets/DB_PASSWORD, etc.
-      # Application reads password from file instead of env var
-      # More secure because env vars can be leaked in core dumps and /proc
-```
-
-```bash
-# Create secrets imperatively (never logs the value — safer for CI/CD)
-kubectl create secret generic db-credentials \
-  --from-literal=DB_HOST=mysql \
-  --from-literal=DB_PASSWORD=supersecret \
-  --from-literal=DB_USER=root \
-  -n production
-
-# Create TLS secret
-kubectl create secret tls tls-secret \
-  --cert=server.crt \
-  --key=server.key
-
-# Create Docker registry secret
-kubectl create secret docker-registry regcred \
-  --docker-server=private.registry.io \
-  --docker-username=admin \
-  --docker-password=secret123 \
-  --docker-email=admin@company.com
-```
-
----
-
-## 1.8 Resource Requirements, Limits & LimitRanges
-
-### Understanding CPU and Memory Units
-
-**CPU:**
-- `1` = 1 CPU core = 1000m (millicores)
-- `500m` = 0.5 CPU core
-- `250m` = 0.25 CPU core (1/4 of a core)
-- CPU is a **compressible resource** — if you exceed the limit, you're throttled (slowed down), NOT killed
-
-**Memory:**
-- `Mi` = Mebibytes (1 Mi = 1,048,576 bytes)
-- `Gi` = Gibibytes
-- `M` = Megabytes (1 M = 1,000,000 bytes)
-- Memory is a **non-compressible resource** — if you exceed the limit, you're OOMKilled (container dies)
-
-### Requests vs Limits
-
-| | Requests | Limits |
-|--|---------|--------|
-| **Purpose** | Scheduling hint | Hard ceiling |
-| **Who uses it** | kube-scheduler | Linux kernel (cgroups) |
-| **What happens if exceeded** | N/A (not enforced at runtime) | CPU: throttled, Memory: OOMKilled |
-| **Production best practice** | Always set | Set carefully |
-
-### QoS Classes
-
-Kubernetes uses requests/limits to assign **Quality of Service (QoS)** classes, which determine **which pods get killed first** when a node runs out of resources:
-
-```
-Guaranteed (last to be killed)
-    → requests == limits for ALL containers
-    
-Burstable (middle priority)
-    → at least one container has requests or limits set
-    → requests != limits
-    
-BestEffort (first to be killed)
-    → NO requests or limits set at all
-    → Don't do this in production!
-```
-
-```yaml
-# LimitRange — sets default limits for pods that don't specify them
-# Prevents "BestEffort" pods from being created accidentally
+# limitrange.yaml — Set default limits for pods in namespace
 apiVersion: v1
 kind: LimitRange
 metadata:
   name: default-limits
-  namespace: production
+  namespace: development
 spec:
   limits:
   - type: Container
-    default:        # Default LIMIT if not specified
+    default:
       cpu: "500m"
       memory: "256Mi"
-    defaultRequest: # Default REQUEST if not specified
+    defaultRequest:
       cpu: "100m"
-      memory: "64Mi"
-    max:            # Maximum limit allowed
+      memory: "128Mi"
+    max:
       cpu: "2"
       memory: "2Gi"
-    min:            # Minimum request allowed
+    min:
       cpu: "50m"
-      memory: "32Mi"
+      memory: "64Mi"
 ```
 
-> **CKA Exam Insight:** Know the QoS classes and which pods get evicted first. This comes up in scheduling and resource management questions.
+### Real-World Production Scenario
+
+**Setup:** Single cluster for dev, staging, prod environments
+
+**Namespace Strategy:**
+```
+production namespace:
+├── ResourceQuota: max 100 pods, 50 CPU, 100Gi memory
+├── RBAC: only SRE team can deploy
+├── NetworkPolicy: only ingress from ingress-controller namespace
+└── LimitRange: default 250m CPU, 256Mi memory per container
+
+development namespace:
+├── ResourceQuota: max 20 pods, 10 CPU, 20Gi memory
+├── RBAC: all developers can deploy
+└── LimitRange: default 100m CPU, 128Mi memory per container
+```
+
+### CKA Exam Tips
+- `kubectl config set-context --current --namespace=<ns>` changes working namespace
+- Without specifying namespace, commands default to `default` namespace
+- Namespace-scoped vs cluster-scoped resources: Pods/Deployments/Services are namespaced; Nodes/PVs/ClusterRoles are NOT
+- Full DNS: `<service>.<namespace>.svc.cluster.local`
+- `-n` flag sets namespace for a single command; context sets it persistently
 
 ---
 
-## 1.9 Taints, Tolerations & Node Affinity — Advanced Scheduling
+### 🔎 Summary — Namespaces
 
-### Taints & Tolerations
+- **Namespaces** = Virtual clusters for isolation and organization
+- Default namespaces: `default`, `kube-system`, `kube-public`, `kube-node-lease`
+- Same namespace: use short service name; different namespace: use full DNS
+- ResourceQuota limits resource consumption per namespace
+- LimitRange sets default resource requests/limits for pods in namespace
+- **Production Takeaway:** Always use namespaces to separate environments (dev/staging/prod). Apply ResourceQuotas and RBAC per namespace for proper multi-tenancy.
 
-**Taints** are applied to nodes to **repel** pods. **Tolerations** are applied to pods to **override** taints, allowing the pod to be scheduled on the tainted node.
+---
 
-**Mental model:** A taint is like a "no entry" sign on a node. A toleration is like a special pass that lets a pod ignore that sign.
+## 18. Imperative vs Declarative
 
-**Effects:**
-- `NoSchedule`: New pods won't be scheduled (existing pods unaffected)
-- `PreferNoSchedule`: Try to avoid scheduling here, but it's not mandatory
-- `NoExecute`: New pods won't be scheduled AND existing pods without toleration are evicted
+### What Is It?
+Two fundamentally different approaches to managing Kubernetes resources:
+
+- **Imperative**: You specify the exact steps to achieve the desired state
+- **Declarative**: You specify the desired state and Kubernetes figures out how to get there
+
+### The Analogy
+
+```
+Imperative (taxi with directions):
+"Turn right on Street B, left on Street C, stop at house 45"
+— You manage EVERY step
+
+Declarative (Uber):
+"Take me to Tom's house at 123 Main St"
+— You state WHAT you want; system handles HOW
+```
+
+### Imperative Commands
 
 ```bash
-# Add taint to a node (dedicated GPU node)
-kubectl taint nodes gpu-node-1 hardware=gpu:NoSchedule
+# Create resources
+kubectl run nginx --image=nginx
+kubectl create deployment nginx --image=nginx --replicas=3
+kubectl expose deployment nginx --port=80 --type=NodePort
+kubectl create configmap app-config --from-literal=DB_HOST=mysql
 
-# Remove taint (append dash -)
-kubectl taint nodes gpu-node-1 hardware=gpu:NoSchedule-
+# Modify resources
+kubectl edit deployment nginx
+kubectl scale deployment nginx --replicas=5
+kubectl set image deployment nginx nginx=nginx:1.18
+kubectl label pod nginx env=prod
 
-# View node taints
-kubectl describe node gpu-node-1 | grep Taints
+# Delete resources
+kubectl delete pod nginx
+kubectl delete deployment nginx
+kubectl delete -f nginx.yaml
+
+# When to use: Quick tests, one-off operations, CKA exam speed tasks
+```
+
+### Declarative Approach
+
+```bash
+# Apply configuration (create OR update)
+kubectl apply -f nginx.yaml
+kubectl apply -f ./directory/          # Apply all YAML files in directory
+kubectl apply -f https://url/file.yaml # Apply from URL
+
+# The key difference: kubectl apply handles both create AND update
+# If object doesn't exist → creates it
+# If object exists → updates only changed fields
+```
+
+### The kubectl apply Three-Way Merge
+
+```
+kubectl apply compares THREE sources:
+1. Local YAML file (your intent)
+2. Live object in cluster (current state)
+3. Last-applied annotation (what you last applied)
+
+If field in last-applied but NOT in local file → DELETE it from cluster
+If field in local file differs from cluster → UPDATE it
+If field only in cluster (added by other means) → KEEP it
+```
+
+### When to Use Which
+
+| Scenario | Approach | Example |
+|---|---|---|
+| Quick debug/test | Imperative | `kubectl run test-pod --image=busybox` |
+| Creating one-off objects | Imperative | `kubectl create configmap` |
+| Production deployments | Declarative | `kubectl apply -f prod/` |
+| Team environments | Declarative | Git-managed YAML files |
+| CKA exam (speed) | Mixed | Imperative for creation, declarative for complex objects |
+
+### CKA Exam Strategy
+
+```bash
+# FAST object creation (imperative)
+kubectl run pod1 --image=nginx                                    # Create pod
+kubectl run pod1 --image=nginx --dry-run=client -o yaml > p.yaml # Generate YAML
+kubectl create deployment dep1 --image=nginx --replicas=3
+kubectl expose pod nginx --port=80 --name=nginx-svc --type=ClusterIP
+kubectl create serviceaccount my-sa
+kubectl create secret generic my-secret --from-literal=key=val
+kubectl create configmap my-cm --from-literal=key=val
+
+# Generate + customize (hybrid approach — most efficient for exam)
+kubectl create deployment nginx --image=nginx --dry-run=client -o yaml > dep.yaml
+# Edit dep.yaml for any special fields
+kubectl apply -f dep.yaml
+```
+
+---
+
+### 🔎 Summary — Imperative vs Declarative
+
+- **Imperative** = Step-by-step commands; great for speed, bad for tracking
+- **Declarative** = State-based YAML; great for tracking, team collaboration, GitOps
+- `kubectl apply` is the declarative command; handles create + update intelligently
+- In production: **ALWAYS use declarative** with YAML files in version control
+- In CKA exam: use **imperative for speed**, then customize YAML for complex requirements
+- **Production Takeaway:** Treat your Kubernetes YAML like application code. Store it in git, review changes, use CI/CD pipelines to apply. Never apply production changes imperatively without documentation.
+
+---
+
+## 19. Kubectl Apply Command
+
+### How kubectl apply Works Internally
+
+`kubectl apply` performs a **three-way merge** to calculate what changes need to be made:
+
+```
+Source 1: Your LOCAL yaml file (what you want)
+Source 2: LIVE cluster state (what currently exists)  
+Source 3: Last-applied annotation (what you last applied)
+
+Merge logic:
+- Field in local + different from live → UPDATE live
+- Field in last-applied but NOT in local → DELETE from live
+- Field only in live (not in local or last-applied) → KEEP (added by other tools)
+```
+
+### The last-applied-configuration Annotation
+
+```bash
+# After first kubectl apply, annotation is set on object:
+kubectl get pod nginx -o yaml | grep last-applied-configuration
+
+# Shows stored JSON of what was last applied
+# Stored as: kubectl.kubernetes.io/last-applied-configuration
 ```
 
 ```yaml
-# Pod with toleration to run on GPU node
+# Example live object with annotation
 apiVersion: v1
 kind: Pod
 metadata:
-  name: ml-training-job
-spec:
-  # Toleration allows this pod to LAND on the tainted node
-  tolerations:
-  - key: "hardware"
-    operator: "Equal"
-    value: "gpu"
-    effect: "NoSchedule"
-
-  # But toleration alone doesn't GUARANTEE placement on the GPU node!
-  # Use nodeSelector or nodeAffinity to FORCE placement
-  nodeSelector:
-    hardware: gpu
-
-  containers:
-  - name: training
-    image: tensorflow:latest
-    resources:
-      limits:
-        nvidia.com/gpu: 1  # Request a GPU resource
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","kind":"Pod","metadata":{"labels":
+      {"app":"nginx"},"name":"nginx"},"spec":{"containers":
+      [{"image":"nginx:1.18","name":"nginx"}]}}
 ```
 
-**Important distinction:** Taints/tolerations control WHICH nodes a pod CAN run on. They don't guarantee a pod WILL run on a specific node. Combine with node affinity for full control.
+### Practical kubectl apply Behavior
 
-### Node Affinity
+```bash
+# First apply: Object doesn't exist → CREATED
+kubectl apply -f nginx.yaml
+# Output: pod/nginx created
 
-Node affinity is a **more expressive** way to constrain pod scheduling based on node labels. It replaces `nodeSelector` with support for logical operators.
+# Second apply, no changes: Object unchanged → unchanged
+kubectl apply -f nginx.yaml  
+# Output: pod/nginx unchanged
+
+# Third apply, image changed: Object changed → CONFIGURED
+# Changed nginx:1.18 to nginx:1.19 in yaml
+kubectl apply -f nginx.yaml
+# Output: pod/nginx configured
+
+# Preview changes before applying
+kubectl diff -f nginx.yaml
+# Shows what WILL change without applying
+```
+
+### Warning: Mixing Imperative and Declarative
+
+```bash
+# DANGER: Creating with kubectl create then applying
+kubectl create -f nginx.yaml
+# → Object created WITHOUT last-applied annotation
+
+kubectl apply -f nginx.yaml
+# → Creates annotation, but warns about missing annotation on initial create
+
+# BEST PRACTICE: Always use apply consistently
+kubectl apply -f nginx.yaml  # Use this for EVERYTHING
+```
+
+---
+
+### 🔎 Summary — Kubectl Apply
+
+- `kubectl apply` = declarative create OR update based on YAML
+- Uses three-way merge: local file + live state + last-applied annotation
+- `last-applied-configuration` annotation tracks what was previously applied
+- Fields removed from local YAML are deleted from live object on next apply
+- `kubectl diff -f` = preview changes before applying
+- **Production Takeaway:** Use `kubectl apply` as your standard deployment command. Combine with `kubectl diff` in CI/CD pipelines to review changes before applying to production.
+
+---
+
+# Part II — Scheduling
+
+---
+
+## 20. Manual Scheduling
+
+### What Is It?
+By default, the Kubernetes scheduler automatically assigns pods to nodes. **Manual scheduling** allows you to bypass the scheduler by directly specifying the target node in the pod definition using the `nodeName` field.
+
+### When to Use Manual Scheduling
+- Emergency situations where scheduler is unavailable
+- Specific hardware requirements (GPU nodes, dedicated hardware)
+- Debugging scheduling issues
+- Learning Kubernetes internals
+
+### How It Works
+
+```
+Normal flow:
+Pod created → nodeName="" → Scheduler detects → assigns nodeName → kubelet starts pod
+
+Manual scheduling:
+Pod created with nodeName="node02" → kubelet on node02 directly starts pod
+(Scheduler is bypassed entirely)
+```
+
+### Manual Scheduling YAML
 
 ```yaml
-spec:
-  affinity:
-    nodeAffinity:
-      # required: MUST match — pod won't schedule if no node matches
-      requiredDuringSchedulingIgnoredDuringExecution:
-        nodeSelectorTerms:
-        - matchExpressions:
-          - key: kubernetes.io/e2e-az-name
-            operator: In
-            values:
-            - us-east-1a
-            - us-east-1b
-          - key: instance-type
-            operator: In
-            values:
-            - m5.large
-            - m5.xlarge
-
-      # preferred: prefer these nodes, but it's not mandatory
-      preferredDuringSchedulingIgnoredDuringExecution:
-      - weight: 80  # Higher weight = stronger preference (1-100)
-        preference:
-          matchExpressions:
-          - key: disk-type
-            operator: In
-            values:
-            - ssd
-      - weight: 20
-        preference:
-          matchExpressions:
-          - key: network-speed
-            operator: In
-            values:
-            - 10gbps
-```
-
-### Pod Affinity & Anti-Affinity
-
-Control pod placement **relative to other pods** (not just nodes).
-
-```yaml
-spec:
-  affinity:
-    # Pod Anti-Affinity: Spread pods across nodes/zones for HA
-    podAntiAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-      - labelSelector:
-          matchExpressions:
-          - key: app
-            operator: In
-            values:
-            - webapp
-        topologyKey: kubernetes.io/hostname
-        # This means: Don't put two pods with app=webapp on the same NODE
-        # Use "topology.kubernetes.io/zone" to spread across availability zones
-
-    # Pod Affinity: Co-locate pods for performance (e.g., app + cache)
-    podAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-      - weight: 100
-        podAffinityTerm:
-          labelSelector:
-            matchLabels:
-              app: redis-cache
-          topologyKey: kubernetes.io/hostname
-          # Prefer to be on the same node as redis-cache for low latency
-```
-
----
-
-## 1.10 DaemonSets, Static Pods & Multiple Schedulers
-
-### DaemonSets
-
-A DaemonSet ensures that **one copy of a pod runs on every node** (or every node matching a selector). When new nodes are added, the DaemonSet automatically adds a pod. When nodes are removed, those pods are garbage-collected.
-
-**Production use cases:**
-- Log collectors (Fluentd, Filebeat)
-- Node monitoring agents (Prometheus node-exporter, Datadog agent)
-- Network plugins (Calico, Weave Net)
-- Storage daemons (Ceph, GlusterFS)
-
-```yaml
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: node-exporter
-  namespace: monitoring
-spec:
-  selector:
-    matchLabels:
-      name: node-exporter
-
-  template:
-    metadata:
-      labels:
-        name: node-exporter
-    spec:
-      # Run on all nodes including master/control-plane nodes
-      tolerations:
-      - key: node-role.kubernetes.io/control-plane
-        operator: Exists
-        effect: NoSchedule
-
-      hostNetwork: true  # Use host network for node-level metrics
-      hostPID: true      # Access host processes
-
-      containers:
-      - name: node-exporter
-        image: prom/node-exporter:v1.5.0
-        ports:
-        - containerPort: 9100
-          hostPort: 9100  # Binds to the node's network interface
-
-        resources:
-          requests:
-            cpu: "50m"
-            memory: "30Mi"
-          limits:
-            memory: "100Mi"
-            cpu: "200m"
-```
-
-### Static Pods
-
-Static Pods are pods managed **directly by the kubelet** on a specific node, without the API Server's involvement. They are defined as YAML files in a specific directory on the node (default: `/etc/kubernetes/manifests/`).
-
-**Why they exist:** The Kubernetes control plane components themselves (kube-apiserver, etcd, kube-controller-manager, kube-scheduler) run as Static Pods! This is elegant — the cluster manages itself using its own primitives.
-
-**Key characteristics:**
-- Kubelet reads files from the manifest directory and creates the pods
-- If you delete a static pod via kubectl, the kubelet immediately recreates it (because the file still exists)
-- To truly delete a static pod, remove the YAML file from the manifest directory
-- Static pod files are readable via API Server (mirror pods), but changes via kubectl are ignored
-
-```bash
-# Location of static pod manifests on control-plane node
-ls /etc/kubernetes/manifests/
-# etcd.yaml
-# kube-apiserver.yaml
-# kube-controller-manager.yaml
-# kube-scheduler.yaml
-
-# Modify a control plane component (e.g., add a flag to kube-apiserver)
-# 1. Edit the file
-sudo vim /etc/kubernetes/manifests/kube-apiserver.yaml
-
-# 2. kubelet detects the change and recreates the pod automatically
-# Wait ~30-60 seconds for the pod to restart
-
-# Create your own static pod
-# Place a pod YAML in /etc/kubernetes/manifests/
-# The kubelet will create it automatically
-```
-
-> **CKA Exam Insight:** Static pods and their manifest directory location frequently appear in exam troubleshooting scenarios. Know how to find the manifest directory from kubelet config.
-
-```bash
-# Find static pod manifest directory
-systemctl status kubelet
-# OR
-cat /var/lib/kubelet/config.yaml | grep staticPodPath
-```
-
----
-
-## 1.11 Monitoring & Metrics Server
-
-### Kubernetes Monitoring Stack
-
-```
-Node (kubelet with cAdvisor)
-    │ exposes container metrics
-    ▼
-Metrics Server (aggregates in-memory)
-    │ serves /metrics endpoint
-    ▼
-kubectl top commands / HPA / VPA
-```
-
-The **Metrics Server** is a lightweight, in-memory aggregator of resource metrics from kubelets. It's required for `kubectl top` commands and Horizontal Pod Autoscaling.
-
-```bash
-# Install Metrics Server (kubeadm clusters)
-kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
-
-# Check node resource usage
-kubectl top nodes
-# NAME          CPU(cores)   CPU%   MEMORY(bytes)   MEMORY%
-# node-1        245m         12%    3456Mi          44%
-
-# Check pod resource usage
-kubectl top pods -n production
-# NAME                     CPU(cores)   MEMORY(bytes)
-# webapp-7d8f9b4c6-xk2p9   45m          128Mi
-
-# Sort by CPU
-kubectl top pods --sort-by=cpu
-
-# Sort by memory
-kubectl top pods --sort-by=memory
-```
-
-> **CKA Exam Insight:** Metrics Server is frequently tested. You need to know how to install it and use `kubectl top` to identify resource-hungry pods.
-
----
-
-# PART 2: LOGGING, LIFECYCLE MANAGEMENT & CLUSTER MAINTENANCE
-
----
-
-## 2.1 Managing Application Logs
-
-### Docker vs Kubernetes Logging
-
-**In Docker:** Logs go to stdout/stderr. Access with `docker logs container-id`.
-
-**In Kubernetes:** The kubelet collects container logs (from stdout/stderr) and stores them on the node at `/var/log/pods/` and `/var/log/containers/`. `kubectl logs` reads these files.
-
-### kubectl logs Command
-
-```bash
-# Get logs from a single-container pod
-kubectl logs webapp-pod
-
-# Follow (tail -f) logs in real-time
-kubectl logs -f webapp-pod
-
-# Get last 100 lines
-kubectl logs --tail=100 webapp-pod
-
-# Get logs from specific time period
-kubectl logs --since=1h webapp-pod
-
-# Get logs from previous container instance (if it crashed)
-# CRITICAL for debugging CrashLoopBackOff!
-kubectl logs webapp-pod --previous
-
-# Multi-container pod: specify container name
-kubectl logs webapp-pod -c nginx
-
-# Get logs from all pods matching a label selector
-kubectl logs -l app=webapp --all-containers=true
-
-# Get logs from a specific namespace
-kubectl logs -n production webapp-pod
-```
-
-### Production Logging Architecture
-
-In production, you don't rely on `kubectl logs` for long-term log retention. The typical stack:
-
-```
-Container (stdout/stderr)
-    │
-    ▼
-Node (kubelet captures → /var/log/pods/)
-    │
-    ▼ DaemonSet (Fluentd/Filebeat/Fluent Bit)
-    │
-    ▼
-Log Aggregation (Elasticsearch/Loki/CloudWatch)
-    │
-    ▼
-Visualization (Kibana/Grafana)
-```
-
----
-
-## 2.2 Rolling Updates, Rollbacks & Deployment Strategies
-
-*(Covered in detail in Section 1.4)*
-
-### Additional Production Commands
-
-```bash
-# Trigger a rollout without changing image (useful to pick up new ConfigMap)
-kubectl rollout restart deployment/webapp-deployment
-
-# Check if a deployment is complete (useful in CI/CD pipelines)
-kubectl rollout status deployment/webapp-deployment --timeout=5m
-# Exits 0 if successful, non-zero if timeout or error
-
-# Check deployment events (great for debugging stuck rollouts)
-kubectl describe deployment webapp-deployment | tail -20
-```
-
----
-
-## 2.3 Commands & Arguments — Docker vs Kubernetes
-
-### Understanding ENTRYPOINT and CMD in Docker
-
-This is a **frequently misunderstood** concept that directly affects pod configuration.
-
-**In a Dockerfile:**
-- `ENTRYPOINT` — the executable to run (like the program name)
-- `CMD` — default arguments to the ENTRYPOINT (can be overridden)
-
-```dockerfile
-FROM ubuntu
-ENTRYPOINT ["sleep"]  # The program
-CMD ["5"]             # Default argument (sleep for 5 seconds)
-```
-
-Running `docker run ubuntu-sleeper` → runs `sleep 5`
-Running `docker run ubuntu-sleeper 10` → runs `sleep 10` (CMD overridden)
-Running `docker run --entrypoint sleep2.0 ubuntu-sleeper 10` → runs `sleep2.0 10`
-
-### In Kubernetes Pod Spec
-
-The mapping is:
-
-| Dockerfile | Kubernetes pod spec |
-|-----------|-------------------|
-| `ENTRYPOINT` | `command` |
-| `CMD` | `args` |
-
-```yaml
+# manual-schedule-pod.yaml
 apiVersion: v1
 kind: Pod
 metadata:
-  name: ubuntu-sleeper
+  name: nginx
+  labels:
+    name: nginx
 spec:
+  nodeName: node02         # Manual assignment — bypasses scheduler
+                           # MUST be set at creation time
+                           # Cannot be changed after pod is created
   containers:
-  - name: ubuntu
-    image: ubuntu-sleeper  # Has ENTRYPOINT: ["sleep"], CMD: ["5"]
-
-    # Override CMD (args) only — run "sleep 10" instead of "sleep 5"
-    args: ["10"]
-
-    # Override both ENTRYPOINT and CMD
-    command: ["sleep2.0"]  # New ENTRYPOINT
-    args: ["10"]           # New CMD
-
-    # Note: 'command' COMPLETELY REPLACES the Docker ENTRYPOINT
-    # 'args' COMPLETELY REPLACES the Docker CMD
-```
-
-> **CKA Exam Insight:** This Docker-to-Kubernetes mapping is a very common exam question. The trick is that Kubernetes uses `command` for ENTRYPOINT and `args` for CMD — which is the opposite of what you might intuitively expect.
-
----
-
-## 2.4 Secrets Management & Encryption at Rest
-
-### Why Base64 is NOT Security
-
-```bash
-echo "c3VwZXJzZWNyZXQ=" | base64 --decode
-# Output: supersecret
-```
-
-Anyone with RBAC access to get Secrets can decode the values instantly. This is why **encryption at rest** is critical.
-
-### Enabling Encryption at Rest
-
-```bash
-# Step 1: Generate a 32-byte encryption key
-head -c 32 /dev/urandom | base64
-# Example output: y0xTt+U6xgRdNxe4nDYYsijOGgRDoUYC+wAwOKeNfPs=
-```
-
-```yaml
-# /etc/kubernetes/enc/enc.yaml — Encryption Configuration
-apiVersion: apiserver.config.k8s.io/v1
-kind: EncryptionConfiguration
-resources:
-  - resources:
-    - secrets
-    providers:
-    # First provider is used for NEW secrets (encryption)
-    - aescbc:
-        keys:
-        - name: key1
-          secret: y0xTt+U6xgRdNxe4nDYYsijOGgRDoUYC+wAwOKeNfPs=
-    # Identity provider = plaintext (for reading OLD unencrypted secrets)
-    - identity: {}
-    # IMPORTANT: Order matters!
-    # Put identity first if you want to decrypt old secrets
-    # Put aescbc first to encrypt new secrets
-```
-
-```yaml
-# Add to kube-apiserver static pod manifest
-# /etc/kubernetes/manifests/kube-apiserver.yaml
-spec:
-  containers:
-  - command:
-    - kube-apiserver
-    - --encryption-provider-config=/etc/kubernetes/enc/enc.yaml  # ADD THIS
-    volumeMounts:
-    - name: enc
-      mountPath: /etc/kubernetes/enc
-      readOnly: true
-  volumes:
-  - name: enc
-    hostPath:
-      path: /etc/kubernetes/enc
-      type: DirectoryOrCreate
-```
-
-```bash
-# After enabling encryption, re-encrypt all existing secrets
-kubectl get secret --all-namespaces -o json | kubectl replace -f -
-
-# Verify encryption by checking etcd directly
-ETCDCTL_API=3 etcdctl \
-  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
-  --cert=/etc/kubernetes/pki/etcd/server.crt \
-  --key=/etc/kubernetes/pki/etcd/server.key \
-  get /registry/secrets/default/my-secret | hexdump -C
-# If encrypted: data should look like gibberish, not readable text
-```
-
----
-
-## 2.5 Multi-Container Pods — Sidecar Patterns
-
-### When to Use Multiple Containers in a Pod
-
-Multi-container pods make sense when containers are **tightly coupled** and must:
-- Share the same lifecycle
-- Communicate via localhost (same network namespace)
-- Share volumes for data exchange
-
-### Common Patterns
-
-**1. Sidecar Pattern** — Enhances/extends the main container
-```
-Main App Container  ←→  Sidecar (Envoy proxy, log forwarder, vault agent)
-```
-
-**2. Init Container** — Runs before the main container starts
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: webapp-with-init
-spec:
-  # Init containers run SEQUENTIALLY before app containers start
-  # If an init container fails, the pod restarts until it succeeds
-  initContainers:
-  - name: wait-for-db
-    image: busybox:1.35
-    command:
-    - sh
-    - -c
-    - |
-      until nc -z mysql-service 3306; do
-        echo "Waiting for database..."
-        sleep 2
-      done
-      echo "Database is ready!"
-    # This prevents the main app from starting before the DB is available
-    # Fixes "connection refused" errors on startup in microservices
-
-  - name: db-migration
-    image: myapp-migrate:1.0
-    command: ["python", "manage.py", "migrate"]
-    # Run database migrations before starting the app
-    # Ensures schema is up-to-date before app starts serving
-
-  containers:
-  - name: webapp
-    image: myapp:1.0
-    # Only starts after ALL init containers complete successfully
-```
-
-**3. Ambassador Pattern** — Proxy for external services
-```yaml
-spec:
-  containers:
-  - name: app
-    image: myapp:1.0
-    # App talks to localhost:6379 (Redis proxy)
-
-  - name: redis-ambassador
-    image: haproxy:2.6
-    # Proxy that handles Redis cluster routing
-    # App doesn't need to know about Redis cluster details
-```
-
-**4. Adapter Pattern** — Transforms output format
-```yaml
-spec:
-  containers:
-  - name: app
-    image: legacy-app:1.0
-    # Outputs logs in non-standard format
-
-  - name: log-adapter
-    image: log-formatter:1.0
-    # Reads app's log volume, transforms to JSON, ships to ELK
-    volumeMounts:
-    - name: log-volume
-      mountPath: /var/log/app
-```
-
----
-
-## 2.6 Horizontal & Vertical Pod Autoscaling
-
-### Horizontal Pod Autoscaler (HPA)
-
-The HPA automatically scales the number of pod replicas based on observed metrics (CPU, memory, or custom metrics).
-
-**How it works:**
-1. HPA controller queries Metrics Server every 15 seconds (configurable)
-2. Calculates `desiredReplicas = ceil[currentReplicas × (currentMetricValue / desiredMetricValue)]`
-3. If desired != current, updates the Deployment's replica count
-
-```yaml
-# Deployment with explicit resource limits (required for HPA!)
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: webapp
-spec:
-  replicas: 2  # Starting point — HPA will override this
-  selector:
-    matchLabels:
-      app: webapp
-  template:
-    metadata:
-      labels:
-        app: webapp
-    spec:
-      containers:
-      - name: webapp
-        image: myapp:1.0
-        resources:
-          requests:
-            cpu: "250m"   # REQUIRED: HPA uses this to calculate utilization %
-          limits:
-            cpu: "500m"
----
-# HPA Definition
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: webapp-hpa
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: webapp
-
-  minReplicas: 2   # Never scale below 2 (HA guarantee)
-  maxReplicas: 20  # Never scale above 20 (cost control)
-
-  metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target:
-        type: Utilization
-        averageUtilization: 70  # Scale up when avg CPU > 70% of REQUEST
-        # At 70% utilization: HPA will add replicas
-        # At <70% for extended period: HPA will remove replicas
-
-  - type: Resource
-    resource:
-      name: memory
-      target:
-        type: Utilization
-        averageUtilization: 80
-
-  behavior:
-    scaleDown:
-      # Prevent scale-down flapping
-      stabilizationWindowSeconds: 300  # Wait 5 min before scaling down
-      policies:
-      - type: Percent
-        value: 50
-        periodSeconds: 60  # Can remove at most 50% of pods per minute
-    scaleUp:
-      stabilizationWindowSeconds: 60   # Scale up faster (60s window)
-```
-
-```bash
-# Create HPA imperatively
-kubectl autoscale deployment webapp --cpu-percent=70 --min=2 --max=20
-
-# Check HPA status
-kubectl get hpa
-kubectl describe hpa webapp-hpa
-
-# HPA requires metrics-server to be installed!
-# Without it: HPA shows "unknown" for current metrics
-```
-
----
-
-## 2.7 OS Upgrades — Drain, Cordon & Uncordon
-
-### Node Maintenance Workflow
-
-When you need to take a node offline for OS patching, kernel upgrades, or hardware maintenance:
-
-```
-1. Drain node (evict pods, cordon node)
-    ↓
-2. Perform maintenance
-    ↓
-3. Uncordon node (allow scheduling)
-    ↓
-4. Verify node is healthy
-```
-
-### Drain vs Cordon
-
-| Command | What It Does |
-|---------|-------------|
-| `kubectl cordon node-1` | Mark node as unschedulable. NO new pods. Existing pods keep running. |
-| `kubectl drain node-1` | Mark as unschedulable + gracefully evict all pods from node |
-| `kubectl uncordon node-1` | Remove unschedulable mark. New pods can now be scheduled. |
-
-```bash
-# Step 1: Drain the node
-# --ignore-daemonsets: DaemonSets can't be drained (they're tied to the node)
-# --delete-emptydir-data: Delete pods using emptyDir volumes (data is lost!)
-kubectl drain node-1 \
-  --ignore-daemonsets \
-  --delete-emptydir-data \
-  --grace-period=30
-
-# If drain is stuck (pods with PodDisruptionBudget, local storage, etc.)
-kubectl drain node-1 --ignore-daemonsets --force
-
-# Step 2: Do your maintenance on node-1...
-
-# Step 3: Bring node back and allow scheduling
-kubectl uncordon node-1
-
-# Step 4: Verify node is Ready
-kubectl get nodes
-
-# Pods do NOT automatically move back! They'll be scheduled on the uncordoned
-# node only when new pods are created or existing pods are rescheduled
-```
-
-### Pod Disruption Budgets (PDB)
-
-PDBs ensure that drain operations don't take down too many pods at once:
-
-```yaml
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: webapp-pdb
-spec:
-  minAvailable: 2    # Always keep at least 2 pods running during disruptions
-  # OR: maxUnavailable: 1  (at most 1 pod can be unavailable)
-  selector:
-    matchLabels:
-      app: webapp
-# With this PDB, drain will block until it can remove a pod while
-# keeping 2 running. Great for HA production workloads.
-```
-
----
-
-## 2.8 Cluster Upgrade with kubeadm
-
-### Upgrade Strategy
-
-Kubernetes follows a **N-2 support policy** — only the three most recent minor versions are supported. Always upgrade one minor version at a time (1.27 → 1.28 → 1.29, not 1.27 → 1.29).
-
-### Control Plane Upgrade Process
-
-```bash
-# ─── ON CONTROL PLANE NODE ───────────────────────────────────────
-
-# Step 1: Update package repository to new version
-echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] \
-https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" | \
-sudo tee /etc/apt/sources.list.d/kubernetes.list
-
-# Fetch new GPG key
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | \
-sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-
-sudo apt-get update
-
-# Step 2: See available versions
-sudo apt-cache madison kubeadm
-
-# Step 3: Upgrade kubeadm first (always upgrade kubeadm before applying)
-sudo apt-mark unhold kubeadm
-sudo apt-get install -y kubeadm=1.29.3-1.1
-sudo apt-mark hold kubeadm
-
-# Verify kubeadm version
-kubeadm version
-
-# Step 4: Check upgrade plan
-sudo kubeadm upgrade plan
-# Shows what will be upgraded and what needs manual action (kubelet)
-
-# Step 5: Apply the upgrade
-sudo kubeadm upgrade apply v1.29.3
-# This upgrades: kube-apiserver, kube-controller-manager, kube-scheduler,
-# kube-proxy, CoreDNS, etcd
-
-# Step 6: Drain control plane node
-kubectl drain controlplane --ignore-daemonsets
-
-# Step 7: Upgrade kubelet and kubectl
-sudo apt-mark unhold kubelet kubectl
-sudo apt-get install -y kubelet=1.29.3-1.1 kubectl=1.29.3-1.1
-sudo apt-mark hold kubelet kubectl
-
-# Restart kubelet
-sudo systemctl daemon-reload
-sudo systemctl restart kubelet
-
-# Step 8: Uncordon control plane
-kubectl uncordon controlplane
-```
-
-### Worker Node Upgrade Process
-
-Repeat for each worker node:
-
-```bash
-# ─── ON CONTROL PLANE: drain the worker ─────────────────────────
-kubectl drain node-1 --ignore-daemonsets
-
-# ─── SSH INTO THE WORKER NODE ────────────────────────────────────
-
-# Update repos and upgrade kubeadm
-sudo apt-get update
-sudo apt-mark unhold kubeadm
-sudo apt-get install -y kubeadm=1.29.3-1.1
-sudo apt-mark hold kubeadm
-
-# Update node configuration
-sudo kubeadm upgrade node
-
-# Upgrade kubelet and kubectl
-sudo apt-mark unhold kubelet kubectl
-sudo apt-get install -y kubelet=1.29.3-1.1 kubectl=1.29.3-1.1
-sudo apt-mark hold kubelet kubectl
-
-sudo systemctl daemon-reload
-sudo systemctl restart kubelet
-
-# ─── ON CONTROL PLANE: uncordon the worker ───────────────────────
-kubectl uncordon node-1
-
-# Verify
-kubectl get nodes
-```
-
----
-
-## 2.9 Backup & Restore — etcd & Cluster State
-
-### What to Backup
-
-| Backup Type | Method | Coverage |
-|------------|--------|----------|
-| Declarative manifests | Git repository | Best — covers all resources |
-| API Server state | `kubectl get all -o yaml` | All runtime objects |
-| etcd snapshot | `etcdctl snapshot save` | Complete cluster state |
-
-### etcd Backup
-
-```bash
-# Create etcd snapshot
-ETCDCTL_API=3 etcdctl snapshot save /opt/etcd-backup.db \
-  --endpoints=https://127.0.0.1:2379 \
-  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
-  --cert=/etc/kubernetes/pki/etcd/server.crt \
-  --key=/etc/kubernetes/pki/etcd/server.key
-
-# Verify snapshot
-ETCDCTL_API=3 etcdctl snapshot status /opt/etcd-backup.db \
-  --write-out=table
-# +----------+----------+------------+------------+
-# |   HASH   | REVISION | TOTAL KEYS | TOTAL SIZE |
-# +----------+----------+------------+------------+
-# | c87a02a5 |     9124 |        817 |     4.2 MB |
-# +----------+----------+------------+------------+
-```
-
-### etcd Restore
-
-```bash
-# Step 1: Stop the kube-apiserver (or remove its static pod manifest temporarily)
-# If kubeadm: move kube-apiserver.yaml out of /etc/kubernetes/manifests/
-
-# Step 2: Restore snapshot to new data directory
-ETCDCTL_API=3 etcdctl snapshot restore /opt/etcd-backup.db \
-  --data-dir=/var/lib/etcd-restored \
-  --initial-cluster=master=https://127.0.0.1:2380 \
-  --initial-cluster-token=etcd-cluster-new \
-  --initial-advertise-peer-urls=https://127.0.0.1:2380
-
-# Step 3: Update etcd config to use new data directory
-# Edit /etc/kubernetes/manifests/etcd.yaml
-# Change --data-dir=/var/lib/etcd to --data-dir=/var/lib/etcd-restored
-# Also update the hostPath volume to point to the new directory
-
-# Step 4: Start etcd with new data directory
-# (if static pod, move etcd.yaml back to /etc/kubernetes/manifests/)
-
-# Step 5: Restore kube-apiserver
-# (move kube-apiserver.yaml back)
-
-# Step 6: Verify cluster state
-kubectl get nodes
-kubectl get pods --all-namespaces
-```
-
-> **CKA Exam Insight:** The etcd backup and restore is a common hands-on exam task. Know the exact `etcdctl` flags, especially `--cacert`, `--cert`, `--key`, and `--endpoints`. The endpoint is almost always `https://127.0.0.1:2379`.
-
----
-
-# PART 3: SECURITY & STORAGE
-
----
-
-## 3.1 Kubernetes Security Architecture
-
-### Security Layers
-
-```
-Request Flow → Authentication → Authorization → Admission Control
-                 "Who are you?"   "Can you do this?"  "Is this request valid?"
-```
-
-**1. Authentication:** Proves identity. Who is making this request?
-**2. Authorization:** Proves permission. Is this identity allowed to perform this action?
-**3. Admission Control:** Validates/mutates the request. Is the request well-formed and policy-compliant?
-
-### Security Best Practices Architecture
-
-```
-External
-    │
-    ▼
-┌─────────────────────────────────────────────────────────┐
-│  Network Boundary (firewall, security groups)            │
-│  ┌─────────────────────────────────────────────────┐    │
-│  │  Kubernetes API Server                           │    │
-│  │  ├── Authentication (certs, tokens, OIDC)       │    │
-│  │  ├── Authorization (RBAC)                       │    │
-│  │  └── Admission Controllers                      │    │
-│  └─────────────────���───────────────────────────────┘    │
-│  ┌─────────────────────────────────────────────────┐    │
-│  │  Worker Nodes                                   │    │
-│  │  ├── Pod Security (Security Contexts, PSA)     │    │
-│  │  ├── Network Policies                          │    │
-│  │  └── Container Runtime Security (seccomp)      │    │
-│  └─────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────┘
-```
-
----
-
-## 3.2 Authentication — Who Are You?
-
-### Authentication Methods
-
-Kubernetes **does not have a user database**. Users are authenticated via:
-
-1. **Client Certificates (X.509)** — Most common for admin access
-2. **Bearer Tokens** — Used by service accounts and OIDC
-3. **OpenID Connect (OIDC)** — Enterprise SSO (Google, Azure AD, Okta)
-4. **Webhook Token Authentication** — Custom auth via external service
-
-### Certificate-Based Authentication Flow
-
-```
-1. Admin creates private key:
-   openssl genrsa -out jane.key 2048
-
-2. Create Certificate Signing Request (CSR):
-   openssl req -new -key jane.key -subj "/CN=jane/O=developers" -out jane.csr
-
-3. Submit CSR to Kubernetes:
-   # Base64 encode the CSR
-   cat jane.csr | base64 -w 0
-
-4. Create Kubernetes CertificateSigningRequest object
-
-5. Admin approves:
-   kubectl certificate approve jane
-
-6. Extract signed certificate:
-   kubectl get csr jane -o jsonpath='{.status.certificate}' | base64 --decode > jane.crt
-
-7. User uses cert to authenticate:
-   kubectl get pods --client-certificate=jane.crt --client-key=jane.key
-```
-
-```yaml
-# CertificateSigningRequest object
-apiVersion: certificates.k8s.io/v1
-kind: CertificateSigningRequest
-metadata:
-  name: jane
-spec:
-  expirationSeconds: 86400  # 24 hours
-  request: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS4uLg==  # base64 encoded CSR
-  signerName: kubernetes.io/kube-apiserver-client
-  usages:
-  - client auth
-```
-
-```bash
-# Certificate lifecycle management
-kubectl get csr
-kubectl certificate approve jane
-kubectl certificate deny mallory
-```
-
----
-
-## 3.3 TLS Certificates — Deep Dive
-
-### Certificate Hierarchy in Kubernetes
-
-```
-Cluster CA (ca.crt / ca.key)
-    │
-    ├── kube-apiserver (apiserver.crt / apiserver.key)
-    │       ├── Can also be used to authenticate etcd client
-    │       └── Can be used to authenticate kubelet client
-    │
-    ├── etcd CA / etcd Server (etcd/server.crt / etcd/server.key)
-    │
-    ├── kubelet (kubelet.crt / kubelet.key)  [per node]
-    │
-    ├── kube-scheduler (scheduler.crt / scheduler.key)
-    │
-    ├── kube-controller-manager (controller-manager.crt)
-    │
-    └── Admin User (admin.crt / admin.key)
-```
-
-### Certificate Locations (kubeadm cluster)
-
-```bash
-# All PKI files are in:
-ls /etc/kubernetes/pki/
-
-# Key files:
-# ca.crt / ca.key                              - Cluster CA
-# apiserver.crt / apiserver.key                - API Server cert
-# apiserver-etcd-client.crt/key                - API Server → etcd auth
-# apiserver-kubelet-client.crt/key             - API Server → kubelet auth
-# front-proxy-ca.crt / front-proxy-client.crt  - API aggregation layer
-# etcd/ca.crt                                  - etcd CA
-# etcd/server.crt / etcd/server.key            - etcd server cert
-
-# Inspect a certificate
-openssl x509 -in /etc/kubernetes/pki/apiserver.crt -text -noout | grep -E "(Subject|Issuer|Not After|DNS:)"
-```
-
-### Troubleshooting Certificate Issues
-
-```bash
-# Check certificate expiry
-openssl x509 -in /etc/kubernetes/pki/apiserver.crt -noout -enddate
-
-# kubeadm can show cert expiry
-kubeadm certs check-expiration
-
-# Renew certificates (kubeadm)
-kubeadm certs renew all
-
-# If API server is broken (can't kubectl), check logs via:
-crictl logs $(crictl ps | grep kube-apiserver | awk '{print $1}')
-# OR
-journalctl -u kubelet | grep -i error
-```
-
----
-
-## 3.4 KubeConfig — Credential Management
-
-### KubeConfig Structure
-
-```yaml
-# ~/.kube/config (default location)
-apiVersion: v1
-kind: Config
-current-context: production-admin@production-cluster  # Active context
-
-# CLUSTERS section: Where are the clusters?
-clusters:
-- name: production-cluster
-  cluster:
-    server: https://prod-k8s.company.com:6443
-    certificate-authority-data: LS0tLS1CRUdJTi...  # CA cert (base64)
-
-- name: staging-cluster
-  cluster:
-    server: https://staging-k8s.company.com:6443
-    certificate-authority-data: LS0tLS1CRUdJTi...
-
-# USERS section: Who am I?
-users:
-- name: production-admin
-  user:
-    client-certificate-data: LS0tLS1CRUdJTi...  # User cert (base64)
-    client-key-data: LS0tLS1CRUdJTi...          # User key (base64)
-
-- name: developer-jane
-  user:
-    client-certificate-data: LS0tLS1CRUdJTi...
-    client-key-data: LS0tLS1CRUdJTi...
-
-# CONTEXTS section: Cluster + User + (optional) Namespace combination
-contexts:
-- name: production-admin@production-cluster
-  context:
-    cluster: production-cluster
-    user: production-admin
-    namespace: production  # Optional default namespace
-
-- name: jane@staging
-  context:
-    cluster: staging-cluster
-    user: developer-jane
-    namespace: default
-```
-
-### KubeConfig Operations
-
-```bash
-# View current config
-kubectl config view
-
-# View specific file
-kubectl config view --kubeconfig=/path/to/custom/config
-
-# List all contexts
-kubectl config get-contexts
-
-# Switch context
-kubectl config use-context jane@staging
-
-# Set default namespace for current context
-kubectl config set-context --current --namespace=production
-
-# Add a new context
-kubectl config set-context dev-context \
-  --cluster=dev-cluster \
-  --user=developer \
-  --namespace=dev
-
-# Using a specific kubeconfig file (overrides default)
-kubectl get pods --kubeconfig=/path/to/admin.conf
-# OR
-export KUBECONFIG=/path/to/admin.conf
-kubectl get pods
-```
-
----
-
-## 3.5 RBAC — Role-Based Access Control
-
-### RBAC Concepts
-
-RBAC controls **who can do what to which resources**:
-- **Role**: A set of permissions within a namespace
-- **ClusterRole**: A set of permissions cluster-wide (or namespace-scoped for cluster-wide resources)
-- **RoleBinding**: Assigns a Role to a user/group/serviceaccount in a namespace
-- **ClusterRoleBinding**: Assigns a ClusterRole to a user/group/serviceaccount cluster-wide
-
-### Permission Model
-
-```
-Subject (who)        Verb (what)      Resource (on what)
-user: jane       →   get, list    →   pods
-group: devs      →   create       →   deployments
-serviceaccount   →   watch        →   services
-```
-
-```yaml
-# ─── Role (namespace-scoped) ─────────────────────────────────────
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: developer-role
-  namespace: production   # Only valid in this namespace
-rules:
-# Rule 1: Full pod management
-- apiGroups: [""]         # "" = core API group (pods, services, configmaps, etc.)
-  resources: ["pods", "pods/log", "pods/exec"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-
-# Rule 2: Read-only on ConfigMaps
-- apiGroups: [""]
-  resources: ["configmaps"]
-  verbs: ["get", "list"]
-
-# Rule 3: Manage Deployments (in apps API group)
-- apiGroups: ["apps"]
-  resources: ["deployments", "replicasets"]
-  verbs: ["get", "list", "watch", "create", "update", "patch"]
-
-# Rule 4: Access to specific pods only (by name)
-- apiGroups: [""]
-  resources: ["pods"]
-  resourceNames: ["blue-pod", "green-pod"]  # Only these specific pods
-  verbs: ["get", "exec"]
----
-# ─── RoleBinding ─────────────────────────────────────────────────
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: developer-binding
-  namespace: production
-subjects:
-- kind: User
-  name: jane               # User (from certificate CN)
-  apiGroup: rbac.authorization.k8s.io
-- kind: Group
-  name: developers         # Group (from certificate O field)
-  apiGroup: rbac.authorization.k8s.io
-roleRef:
-  kind: Role               # Bind to Role (not ClusterRole)
-  name: developer-role
-  apiGroup: rbac.authorization.k8s.io
----
-# ─── ClusterRole ─────────────────────────────────────────────────
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: cluster-admin-readonly
-rules:
-- apiGroups: [""]
-  resources: ["nodes", "persistentvolumes", "namespaces"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: ["apps"]
-  resources: ["deployments", "replicasets", "daemonsets"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: ["storage.k8s.io"]
-  resources: ["storageclasses"]
-  verbs: ["get", "list"]
----
-# ─── ClusterRoleBinding ──────────────────────────────────────────
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: readonly-binding
-subjects:
-- kind: User
-  name: monitoring-user
-  apiGroup: rbac.authorization.k8s.io
-roleRef:
-  kind: ClusterRole
-  name: cluster-admin-readonly
-  apiGroup: rbac.authorization.k8s.io
-```
-
-### RBAC Debugging Commands
-
-```bash
-# Can I do X? (check your own permissions)
-kubectl auth can-i create pods
-kubectl auth can-i delete nodes
-kubectl auth can-i get secrets -n production
-
-# Can a specific user do X? (admin checking another user)
-kubectl auth can-i create pods --as jane
-kubectl auth can-i create pods --as jane --namespace production
-kubectl auth can-i list secrets --as system:serviceaccount:default:myapp-sa
-
-# List all permissions for current user
-kubectl auth whoami
-
-# List all role bindings in a namespace
-kubectl get rolebindings -n production
-kubectl describe rolebinding developer-binding -n production
-
-# Check what a role allows
-kubectl describe role developer-role -n production
-```
-
-> **CKA Exam Insight:** RBAC is heavily tested. Know how to: 1) Create Roles/ClusterRoles, 2) Bind them, 3) Verify with `auth can-i`, 4) The difference between Role (namespaced) and ClusterRole (cluster-wide). The API group for `pods` is `""` (empty string), for `deployments` it's `"apps"`.
-
----
-
-## 3.6 Service Accounts — Machine Identity
-
-### Service Accounts for Pods
-
-While regular users are for humans, Service Accounts are **identities for pods** to authenticate with the Kubernetes API.
-
-**Real production scenarios:**
-- Jenkins pod needs to create/delete pods in specific namespaces
-- Prometheus needs to list pods/services to scrape metrics
-- External DNS needs to update DNS records when services change
-- CI/CD pipelines running inside the cluster
-
-```yaml
-# Step 1: Create the Service Account
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: jenkins-sa
-  namespace: cicd
-
----
-# Step 2: Create Role with needed permissions
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: jenkins-role
-  namespace: production
-rules:
-- apiGroups: ["apps"]
-  resources: ["deployments"]
-  verbs: ["get", "list", "update", "patch"]
-
----
-# Step 3: Bind Role to Service Account
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: jenkins-rolebinding
-  namespace: production
-subjects:
-- kind: ServiceAccount
-  name: jenkins-sa
-  namespace: cicd  # Note: SA is in cicd namespace
-roleRef:
-  kind: Role
-  name: jenkins-role
-  apiGroup: rbac.authorization.k8s.io
-
----
-# Step 4: Use Service Account in Pod
-apiVersion: v1
-kind: Pod
-metadata:
-  name: jenkins
-  namespace: cicd
-spec:
-  serviceAccountName: jenkins-sa  # Mounts token automatically
-  containers:
-  - name: jenkins
-    image: jenkins/jenkins:lts
-```
-
-### Default Service Account
-
-Every namespace gets a `default` service account. Every pod that doesn't specify `serviceAccountName` uses this default SA.
-
-**Security concern:** The default SA has minimal permissions, but it still has a token mounted. For stricter security:
-
-```yaml
-spec:
-  automountServiceAccountToken: false  # Don't mount any token
-  # Only needed if pod doesn't call Kubernetes API
-```
-
-### Kubernetes v1.22+ Token Changes
-
-Before 1.22: SAs had non-expiring tokens stored as Secrets.
-After 1.22: Tokens are generated via TokenRequest API — **time-limited, audience-bound, auto-rotated**.
-
-```bash
-# Generate a short-lived token for a SA (new way)
-kubectl create token jenkins-sa -n cicd --duration=1h
-
-# View SA token (projected volume in pod)
-kubectl exec jenkins-pod -- cat /var/run/secrets/kubernetes.io/serviceaccount/token
-```
-
----
-
-## 3.7 Network Policies — Zero-Trust Networking
-
-### The Default: Allow Everything
-
-By default, Kubernetes allows **all pods to communicate with all other pods** across all namespaces. This is the "all allow" default. For production security, this is unacceptable.
-
-**Zero-trust networking principle:** Deny everything by default. Explicitly allow only necessary communication.
-
-### Network Policy Architecture
-
-```
-Without Network Policy:
-[Frontend] ←→ [API] ←→ [DB]    ← All can talk to all
-
-With Network Policy:
-[Frontend] → [API] → [DB]       ← Only these paths allowed
-[Frontend] ✗ [DB]               ← Frontend cannot directly reach DB
-```
-
-```yaml
-# ─── Step 1: Block ALL ingress to DB pods ─────────────────────────
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: db-deny-all
-  namespace: production
-spec:
-  podSelector:
-    matchLabels:
-      tier: database
-  policyTypes:
-  - Ingress
-  # NO ingress rules = deny all ingress traffic to DB pods
-
----
-# ─── Step 2: Allow only API pods to reach DB ─────────────────────
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: db-allow-api
-  namespace: production
-spec:
-  podSelector:
-    matchLabels:
-      tier: database
-  policyTypes:
-  - Ingress
-  ingress:
-  - from:
-    # AND condition: both selectors must match
-    - podSelector:
-        matchLabels:
-          tier: api
-      namespaceSelector:
-        matchLabels:
-          name: production
-    # This means: pod labeled tier=api IN namespace labeled name=production
+  - name: nginx
+    image: nginx
     ports:
-    - protocol: TCP
-      port: 5432
-
----
-# ─── Multiple Rules = OR condition ───────────────────────────────
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: db-allow-multiple
-spec:
-  podSelector:
-    matchLabels:
-      tier: database
-  policyTypes:
-  - Ingress
-  ingress:
-  - from:
-    # Rule 1: API pods in production namespace
-    - podSelector:
-        matchLabels:
-          tier: api
-      namespaceSelector:
-        matchLabels:
-          name: production
-    # Rule 2: Monitoring pods (for DB metrics scraping)
-    - podSelector:
-        matchLabels:
-          app: prometheus
-      namespaceSelector:
-        matchLabels:
-          name: monitoring
-    # Rule 3: Specific external backup IP
-    - ipBlock:
-        cidr: 192.168.5.10/32
-    ports:
-    - protocol: TCP
-      port: 5432
-
----
-# ─── Egress Policy — DB sending backup to external server ────────
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: db-egress-backup
-spec:
-  podSelector:
-    matchLabels:
-      tier: database
-  policyTypes:
-  - Egress
-  egress:
-  - to:
-    - ipBlock:
-        cidr: 10.0.0.5/32  # Backup server IP
-    ports:
-    - protocol: TCP
-      port: 443
-
-  # Also allow DNS (CRITICAL! Without this, no hostname resolution)
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: kube-system
-    ports:
-    - protocol: UDP
-      port: 53
-    - protocol: TCP
-      port: 53
-```
-
-> **Critical Production Note:** Network Policies are only effective if your CNI plugin supports them. **Flannel does NOT support Network Policies**. Use Calico, Cilium, or Weave Net for policy enforcement. Always test with `kubectl exec` and curl/nc.
-
----
-
-## 3.8 Image Security & Security Contexts
-
-### Pulling from Private Registries
-
-```bash
-# Create registry credentials secret
-kubectl create secret docker-registry regcred \
-  --docker-server=registry.company.com \
-  --docker-username=ci-user \
-  --docker-password='P@ssw0rd!' \
-  --docker-email=ci@company.com \
-  -n production
-```
-
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: private-app
-spec:
-  imagePullSecrets:
-  - name: regcred   # Reference the registry secret
-  containers:
-  - name: app
-    image: registry.company.com/myapp:1.0
-    # PRODUCTION ISSUE - ImagePullBackOff:
-    # Causes:
-    #   1. Wrong image name or tag
-    #   2. Wrong registry URL
-    #   3. Missing or expired imagePullSecrets
-    #   4. Registry unreachable from node
-    # Debug: kubectl describe pod <name> → check Events section
-    # Look for: "Failed to pull image"
-```
-
-### Security Contexts — Container Hardening
-
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: secure-pod
-spec:
-  # ─── Pod-level security ────────��──────────────────────────────
-  securityContext:
-    runAsNonRoot: true      # Don't run as root user
-    runAsUser: 1000         # Run as UID 1000
-    runAsGroup: 3000        # Run with GID 3000
-    fsGroup: 2000           # Files created in volumes belong to GID 2000
-    seccompProfile:
-      type: RuntimeDefault  # Use default seccomp profile (blocks dangerous syscalls)
-
-  containers:
-  - name: app
-    image: nginx:1.21
-    # ─── Container-level security (overrides pod level) ──────────
-    securityContext:
-      allowPrivilegeEscalation: false  # Can't gain more privileges than parent
-      readOnlyRootFilesystem: true     # Filesystem is read-only (great for security)
-      capabilities:
-        drop:
-        - ALL              # Drop all Linux capabilities
-        add:
-        - NET_BIND_SERVICE  # Only add back what's needed (bind to port <1024)
-        # NEVER add: NET_ADMIN, SYS_ADMIN, SYS_PTRACE in production
-
-    # If root FS is read-only, apps that need to write should use volumes
-    volumeMounts:
-    - name: tmp-dir
-      mountPath: /tmp
-    - name: cache-dir
-      mountPath: /var/cache/nginx
-
-  volumes:
-  - name: tmp-dir
-    emptyDir: {}
-  - name: cache-dir
-    emptyDir: {}
-```
-
----
-
-## 3.9 Custom Resource Definitions & Operators
-
-### What Are CRDs?
-
-CRDs extend the Kubernetes API with **custom resource types**. They allow you to define domain-specific resources that Kubernetes can manage just like native resources.
-
-```yaml
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: flighttickets.flights.com  # Must follow: plural.group format
-spec:
-  group: flights.com
-  scope: Namespaced
-  names:
-    plural: flighttickets
-    singular: flightticket
-    kind: FlightTicket
-    shortNames:
-    - ft
-  versions:
-  - name: v1
-    served: true
-    storage: true
-    schema:
-      openAPIV3Schema:
-        type: object
-        properties:
-          spec:
-            type: object
-            properties:
-              from:
-                type: string
-              to:
-                type: string
-              number:
-                type: integer
-                minimum: 1
-                maximum: 10
+    - containerPort: 8080
 ```
 
 ```bash
-# After creating CRD, you can use it like any native resource
-kubectl apply -f flightticket.yaml
-kubectl get flighttickets
-kubectl get ft   # Using shortname
+# Create and verify
+kubectl apply -f manual-schedule-pod.yaml
+kubectl get pods -o wide
+# NAME    READY   STATUS    NODE
+# nginx   1/1     Running   node02  ← on specified node
 ```
 
-### Operators Pattern
-
-An **Operator** = CRD + Custom Controller. The controller watches CRD objects and performs domain-specific operations.
-
-**Famous operators in production:**
-- **Prometheus Operator**: Manages Prometheus, Alertmanager, and ServiceMonitors
-- **etcd Operator**: Manages etcd cluster lifecycle
-- **cert-manager**: Automatically provisions TLS certificates
-- **External DNS**: Manages DNS records based on Ingress/Service resources
-
----
-
-## 3.10 Storage — PV, PVC & Storage Classes
-
-### Storage Hierarchy
-
-```
-Storage Class (defines HOW to provision storage)
-    │
-    ▼
-Persistent Volume (represents actual storage)
-    │  (bound)
-    ▼
-Persistent Volume Claim (request for storage)
-    │  (mounted)
-    ▼
-Pod (uses storage via volume mount)
-```
-
-### Static vs Dynamic Provisioning
-
-**Static provisioning:** Admin creates PVs manually → user creates PVCs → Kubernetes binds matching PVC to PV.
-
-**Dynamic provisioning:** User creates PVC with a StorageClass → StorageClass automatically creates a PV using a cloud/storage provisioner.
-
-```yaml
-# ─── StorageClass (defines storage "tier") ───────────────────────
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: fast-ssd
-provisioner: kubernetes.io/aws-ebs  # AWS EBS provisioner
-parameters:
-  type: gp3          # EBS volume type
-  iopsPerGB: "50"
-  encrypted: "true"
-reclaimPolicy: Retain  # Delete or Retain PV when PVC is deleted
-allowVolumeExpansion: true   # Allow PVC resize
-volumeBindingMode: WaitForFirstConsumer  # Don't provision until Pod is scheduled
-# WaitForFirstConsumer is critical for multi-AZ clusters!
-# It ensures the volume is created in the same AZ as the pod
-
----
-# ─── PersistentVolume (static) ────────────────────────────────────
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: pv-postgres-data
-spec:
-  capacity:
-    storage: 50Gi
-  accessModes:
-  - ReadWriteOnce    # Only one node can mount read-write (typical for block storage)
-  # ReadOnlyMany     # Multiple nodes can mount read-only
-  # ReadWriteMany    # Multiple nodes can mount read-write (requires NFS/EFS)
-
-  persistentVolumeReclaimPolicy: Retain
-  # Retain: Keep data after PVC deletion (admin must manually reclaim)
-  # Delete: Delete underlying storage when PVC is deleted
-  # Recycle: Deprecated (scrub and reuse)
-
-  storageClassName: fast-ssd
-  awsElasticBlockStore:
-    volumeID: vol-0a1234567890abcdef
-    fsType: ext4
-
----
-# ─── PersistentVolumeClaim ────────────────────────────────────────
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: postgres-pvc
-  namespace: production
-spec:
-  accessModes:
-  - ReadWriteOnce
-  resources:
-    requests:
-      storage: 50Gi   # Must be <= PV capacity for manual binding
-  storageClassName: fast-ssd  # Triggers dynamic provisioning if no PV matches
-
----
-# ─── Pod using PVC ────────────────────────────────────────────────
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: postgres
-spec:
-  selector:
-    matchLabels:
-      app: postgres
-  serviceName: postgres-headless
-  replicas: 1
-  template:
-    metadata:
-      labels:
-        app: postgres
-    spec:
-      containers:
-      - name: postgres
-        image: postgres:14
-        env:
-        - name: POSTGRES_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: pg-secret
-              key: password
-        volumeMounts:
-        - name: postgres-data
-          mountPath: /var/lib/postgresql/data
-          # PRODUCTION NOTE: This directory persists even if pod is deleted
-          # StatefulSet uses volumeClaimTemplates (below) for per-pod PVCs
-
-  # StatefulSets use volumeClaimTemplates to auto-create PVCs per pod
-  volumeClaimTemplates:
-  - metadata:
-      name: postgres-data
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      storageClassName: fast-ssd
-      resources:
-        requests:
-          storage: 50Gi
-```
-
-### Storage Troubleshooting
-
-```bash
-# Check PV status
-kubectl get pv
-# STATUS column:
-# Available — PV created but not yet bound to any PVC
-# Bound — PV is bound to a PVC
-# Released — PVC deleted, but PV not yet reclaimed (if Retain policy)
-# Failed — Auto-reclamation failed
-
-# Check PVC status
-kubectl get pvc -n production
-# STATUS column:
-# Pending — No matching PV found (or waiting for provisioner)
-# Bound — Successfully bound to a PV
-# Lost — Bound PV was deleted (data loss risk!)
-
-# Debug PVC stuck in Pending
-kubectl describe pvc postgres-pvc -n production
-# Look for events like:
-# "no persistent volumes available for this claim" → need matching PV
-# "waiting for volume to be created" → StorageClass provisioner issue
-
-# Debug pod with volume issue
-kubectl describe pod postgres-0
-# Look for: "Unable to attach or mount volumes"
-```
-
----
-
-# PART 4: NETWORKING, TROUBLESHOOTING & CLUSTER INSTALLATION
-
----
-
-## 4.1 Linux Networking Fundamentals
-
-### Essential Networking Commands
-
-```bash
-# View network interfaces
-ip link
-ip addr
-
-# View routing table
-route
-ip route
-
-# Add a route (persists until reboot)
-ip route add 192.168.2.0/24 via 192.168.1.1
-
-# Enable IP forwarding (for routing between interfaces)
-echo 1 > /proc/sys/net/ipv4/ip_forward
-# For permanent setting:
-echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
-sysctl -p
-
-# View listening ports and their PIDs
-netstat -tulpn
-ss -tulpn
-
-# Test connectivity
-ping 8.8.8.8
-curl -v http://service-name:80
-
-# DNS debugging
-nslookup webapp-service
-dig webapp-service.production.svc.cluster.local
-host webapp-service
-```
-
-### Network Namespaces (Foundation for Pod Networking)
-
-Each pod gets its own network namespace. When a pod is created:
-1. New network namespace created
-2. Virtual ethernet (veth) pair created
-3. One end placed in pod namespace (becomes `eth0` in pod)
-4. Other end placed on host bridge (`cbr0` or `cni0`)
-5. IP assigned from pod CIDR subnet
-6. Routes configured for pod-to-pod communication
-
----
-
-## 4.2 CNI — Container Network Interface
-
-### CNI Plugin Architecture
-
-```
-kubelet → CRI (containerd) → CNI plugin → Network setup
-
-Configuration: /etc/cni/net.d/
-Binaries:      /opt/cni/bin/
-```
-
-### Popular CNI Plugins and When to Use Them
-
-| Plugin | Features | Production Use Case |
-|--------|----------|---------------------|
-| **Calico** | Network policies, BGP routing, eBPF | Most popular for production, EKS/bare-metal |
-| **Cilium** | eBPF-based, excellent observability | Modern clusters, service mesh alternative |
-| **Flannel** | Simple overlay, no network policies | Simple clusters, NOT for production security |
-| **Weave Net** | Multi-cloud, encryption | Multi-cloud deployments |
-
-```bash
-# Check CNI configuration
-ls /etc/cni/net.d/
-cat /etc/cni/net.d/10-calico.conflist
-
-# Check CNI binaries
-ls /opt/cni/bin/
-
-# Check which CNI plugin is active
-kubectl get pods -n kube-system | grep calico
-kubectl get pods -n kube-system | grep flannel
-kubectl get pods -n kube-system | grep cilium
-
-# Diagnose CNI issues
-kubectl describe pod <failing-pod>
-# Look for: "networkPlugin cni failed to set up pod"
-# This means CNI plugin is not working
-
-# Check kubelet CNI configuration
-cat /var/lib/kubelet/config.yaml | grep cni
-# OR check kubelet arguments
-systemctl status kubelet
-```
-
----
-
-## 4.3 Service Networking & kube-proxy
-
-### How kube-proxy Creates Service Rules
-
-When a Service is created with ClusterIP `10.96.100.50`:
-
-```bash
-# kube-proxy creates iptables rules like:
-iptables -t nat -L | grep webapp-service
-
-# Output shows DNAT rules:
-# -A KUBE-SVC-XXXX -m statistic --mode random --probability 0.33 -j KUBE-SEP-POD1
-# -A KUBE-SVC-XXXX -m statistic --mode random --probability 0.50 -j KUBE-SEP-POD2
-# -A KUBE-SVC-XXXX -j KUBE-SEP-POD3
-# Each SEP (Service EndPoint) has a DNAT rule pointing to the actual Pod IP
-```
-
-### Checking Service Networking
-
-```bash
-# Verify service has endpoints (pods are healthy and selected)
-kubectl get endpoints webapp-service -n production
-
-# If endpoints are empty:
-# 1. No pods match the service selector
-# 2. Pods aren't ready (failing readiness probe)
-# Debug: kubectl get pods -l app=webapp
-
-# Check service CIDR
-kubectl cluster-info dump | grep -m 1 service-cluster-ip-range
-
-# Check pod CIDR
-kubectl cluster-info dump | grep -m 1 cluster-cidr
-
-# These MUST NOT overlap!
-```
-
----
-
-## 4.4 DNS in Kubernetes — CoreDNS
-
-### CoreDNS Architecture
-
-```
-Pod requests DNS resolution
-    │
-    ▼
-/etc/resolv.conf in pod:
-    nameserver 10.96.0.10  (kube-dns ClusterIP)
-    search default.svc.cluster.local svc.cluster.local cluster.local
-    │
-    ▼
-CoreDNS pods in kube-system namespace
-    │
-    ▼
-Resolution:
-    webapp-service          → webapp-service.default.svc.cluster.local
-    webapp-service.staging  → webapp-service.staging.svc.cluster.local
-    External (google.com)   → Forwarded to upstream DNS
-```
-
-### CoreDNS Configuration
-
-```bash
-# View CoreDNS ConfigMap
-kubectl get configmap coredns -n kube-system -o yaml
-
-# CoreDNS Corefile format:
-.:53 {
-    errors
-    health {
-        lameduck 5s
-    }
-    ready
-    kubernetes cluster.local in-addr.arpa ip6.arpa {
-        pods insecure
-        fallthrough in-addr.arpa ip6.arpa
-        ttl 30
-    }
-    prometheus :9153
-    forward . /etc/resolv.conf {  # Forward non-cluster queries to host's DNS
-        max_concurrent 1000
-    }
-    cache 30
-    loop
-    reload
-    loadbalance
+### Reassigning Running Pods via Binding Object
+
+You cannot change `nodeName` on a running pod. To reassign, use a binding object (mimics what the scheduler does):
+
+```json
+// binding.json
+{
+  "apiVersion": "v1",
+  "kind": "Binding",
+  "metadata": {
+    "name": "nginx"
+  },
+  "target": {
+    "apiVersion": "v1",
+    "kind": "Node",
+    "name": "node02"
+  }
 }
 ```
 
-### DNS Troubleshooting
+```bash
+# Send binding request via API
+curl --header "Content-Type: application/json" \
+  --request POST \
+  --data @binding.json \
+  http://$SERVER/api/v1/namespaces/default/pods/nginx/binding
+```
+
+### Debugging: Pod Stuck in Pending (No Scheduler)
 
 ```bash
-# Debug DNS from inside a pod
-kubectl exec -it webapp-pod -- nslookup kubernetes.default
+# If scheduler is down, pods remain Pending indefinitely
+kubectl get pods
+# NAME    READY   STATUS    RESTARTS   AGE
+# nginx   0/1     Pending   0          2m   ← scheduler not running
 
-# Test service DNS resolution
-kubectl exec -it webapp-pod -- nslookup webapp-service.production
+# Check scheduler
+kubectl get pods -n kube-system | grep scheduler
+# (nothing) ← scheduler pod missing
 
-# Check CoreDNS pods are running
-kubectl get pods -n kube-system | grep coredns
-
-# View CoreDNS logs
-kubectl logs -n kube-system -l k8s-app=kube-dns
-
-# If DNS is broken: check CoreDNS deployment
-kubectl describe deployment coredns -n kube-system
-
-# Check kube-dns service exists
-kubectl get service kube-dns -n kube-system
-# Should have ClusterIP: 10.96.0.10 (matches /etc/resolv.conf in pods)
+# Quick fix: manually schedule by patching nodeName
+kubectl patch pod nginx \
+  -p '{"spec":{"nodeName":"node01"}}'
+# This works ONLY on pods that haven't been scheduled yet
 ```
+
+### CKA Exam Tips
+- `nodeName` can ONLY be set at pod creation time
+- Pod stuck in `Pending` → check if scheduler is running
+- Binding object is how the scheduler internally assigns pods
+- Manual scheduling bypasses ALL scheduling policies (taints, affinity, resources)
 
 ---
 
-## 4.5 Ingress — Layer 7 Load Balancing
+### 🔎 Summary — Manual Scheduling
 
-### Ingress vs Service LoadBalancer
+- **Manual scheduling** = bypass scheduler by setting `nodeName` in pod spec
+- `nodeName` must be set at creation — cannot be changed on running pod
+- Binding object is the API mechanism for scheduler to assign pods
+- Pod `Pending` without scheduler running → manually assign with binding
+- **Production Takeaway:** Manual scheduling is an emergency tool. In production, rely on the scheduler with proper node affinity and taints/tolerations for node assignment control.
 
-| Feature | Service LoadBalancer | Ingress |
-|---------|---------------------|---------|
-| Layer | L4 (TCP/UDP) | L7 (HTTP/HTTPS) |
-| Cost | 1 LB per service | 1 LB for all services |
-| SSL termination | No (with NLB) | Yes |
-| Path-based routing | No | Yes |
-| Host-based routing | No | Yes |
+---
 
-### Ingress Anatomy
+## 21. Labels and Selectors
+
+### What Is It?
+**Labels** are key-value pairs attached to Kubernetes objects for identification. **Selectors** are queries that filter objects based on their labels. Together, they form the primary mechanism for object grouping and targeting in Kubernetes.
+
+### Labels Architecture
 
 ```
-External Traffic → Ingress Controller → Routes → Backend Services
-                   (nginx/traefik/     (rules)   (ClusterIP services)
-                    haproxy/aws ALB)
+Labels are used by:
+├── Services → to select which pods receive traffic
+├── ReplicaSets/Deployments → to select which pods they manage
+├── Network Policies → to select which pods the policy applies to
+├── HPA → to select which pods to scale
+├── kubectl → to filter resource listings
+└── Monitoring tools → Prometheus service discovery
 ```
 
-### Deploying NGINX Ingress Controller
-
-```bash
-# Install NGINX Ingress Controller (Helm recommended for production)
-helm upgrade --install ingress-nginx ingress-nginx \
-  --repo https://kubernetes.github.io/ingress-nginx \
-  --namespace ingress-nginx \
-  --create-namespace \
-  --set controller.replicaCount=2
-
-# Verify
-kubectl get service -n ingress-nginx
-# Look for: ingress-nginx-controller  LoadBalancer  <EXTERNAL-IP>
-```
-
-### Ingress Rules
+### Label Specification
 
 ```yaml
-# ─── Host-based routing ───────────────────────────────────────────
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+# Good label conventions
 metadata:
-  name: webapp-ingress
-  namespace: production
-  annotations:
-    kubernetes.io/ingress.class: "nginx"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
-    # Rate limiting
-    nginx.ingress.kubernetes.io/limit-rps: "100"
+  labels:
+    # Kubernetes recommended labels
+    app.kubernetes.io/name: webapp
+    app.kubernetes.io/version: "2.1"
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: ecommerce
+    app.kubernetes.io/managed-by: helm
+    # Custom labels
+    tier: frontend
+    environment: production
+    team: platform-eng
+    cost-center: "1001"
+```
 
+### Selector Types
+
+```yaml
+# 1. Equality-based (simple matching)
+selector:
+  matchLabels:
+    app: webapp          # app EQUALS webapp
+    tier: frontend       # AND tier EQUALS frontend
+
+# 2. Set-based (advanced matching)
+selector:
+  matchExpressions:
+  - key: tier
+    operator: In          # tier IN [frontend, gateway]
+    values: [frontend, gateway]
+  - key: env
+    operator: NotIn       # env NOT IN [dev, test]
+    values: [dev, test]
+  - key: critical
+    operator: Exists      # label "critical" must exist (any value)
+  - key: deprecated
+    operator: DoesNotExist # label "deprecated" must NOT exist
+```
+
+### Complete Example with Labels and Selectors
+
+```yaml
+# ReplicaSet using label selector
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: webapp-rs
+  labels:
+    app: webapp               # Labels on the RS itself
+    managed-by: ops-team
 spec:
-  tls:
-  - hosts:
-    - myapp.company.com
-    - api.company.com
-    secretName: tls-secret  # kubectl create secret tls tls-secret --cert=... --key=...
-
-  rules:
-  # Rule 1: Host-based routing
-  - host: myapp.company.com
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: frontend-service
-            port:
-              number: 80
-
-  # Rule 2: Path-based routing on same host
-  - host: api.company.com
-    http:
-      paths:
-      - path: /users
-        pathType: Prefix
-        backend:
-          service:
-            name: user-service
-            port:
-              number: 8080
-
-      - path: /products
-        pathType: Prefix
-        backend:
-          service:
-            name: product-service
-            port:
-              number: 8080
-
-      - path: /       # Default route (must be last)
-        pathType: Prefix
-        backend:
-          service:
-            name: api-gateway
-            port:
-              number: 80
+  replicas: 3
+  selector:
+    matchLabels:              # Selects pods with these labels
+      app: webapp
+      tier: frontend
+  template:
+    metadata:
+      labels:
+        app: webapp           # Pod labels MUST match selector
+        tier: frontend
+        version: "2.1"
 ```
+
+### Annotations vs Labels
+
+```
+Labels:
+- Used for selection (Services, Deployments, etc.)
+- Kept short and searchable
+- Examples: app=nginx, env=prod, version=2.1
+
+Annotations:
+- Metadata NOT used for selection
+- Can be longer, contain complex data
+- Examples: buildVersion=abc123, changelog="Updated auth module", git-commit=abc123
+```
+
+```bash
+# Filter pods by label
+kubectl get pods -l app=webapp
+kubectl get pods -l 'tier in (frontend,api)'
+kubectl get pods -l 'env!=dev'
+kubectl get pods -l 'critical'            # Exists
+kubectl get pods -l '!deprecated'         # DoesNotExist
+
+# Show labels in output
+kubectl get pods --show-labels
+
+# Add/update label
+kubectl label pod nginx version=2.1
+kubectl label pod nginx version=2.2 --overwrite
+
+# Remove label
+kubectl label pod nginx version-
+```
+
+### CKA Exam Tips
+- `kubectl get pods -l app=nginx` — filter by label
+- ReplicaSet/Deployment selector.matchLabels MUST match template.metadata.labels
+- Services use `spec.selector` (not `spec.selector.matchLabels`)
+- Labels ≠ Annotations (labels for selection, annotations for metadata)
+- `kubectl get all -l app=webapp` shows all resources with that label
 
 ---
 
-## 4.6 Troubleshooting — Application & Cluster Failures
+### 🔎 Summary — Labels and Selectors
 
-### Systematic Troubleshooting Approach
-
-```
-Problem Reported
-    │
-    ▼
-1. Check Pod status: kubectl get pods -A
-    │
-    ├─ Pending: kubectl describe pod → look for "Events" → scheduling failure
-    ├─ CrashLoopBackOff: kubectl logs --previous → app crash logs
-    ├─ ImagePullBackOff: kubectl describe pod → registry/image error
-    ├─ OOMKilled: kubectl describe pod → increase memory limit
-    ├─ Running but unhealthy: kubectl logs (live) → app error logs
-    │
-    ▼
-2. Check Service: kubectl get svc → kubectl get endpoints
-    │
-    ├─ No endpoints: pod labels don't match service selector
-    ├─ Endpoints exist but not reachable: kube-proxy, iptables issue
-    │
-    ▼
-3. Check Node: kubectl get nodes → kubectl describe node
-    │
-    ├─ NotReady: kubelet issue, node OOM, disk pressure
-    ├─ DiskPressure: node disk full → clean up logs/images
-    ├─ MemoryPressure: node OOM → eviction happening
-    │
-    ▼
-4. Check Control Plane: kubectl get pods -n kube-system
-    │
-    ├─ CoreDNS down: DNS failures
-    ├─ kube-proxy down: Service networking broken
-    └─ API server down: nothing works
-```
-
-### Application Troubleshooting Cheatsheet
-
-```bash
-# ─── Pod Issues ───────────────────────────────────────────────────
-# Get all pod info with status
-kubectl get pods -o wide -n production
-
-# Detailed pod description (ALWAYS check Events section!)
-kubectl describe pod webapp-7d8f9b-xkj2p -n production
-
-# Get current logs
-kubectl logs webapp-7d8f9b-xkj2p -n production
-
-# Get logs from crashed/previous container
-kubectl logs webapp-7d8f9b-xkj2p -n production --previous
-
-# Execute command inside container (great for debugging)
-kubectl exec -it webapp-7d8f9b-xkj2p -n production -- /bin/bash
-kubectl exec -it webapp-7d8f9b-xkj2p -n production -- curl localhost:8080/health
-
-# ─── Service Issues ───────────────────────────────────────────────
-# Check service and endpoints
-kubectl get service webapp-service -n production
-kubectl get endpoints webapp-service -n production
-
-# Test service from another pod
-kubectl exec -it debug-pod -- curl http://webapp-service.production.svc.cluster.local
-
-# ─── Node Issues ──────────────────────────────────────────────────
-# Check node conditions
-kubectl describe node node-1 | grep -A 10 Conditions
-
-# Check node resource usage
-kubectl top nodes
-
-# Check kubelet logs on node
-ssh node-1
-journalctl -u kubelet -n 100 --no-pager
-
-# ─── Control Plane Issues ─────────────────────────────────────────
-# Check all system pods
-kubectl get pods -n kube-system
-
-# If API server is down, check static pod logs
-crictl logs $(crictl ps -a | grep kube-apiserver | awk '{print $1}')
-
-# Check etcd
-crictl logs $(crictl ps -a | grep etcd | awk '{print $1}')
-```
-
-### Common Production Failures and Solutions
-
-| Failure | Symptoms | Solution |
-|---------|----------|---------|
-| OOMKilled | Pod restarts, `OOMKilled` in describe | Increase memory limit, fix memory leak |
-| CrashLoopBackOff | Pod keeps restarting | `logs --previous`, fix app crash, check liveness probe |
-| ImagePullBackOff | Pod never starts | Check image name/tag, verify registry credentials |
-| PVC Pending | Pod won't start, PVC stuck | Check StorageClass, PV availability, provisioner logs |
-| DNS resolution fails | Services unreachable by name | Check CoreDNS pods, verify /etc/resolv.conf in pod |
-| Node NotReady | Pods on node are Unknown | Check kubelet, node resources, network connectivity |
+- **Labels** = key-value tags on Kubernetes objects for identification and grouping
+- **Selectors** = queries to find objects with specific labels
+- Used by Services, Deployments, RS to target pods; by kubectl to filter
+- Two selector types: `matchLabels` (equality) and `matchExpressions` (set-based)
+- **Annotations** = similar to labels but not used for selection
+- **Production Takeaway:** Consistent labeling strategy is critical. Adopt Kubernetes recommended label conventions (`app.kubernetes.io/name` etc.) from day one. They affect monitoring, cost allocation, RBAC scoping, and network policies.
 
 ---
 
-## 4.7 Installing Kubernetes with kubeadm
+## 22. Taints and Tolerations
 
-### Pre-Installation Requirements
+### What Is It?
+**Taints** are properties applied to nodes that **repel** pods. **Tolerations** are properties on pods that allow them to be scheduled on tainted nodes. Think of it as a node saying "only accept pods that can handle this condition."
 
-```bash
-# On ALL nodes (master + workers):
+### The Bug Repellent Analogy
 
-# 1. Disable swap (Kubernetes doesn't work with swap)
-swapoff -a
-# Permanently:
-sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
-
-# 2. Load required kernel modules
-cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
-overlay
-br_netfilter
-EOF
-sudo modprobe overlay
-sudo modprobe br_netfilter
-
-# 3. Set kernel parameters
-cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
-net.bridge.bridge-nf-call-iptables  = 1
-net.bridge.bridge-nf-call-ip6tables = 1
-net.ipv4.ip_forward                 = 1
-EOF
-sudo sysctl --system
-
-# 4. Install containerd
-sudo apt-get update
-sudo apt-get install -y containerd
-
-# 5. Configure containerd with systemd cgroup driver
-sudo mkdir -p /etc/containerd
-containerd config default | \
-  sed 's/SystemdCgroup = false/SystemdCgroup = true/' | \
-  sudo tee /etc/containerd/config.toml
-sudo systemctl restart containerd
-
-# 6. Install kubeadm, kubelet, kubectl
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | \
-  sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-
-echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] \
-https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" | \
-sudo tee /etc/apt/sources.list.d/kubernetes.list
-
-sudo apt-get update
-sudo apt-get install -y kubelet kubeadm kubectl
-sudo apt-mark hold kubelet kubeadm kubectl
+```
+Person with repellent = Tainted Node (repels bugs)
+Bug without immunity = Regular Pod (can't land on this node)
+Bug with immunity = Pod with Toleration (can land despite repellent)
 ```
 
-### Initialize the Cluster (Master Only)
+### Taint Effects
+
+| Effect | Behavior |
+|---|---|
+| `NoSchedule` | New pods without toleration will NOT be scheduled here |
+| `PreferNoSchedule` | Scheduler tries to avoid this node but may schedule here as last resort |
+| `NoExecute` | New pods won't be scheduled AND existing pods without toleration are evicted |
+
+### Applying Taints to Nodes
 
 ```bash
-# Get master node's IP (the one other nodes can reach)
-ip addr | grep '192.168'  # Find the cluster network IP
+# Add taint
+kubectl taint nodes node1 app=blue:NoSchedule
+kubectl taint nodes node2 maintenance=true:NoExecute
+kubectl taint nodes gpu-node gpu=nvidia:NoSchedule
 
-# Initialize cluster
-sudo kubeadm init \
-  --apiserver-advertise-address=192.168.56.11 \  # Master's cluster IP
-  --pod-network-cidr=10.244.0.0/16 \             # For Flannel
-  # OR 192.168.0.0/16 for Calico
-  --kubernetes-version=v1.29.3 \
-  --upload-certs
+# Remove taint (note the trailing -)
+kubectl taint nodes node1 app=blue:NoSchedule-
 
-# Sample output includes:
-# Your Kubernetes control-plane has initialized successfully!
-# To start using your cluster, you need to run the following as a regular user:
-#   mkdir -p $HOME/.kube
-#   sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
-#   sudo chown $(id -u):$(id -g) $HOME/.kube/config
-
-# Configure kubectl
-mkdir -p $HOME/.kube
-sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
-sudo chown $(id -u):$(id -g) $HOME/.kube/config
-
-# Install CNI (Calico example)
-kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.26.1/manifests/calico.yaml
-
-# Verify control plane is running
-kubectl get pods -n kube-system
-kubectl get nodes  # Should show master as Ready
+# View taints on a node
+kubectl describe node node1 | grep Taint
 ```
 
-### Join Worker Nodes
+### Pod with Toleration YAML
+
+```yaml
+# pod-with-toleration.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: blue-app
+spec:
+  tolerations:
+  - key: "app"
+    operator: "Equal"      # Equal | Exists
+    value: "blue"
+    effect: "NoSchedule"   # Must match the taint effect exactly
+  
+  # Another toleration example (using Exists)
+  # - key: "gpu"
+  #   operator: "Exists"   # Any value is tolerated
+  #   effect: "NoSchedule"
+  
+  containers:
+  - name: blue-app
+    image: blue-app:1.0
+```
+
+### NoExecute Effect — Eviction Flow
+
+```
+Cluster state: node1 has no taints; pods A, B, C running on it
+
+Admin applies: kubectl taint nodes node1 env=prod:NoExecute
+
+Result:
+- Pod A (no toleration): EVICTED immediately
+- Pod B (no toleration): EVICTED immediately
+- Pod C (has toleration for env=prod): REMAINS running
+
+New scheduling:
+- New pods without toleration: won't schedule on node1
+- New pods with toleration: can schedule on node1
+```
+
+### Toleration with tolerationSeconds
+
+```yaml
+# Pod can tolerate the taint for 600 seconds before eviction
+tolerations:
+- key: "maintenance"
+  operator: "Equal"
+  value: "true"
+  effect: "NoExecute"
+  tolerationSeconds: 600    # After 600s, pod is evicted even with toleration
+```
+
+### Master Node Default Taint
 
 ```bash
-# The kubeadm init output provides the join command
-# It looks like:
-sudo kubeadm join 192.168.56.11:6443 \
-  --token abc123.0123456789abcdef \
-  --discovery-token-ca-cert-hash sha256:abc...
-
-# If token expired (tokens expire after 24h by default), regenerate:
-kubeadm token create --print-join-command
-
-# Verify workers joined
-kubectl get nodes  # Should show all nodes Ready within ~2 minutes
+kubectl describe node master | grep Taint
+# Taints: node-role.kubernetes.io/master:NoSchedule
+# OR (newer Kubernetes):
+# Taints: node-role.kubernetes.io/control-plane:NoSchedule
 ```
+
+This prevents user workloads from running on master nodes. Control plane pods have a corresponding toleration.
+
+### Taints vs Node Affinity — Key Difference
+
+```
+Taints + Tolerations:
+- Node REPELS pods (opt-in mechanism for the pod)
+- Does NOT guarantee pod lands on specific node
+- pod with toleration CAN still land on untainted nodes
+
+Node Affinity:
+- Pod ATTRACTS to specific nodes
+- Does NOT prevent other pods from landing on those nodes
+
+Combined: Use BOTH for guaranteed exclusive placement
+```
+
+### CKA Exam Tips
+- Taints are on NODES; tolerations are on PODS
+- Effect must EXACTLY match between taint and toleration
+- `kubectl taint nodes <node> <key>=<value>:<effect>`
+- To remove taint: append `-` to the taint key
+- Master node taint: `node-role.kubernetes.io/control-plane:NoSchedule`
+- `NoExecute` is the only effect that evicts EXISTING pods
+
+### Production Best Practices
+- Taint GPU nodes to prevent non-GPU workloads from consuming GPU resources
+- Taint nodes during maintenance to gracefully evict workloads
+- Use `NoSchedule` for dedicated node pools (databases, monitoring)
+- Use `PreferNoSchedule` for soft preferences
+- Combine with node affinity for guaranteed exclusive node usage
 
 ---
 
-# PART 5: HELM, KUSTOMIZE & PACKAGE MANAGEMENT
+### 🔎 Summary — Taints and Tolerations
+
+- **Taints** on nodes = repel pods that don't have matching tolerations
+- **Tolerations** on pods = permission slip to be scheduled on tainted nodes
+- Three effects: `NoSchedule`, `PreferNoSchedule`, `NoExecute`
+- `NoExecute` = evicts EXISTING pods without toleration
+- Master nodes have `control-plane:NoSchedule` taint by default
+- Taints don't guarantee pod placement — use with node affinity for exclusivity
+- **Production Takeaway:** Use taints to dedicate nodes for specific workloads (GPU, databases, spot instances). Add tolerations only to pods that should run there. Combine with node affinity for air-tight placement control.
 
 ---
 
-## 5.1 Helm — The Kubernetes Package Manager
+## 23. Node Selectors
 
-### What is Helm?
+### What Is It?
+**nodeSelector** is the simplest form of node selection. It constrains pods to run only on nodes with specific labels. It's a basic but limited approach — suitable for simple scenarios.
 
-Helm is the **package manager for Kubernetes**, analogous to apt/yum for Linux or npm for Node.js. It packages Kubernetes manifests into **Charts** that can be:
-- Installed with a single command
-- Configured with custom values
-- Version-controlled
-- Easily rolled back
+### How It Works
 
-### Core Concepts
+```
+Node labeled: size=Large (8 CPU, 32Gi RAM)
+Pod requests: nodeSelector: size=Large
 
-| Concept | Explanation |
-|---------|-------------|
-| **Chart** | A package of pre-configured Kubernetes resources (
+Scheduler filter: Only consider nodes with label size=Large
+Result: Pod scheduled only on large nodes
+```
+
+### Node Selector Example
+
+```yaml
+# Step 1: Label the node
+# kubectl label nodes <node-name> <label-key>=<label-value>
+
+# Step 2: Pod with nodeSelector
+apiVersion: v1
+kind: Pod
+metadata:
+  name: data-processor
+spec:
+  nodeSelector:
+    size: Large               # Node must have this label
+    # diskType: ssd           # Can specify multiple labels (AND condition)
+  containers:
+  - name: data-processor
+    image: data-processor:v1
+```
+
+```bash
+# Label nodes
+kubectl label nodes node-1 size=Large
+kubectl label nodes node-2 size=Medium
+kubectl label nodes node-3 size=Small
+
+# Verify labels
+kubectl get nodes --show-labels
+kubectl get nodes -l size=Large
+```
+
+### Limitation of nodeSelector
+
+nodeSelector only supports exact equality matching. It cannot express:
+- "Schedule on Large OR Medium nodes"
+- "Schedule on any node that is NOT Small"
+- "Prefer Large, but accept Medium if Large not available"
+
+For these cases, use **Node Affinity**.
+
+### CKA Exam Tips
+- `kubectl label nodes <node> <key>=<value>` to label before using nodeSelector
+- nodeSelector is under `spec.nodeSelector` (not under `spec.affinity`)
+- Simple equality only — for complex rules, use nodeAffinity
+
+---
+
+### 🔎 Summary — Node Selectors
+
+- **nodeSelector** = simple node label matching; exact equality only
+- Label node first: `kubectl label nodes <node> <key>=<value>`
+- Limited: cannot express OR, NOT, or preference-based conditions
+- For complex requirements → use Node Affinity
+- **Production Takeaway:** nodeSelector is simple but inflexible. Use it for basic dedicated node requirements. For production systems with complex placement needs, upgrade to nodeAffinity.
+
+---
+
+## 24. Node Affinity
+
+### What Is It?
+**Node Affinity** is the advanced version of nodeSelector. It uses expressive rules with operators (`In`, `NotIn`, `Exists`, `DoesNotExist`, `Gt`, `Lt`) to create flexible pod-to-node relationships. It supports both required (hard) and preferred (soft) constraints.
+
+### Node Affinity Types
+
+| Type | During Scheduling | During Execution |
+|---|---|---|
+| `requiredDuringSchedulingIgnoredDuringExecution` | Pod MUST match | Existing pods continue running even if node labels change |
+| `preferredDuringSchedulingIgnoredDuringExecution` | Scheduler TRIES to match | Same — ignored during execution |
+| `requiredDuringSchedulingRequiredDuringExecution` | Pod MUST match | Pod EVICTED if node no longer matches (future/planned) |
+
+### Node Affinity YAML Examples
+
+```yaml
+# pod-node-affinity.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: data-processor
+spec:
+  affinity:
+    nodeAffinity:
+      
+      # HARD requirement: Pod MUST land on a Large node
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: size
+            operator: In           # Must be one of these values
+            values:
+            - Large
+            - Medium              # Can be Large OR Medium
+      
+      # SOFT preference: Prefer SSD nodes, but not required
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100               # Weight 1-100; higher = stronger preference
+        preference:
+          matchExpressions:
+          - key: diskType
+            operator: In
+            values:
+            - ssd
+      - weight: 50
+        preference:
+          matchExpressions:
+          - key: zone
+            operator: In
+            values:
+            - us-east-1a
+```
+
+### Operator Examples
+
+```yaml
+# In: node label value is in the list
+- key: size
+  operator: In
+  values: [Large, Medium]
+
+# NotIn: node label value is NOT in the list
+- key: size
+  operator: NotIn
+  values: [Small]           # Schedule on anything that's not Small
+
+# Exists: node has this label (any value)
+- key: gpu
+  operator: Exists          # Just requires the "gpu" label to exist
+
+# DoesNotExist: node does NOT have this label
+- key: deprecated
+  operator: DoesNotExist
+
+# Gt: node label value greater than (numeric)
+- key: cpuCount
+  operator: Gt
+  values: ["8"]             # Nodes with cpuCount > 8
+
+# Lt: node label value less than (numeric)
+- key: maxLatency
+  operator: Lt
+  values: ["100"]           # Nodes with maxLatency < 100
+```
+
+### Combining Required and Preferred
+
+```yaml
+affinity:
+  nodeAffinity:
+    # Must be in specific availability zones
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: [us-east-1a, us-east-1b, us-east-1c]
+    
+    # Prefer us-east-1a (primary AZ)
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 90
+      preference:
+        matchExpressions:
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: [us-east-1a]
+    - weight: 10
+      preference:
+        matchExpressions:
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: [us-east-1b]
+```
+
+### CKA Exam Tips
+- `requiredDuringScheduling` = Hard constraint; pod stays `Pending` if not met
+- `preferredDuringScheduling` = Soft constraint; scheduled even if not met
+- `IgnoredDuringExecution` = Running pods NOT affected by label changes
+- The `nodeSelectorTerms` is an OR; `matchExpressions` within a term is AND
+- Multiple `nodeSelectorTerms` entries: pod placed if ANY term matches (OR)
+
+### Production Best Practices
+- Use `required` for critical placement requirements (data residency, hardware requirements)
+- Use `preferred` with weights for topology-aware placement
+- Combine with pod topology spread constraints for advanced distribution
+- Label nodes with standard Kubernetes labels: `kubernetes.io/hostname`, `topology.kubernetes.io/zone`, `node.kubernetes.io/instance-type`
+
+---
+
+### 🔎 Summary — Node Affinity
+
+- **Node Affinity** = advanced nodeSelector with operators and soft/hard constraints
+- Two types: `required` (must match) and `preferred` (try to match)
+- Operators: `In`, `NotIn`, `Exists`, `DoesNotExist`, `Gt`, `Lt`
+- Multiple `nodeSelectorTerms` = OR condition; multiple `matchExpressions` = AND condition
+- Changes to node labels don't affect already-running pods (`IgnoredDuringExecution`)
+- **Production Takeaway:** Use nodeAffinity to implement zone-aware deployment patterns, hardware-specific placement, and compliance requirements (data residency). Use `preferred` for best-effort distribution, `required` for hard requirements.
+
+---
+
+## 25. Taints/Tolerations vs Node Affinity
+
+### The Comparison
+
+```
+Taints + Tolerations:
+✓ Nodes REPEL pods (node-centric control)
+✓ Prevent unwanted pods from landing on a node
