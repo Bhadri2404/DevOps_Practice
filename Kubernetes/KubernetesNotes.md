@@ -3331,4 +3331,3402 @@ affinity:
 
 ---
 
+## 25. Taints/Tolerations vs Node Affinity
+
+### The Comparison
+
+```
+Taints + Tolerations:
+✓ Nodes REPEL pods (node-centric control)
+✓ Prevent unwanted pods from landing on a node
+✗ Don't ATTRACT pods to specific nodes
+✗ Pod with toleration may still land on an untainted node
+
+Node Affinity:
+✓ Pods ATTRACT to specific nodes (pod-centric control)
+✓ Ensures pod lands on correct labeled node
+✗ Doesn't PREVENT other pods from landing on that node
+✗ Another pod could consume node resources
+
+Combined (Best of Both):
+✓ Node REPELS non-matching pods (via taints)
+✓ Pod ATTRACTED to specific node (via affinity)
+✓ Result: Exclusive, guaranteed pod-to-node placement
+```
+
+### Visual Walkthrough — The Color Coding Problem
+
+**Problem:** 3 nodes (Blue, Red, Green) + 3 pods (Blue, Red, Green) + other random pods exist. Goal: Blue pod on Blue node only, Red on Red only, Green on Green only. No other pods on these dedicated nodes.
+
+```
+Step 1 — Apply Taints (prevents non-matching pods):
+kubectl taint nodes blue-node  color=blue:NoSchedule
+kubectl taint nodes red-node   color=red:NoSchedule
+kubectl taint nodes green-node color=green:NoSchedule
+
+Problem: Blue pod CAN tolerate blue-node, but might still land on
+         an untainted "other" node → taints alone don't guarantee placement
+
+Step 2 — Add Tolerations to pods:
+blue-pod tolerates color=blue:NoSchedule  → can land on blue-node
+red-pod  tolerates color=red:NoSchedule   → can land on red-node
+
+Problem: Even with toleration, scheduler might place blue-pod on a
+         different node if it scores higher → need affinity to ATTRACT
+
+Step 3 — Add Node Affinity:
+blue-pod: requiredDuringScheduling matchLabels color=blue
+red-pod:  requiredDuringScheduling matchLabels color=red
+
+RESULT: 
+- Blue node: ONLY accepts blue-pod (taint blocks others, affinity attracts blue)
+- Red node:  ONLY accepts red-pod
+- Green node: ONLY accepts green-pod
+- "Other" random pods: land on untainted "other" nodes only
+```
+
+### Production YAML — Combining Both Approaches
+
+```yaml
+# dedicated-node-pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gpu-workload
+spec:
+  # Node Affinity: ATTRACT to GPU node
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: hardware
+            operator: In
+            values: ["gpu-v100"]
+
+  # Toleration: PERMISSION to land on tainted GPU node
+  tolerations:
+  - key: "gpu"
+    operator: "Equal"
+    value: "nvidia-v100"
+    effect: "NoSchedule"
+
+  containers:
+  - name: ml-training
+    image: tensorflow/tensorflow:2.9-gpu
+    resources:
+      limits:
+        nvidia.com/gpu: "1"     # Request 1 GPU
+```
+
+```bash
+# Corresponding node setup
+kubectl label nodes gpu-node-1 hardware=gpu-v100
+kubectl taint nodes gpu-node-1 gpu=nvidia-v100:NoSchedule
+```
+
+### Decision Matrix
+
+| Requirement | Use |
+|---|---|
+| Prevent general workloads from a node | Taint (NoSchedule) |
+| Evict pods from node immediately | Taint (NoExecute) |
+| Ensure pod lands on specific node type | Node Affinity (required) |
+| Prefer a node type but not mandatory | Node Affinity (preferred) |
+| Exclusive dedicated nodes for specific apps | Taints + Tolerations + Node Affinity |
+| Force pod to one exact node | nodeName (manual) |
+
+### CKA Exam Tips
+- Taints alone do NOT guarantee placement — just permission
+- Affinity alone does NOT prevent other pods — just attraction
+- For EXCLUSIVE assignment: always use BOTH
+- Master node uses taint `control-plane:NoSchedule` — system pods have matching toleration
+
+---
+
+### 🔎 Summary — Taints/Tolerations vs Node Affinity
+
+- **Taints** = Node pushes pods away (repulsion mechanism)
+- **Tolerations** = Pod's immunity to a node's taint
+- **Node Affinity** = Pod pulls itself toward matching nodes (attraction mechanism)
+- Neither alone guarantees exclusive placement
+- **Combined** = bulletproof dedicated node strategy
+- **Interview Answer:** "Taints/tolerations control which pods CAN be on a node; node affinity controls where pods WANT to be. For exclusive node dedication, use both: taints repel unwanted pods, affinity ensures desired pods land on the right node."
+- **Production Takeaway:** GPU nodes, database nodes, and compliance-isolated nodes should use both mechanisms together. This ensures workload isolation without leaving nodes underutilized.
+
+---
+
+## 26. DaemonSets
+
+### What Is It?
+A **DaemonSet** ensures that exactly **one copy** of a pod runs on every node in the cluster (or a subset of nodes). When a new node is added, the DaemonSet automatically deploys the pod to it. When a node is removed, the pod is cleaned up.
+
+### DaemonSet vs Deployment
+
+```
+Deployment:
+- N replicas distributed across cluster
+- Scheduler decides which nodes
+- Adding nodes doesn't automatically add pods
+- Good for: stateless apps, web servers
+
+DaemonSet:
+- 1 pod PER node (guaranteed)
+- Scheduler bypass (uses node affinity internally)
+- New node → pod automatically deployed
+- Good for: monitoring agents, log collectors, network plugins
+```
+
+### DaemonSet Use Cases
+
+```
+Essential per-node services:
+├── Monitoring agent (Prometheus node-exporter, Datadog agent)
+├── Log collector (Fluent Bit, Fluentd)
+├── Network plugin (kube-proxy, Weave-Net, Calico)
+├── Storage driver (Ceph, Longhorn)
+├── Security agent (Falco, Twistlock)
+└── GPU driver installer
+
+Every node must run these — DaemonSet is the only appropriate resource
+```
+
+### Complete DaemonSet YAML
+
+```yaml
+# daemonset-log-collector.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluent-bit-ds
+  namespace: logging
+  labels:
+    app: fluent-bit
+    component: log-collector
+spec:
+  selector:
+    matchLabels:
+      app: fluent-bit
+
+  updateStrategy:
+    type: RollingUpdate      # RollingUpdate (default) or OnDelete
+    rollingUpdate:
+      maxUnavailable: 1      # Update 1 node at a time
+
+  template:
+    metadata:
+      labels:
+        app: fluent-bit
+    spec:
+      # Required to run on ALL nodes including master
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+
+      # Required for host-level log access
+      hostNetwork: false
+      
+      serviceAccountName: fluent-bit
+
+      containers:
+      - name: fluent-bit
+        image: fluent/fluent-bit:2.0
+        
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+        
+        # Mount host paths to collect node-level logs
+        volumeMounts:
+        - name: varlog
+          mountPath: /var/log
+          readOnly: true
+        - name: varlibdockercontainers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+        - name: config
+          mountPath: /fluent-bit/etc
+
+      volumes:
+      - name: varlog
+        hostPath:
+          path: /var/log          # Access node's /var/log
+      - name: varlibdockercontainers
+        hostPath:
+          path: /var/lib/docker/containers
+      - name: config
+        configMap:
+          name: fluent-bit-config
+
+      # Ensure only one pod per node (not needed; DaemonSet guarantees this)
+      # Priority to avoid eviction
+      priorityClassName: system-node-critical
+```
+
+### DaemonSet Commands
+
+```bash
+# Create
+kubectl apply -f daemonset-log-collector.yaml
+
+# View DaemonSet
+kubectl get daemonset -n logging
+# NAME           DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR
+# fluent-bit-ds  3         3         3       3            3           <none>
+
+# Describe
+kubectl describe daemonset fluent-bit-ds -n logging
+
+# View pods created by DaemonSet
+kubectl get pods -n logging -l app=fluent-bit -o wide
+# One pod per node
+
+# Check events
+kubectl get events -n logging
+
+# Delete (removes DaemonSet and all its pods)
+kubectl delete daemonset fluent-bit-ds -n logging
+```
+
+### Scheduling Mechanics (Kubernetes 1.12+)
+
+Before v1.12: DaemonSet used `nodeName` directly on pods (bypassing scheduler).  
+After v1.12: DaemonSet uses **node affinity + scheduler** for proper scheduling:
+
+```yaml
+# Auto-injected by DaemonSet controller into pod spec
+nodeAffinity:
+  requiredDuringSchedulingIgnoredDuringExecution:
+    nodeSelectorTerms:
+    - matchFields:
+      - key: metadata.name
+        operator: In
+        values: ["node01"]    # One per node, rotated through all nodes
+```
+
+This allows the scheduler to respect resource constraints while still ensuring one-per-node placement.
+
+### DaemonSet on Subset of Nodes
+
+```yaml
+spec:
+  template:
+    spec:
+      nodeSelector:              # Only on GPU nodes
+        hardware: gpu
+      # OR use nodeAffinity for complex rules
+```
+
+### Real-World Production Scenario
+
+**Application:** Large e-commerce platform — needs centralized logging from all 50 nodes
+
+**Architecture:**
+```
+50 Worker Nodes
+    └── Each running: fluent-bit DaemonSet pod
+            └── Collects: /var/log/containers/*.log
+                Parses: JSON application logs
+                Forwards to: Elasticsearch (via ClusterIP service)
+
+Elasticsearch (StatefulSet, 3 replicas)
+    └── Kibana (Deployment, 2 replicas) ← for visualization
+```
+
+**Scaling behavior:** When a new node joins the cluster, DaemonSet controller automatically schedules Fluent Bit pod on it within seconds. Zero manual intervention.
+
+**Failure handling:** If a DaemonSet pod crashes on a node → kubelet restarts it (restartPolicy: Always). If node goes down → pod is cleaned up automatically when node is removed from cluster.
+
+### Debugging & Troubleshooting
+
+```bash
+# DaemonSet pod missing on a node?
+# 1. Check if node is schedulable
+kubectl describe node <node> | grep -i "taint\|unschedule"
+
+# 2. Check DaemonSet tolerations (must tolerate node taints)
+kubectl describe daemonset fluent-bit-ds | grep -A 10 Tolerations
+
+# 3. Check DaemonSet events
+kubectl describe daemonset fluent-bit-ds | tail -20
+
+# 4. Check pod events on specific node
+kubectl get pods -n logging -o wide | grep <node-name>
+kubectl describe pod <pod-name> -n logging
+```
+
+### CKA Exam Tips
+- DaemonSet API version: `apps/v1`, kind: `DaemonSet`
+- No `replicas` field — one pod per node by definition
+- Add `tolerations` for control-plane taint if DaemonSet must run on master
+- DaemonSet uses `nodeSelector` or `nodeAffinity` to target subset of nodes
+- kube-proxy is itself a DaemonSet (`kubectl get ds -n kube-system`)
+
+### Production Best Practices
+- Always add tolerations for control-plane/master taints for infrastructure DaemonSets
+- Use `priorityClassName: system-node-critical` for essential DaemonSets
+- Set resource limits — DaemonSet pods run on every node; uncontrolled resource use multiplies across all nodes
+- Use `updateStrategy: RollingUpdate` with `maxUnavailable: 1` for safe updates
+- Monitor with `kube_daemonset_status_number_ready` metric
+
+---
+
+### 🔎 Summary — DaemonSets
+
+- **DaemonSet** = exactly one pod per node (automatically scales with node count)
+- New node joins cluster → DaemonSet pod auto-deployed on it
+- Node removed → DaemonSet pod cleaned up automatically
+- Uses: monitoring agents, log collectors, kube-proxy, network plugins
+- Add tolerations for master/control-plane to run on all nodes
+- No `replicas` field — count is determined by node count
+- **Production Takeaway:** DaemonSets are how you deploy infrastructure agents in Kubernetes. Every operational concern that needs per-node presence (logging, monitoring, security scanning, network plugins) should use a DaemonSet.
+
+---
+
+## 27. Static Pods
+
+### What Is It?
+**Static Pods** are pods created directly by the **kubelet** on a node, without going through the API Server. The kubelet reads pod definition files from a designated directory on the host filesystem and manages them independently.
+
+### Why Static Pods Exist
+
+```
+Normal pod lifecycle:
+API Server → etcd → Scheduler → kubelet → Container Runtime
+
+Static pod lifecycle:
+kubelet reads file from /etc/kubernetes/manifests → Container Runtime
+(No API Server, no etcd, no scheduler involved)
+
+Key use case: Bootstrap the Kubernetes control plane itself!
+Control plane components (etcd, apiserver, scheduler) are deployed
+as static pods by kubelet before the cluster is fully functional
+```
+
+### Static Pod Configuration
+
+```bash
+# Method 1: Direct flag in kubelet service
+ExecStart=/usr/local/bin/kubelet \
+  --pod-manifest-path=/etc/kubernetes/manifests \   # ← Static pod directory
+  ...
+
+# Method 2: Via kubelet config file (more common with kubeadm)
+ExecStart=/usr/local/bin/kubelet \
+  --config=/var/lib/kubelet/config.yaml \
+  ...
+```
+
+```yaml
+# /var/lib/kubelet/config.yaml
+kind: KubeletConfiguration
+apiVersion: kubelet.config.k8s.io/v1beta1
+staticPodPath: /etc/kubernetes/manifests    # ← kubelet watches this directory
+```
+
+### Finding the Static Pod Directory
+
+```bash
+# Method 1: Check kubelet process flags
+ps -aux | grep kubelet | grep pod-manifest-path
+
+# Method 2: Check kubelet config file
+cat /var/lib/kubelet/config.yaml | grep staticPodPath
+
+# Method 3: Check kubelet service file
+cat /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+```
+
+### Static Pod Behavior
+
+```
+kubelet monitors /etc/kubernetes/manifests/:
+├── New file added    → Pod created immediately
+├── File modified     → Pod recreated with new spec
+├── File deleted      → Pod terminated
+└── Pod crashes       → kubelet restarts it (like any managed pod)
+
+These pods:
+- Cannot be managed via kubectl create/delete
+- Appear as READ-ONLY mirror objects in kubectl (appended with node name)
+- Cannot be deleted via kubectl delete pod
+- Only way to remove: delete the file from manifests directory
+```
+
+### Static Pod vs Regular Pod Naming
+
+```bash
+# Static pods get node name appended to their name
+kubectl get pods -n kube-system
+# etcd-controlplane                 ← etcd STATIC pod on node "controlplane"
+# kube-apiserver-controlplane       ← api server STATIC pod
+# kube-scheduler-controlplane       ← scheduler STATIC pod
+# kube-controller-manager-controlplane ← controller manager STATIC pod
+
+# Regular pods (not static):
+# coredns-58cc8c89f4-abc12          ← Deployment-managed pod (no node suffix)
+# kube-proxy-xyz99                  ← DaemonSet pod (no node suffix)
+```
+
+### Creating and Managing Static Pods
+
+```bash
+# To CREATE a static pod:
+# 1. Write pod YAML
+# 2. Copy to static pod directory
+cp my-pod.yaml /etc/kubernetes/manifests/
+# kubelet will create it automatically within seconds
+
+# To DELETE a static pod:
+rm /etc/kubernetes/manifests/my-pod.yaml
+# kubelet will terminate and remove it automatically
+
+# To UPDATE a static pod:
+vim /etc/kubernetes/manifests/kube-apiserver.yaml
+# kubelet detects change and recreates the pod
+
+# Verify static pod is running
+kubectl get pods -n kube-system | grep <pod-name>
+# OR on the node directly (no API server needed):
+crictl ps | grep <pod-name>
+```
+
+### Example Static Pod YAML
+
+```yaml
+# /etc/kubernetes/manifests/custom-monitoring.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: custom-monitor          # Will appear as custom-monitor-<nodename>
+  namespace: kube-system
+spec:
+  containers:
+  - name: monitor
+    image: prom/node-exporter:v1.5.0
+    ports:
+    - containerPort: 9100
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "64Mi"
+      limits:
+        cpu: "200m"
+        memory: "128Mi"
+    volumeMounts:
+    - name: proc
+      mountPath: /host/proc
+      readOnly: true
+    - name: sys
+      mountPath: /host/sys
+      readOnly: true
+  volumes:
+  - name: proc
+    hostPath:
+      path: /proc
+  - name: sys
+    hostPath:
+      path: /sys
+  hostNetwork: true             # Access host network for metrics
+  hostPID: true                 # Access host PID namespace
+```
+
+### Static Pods vs DaemonSets
+
+| Feature | Static Pod | DaemonSet |
+|---|---|---|
+| Created by | kubelet (node agent) | DaemonSet controller (via API Server) |
+| Requires API Server? | No | Yes |
+| Cluster-wide? | Only on THAT node's manifests dir | All nodes automatically |
+| kubectl management | Read-only mirror only | Full kubectl CRUD |
+| Use case | Control plane components | Infrastructure agents |
+| Ignores scheduler? | Yes (completely) | No (uses node affinity via scheduler) |
+
+### How kubeadm Uses Static Pods
+
+```
+kubeadm init process:
+[1] Install kubelet on master node
+[2] Write static pod manifests to /etc/kubernetes/manifests/:
+    ├── etcd.yaml
+    ├── kube-apiserver.yaml
+    ├── kube-controller-manager.yaml
+    └── kube-scheduler.yaml
+[3] kubelet reads these manifests
+[4] kubelet starts etcd, API server, scheduler, controller-manager as static pods
+[5] Once API server is running, kubeadm proceeds with cluster initialization
+[6] kube-proxy, CoreDNS deployed as normal Deployments/DaemonSets via API server
+```
+
+### Real-World Production Scenario
+
+**Problem:** Cluster unresponsive — kubectl commands fail. Need to diagnose.
+
+```bash
+# Since API Server is down, kubectl won't work
+# Go directly to node where control plane runs
+
+# Check static pods via container runtime
+crictl ps
+
+# Check kubelet logs
+journalctl -u kubelet -n 50
+
+# Check static pod manifests
+ls /etc/kubernetes/manifests/
+cat /etc/kubernetes/manifests/kube-apiserver.yaml
+
+# Common issue: etcd manifest has wrong certificate path
+# Fix: edit the manifest file
+vim /etc/kubernetes/manifests/etcd.yaml
+# kubelet automatically restarts etcd with corrected config
+```
+
+### Debugging & Troubleshooting
+
+```bash
+# Static pod not starting?
+# 1. Verify manifest syntax
+kubectl apply --dry-run=client -f /etc/kubernetes/manifests/my-pod.yaml
+
+# 2. Check kubelet logs for parsing errors
+journalctl -u kubelet | grep "Error\|manifest\|static"
+
+# 3. Check kubelet config for correct staticPodPath
+cat /var/lib/kubelet/config.yaml | grep staticPodPath
+
+# 4. Verify via crictl (no API server needed)
+crictl pods | grep my-pod
+
+# 5. Check container logs via crictl
+crictl logs <container-id>
+```
+
+### CKA Exam Tips
+- Static pods are identified by `<pod-name>-<node-name>` naming convention
+- Cannot delete static pods with `kubectl delete pod` — must delete the manifest file
+- Default static pod path (kubeadm): `/etc/kubernetes/manifests/`
+- `kubectl get pod` shows read-only MIRROR objects for static pods
+- To modify: edit file in manifests directory on the HOST, not via kubectl
+- Control plane components in kubeadm = static pods
+
+### Production Best Practices
+- Use static pods for control plane bootstrapping only (kubeadm pattern)
+- Avoid using static pods for application workloads — use DaemonSets instead
+- Back up `/etc/kubernetes/manifests/` regularly (included in cluster backup)
+- Monitor static pod health via `kubectl get pods -n kube-system`
+
+---
+
+### 🔎 Summary — Static Pods
+
+- **Static Pods** are managed directly by kubelet from files in a local directory
+- No API Server, scheduler, or etcd needed — pure kubelet management
+- Used to bootstrap control plane components (etcd, apiserver, scheduler)
+- `kubectl` shows them as read-only mirror objects (with node name suffix)
+- To manage: add/edit/remove YAML files from `/etc/kubernetes/manifests/`
+- Cannot be deleted via kubectl — only by removing the manifest file
+- **Production Takeaway:** kubeadm uses static pods to bootstrap the control plane — that's the most important use case. In production, use DaemonSets for per-node application agents. Static pods are a kubelet feature for when the API server isn't available.
+
+---
+
+## 28. Priority Classes
+
+### What Is It?
+**PriorityClasses** assign numerical priority values to pods. Higher-value pods are scheduled before lower-value pods. When resources are scarce, the scheduler can **preempt** (evict) lower-priority pods to make room for higher-priority ones.
+
+### Why We Need Priority Classes
+
+```
+Without Priority:
+All pods treated equally → critical pods may wait behind batch jobs
+Traffic surge hits → Kubernetes can't distinguish between critical and non-critical pods
+
+With Priority:
+control-plane pods: priority 2,000,000,000 (system-critical)
+production-db:      priority 1,000,000     (business-critical)
+production-app:     priority 100,000       (important)
+batch-jobs:         priority 1,000         (low priority)
+dev-workloads:      priority 100           (lowest)
+
+→ Scheduler and preemption favor higher-value pods
+```
+
+### Priority Value Ranges
+
+```
+System reserved:     2,000,000,000 – 2,147,483,647
+                     (system-critical, system-node-critical)
+
+User-defined range:  -2,000,000,000 – 1,000,000,000
+```
+
+### Default System Priority Classes
+
+```bash
+kubectl get priorityclass
+# NAME                      VALUE          GLOBAL-DEFAULT   AGE
+# system-cluster-critical   2000000000     false            15d
+# system-node-critical      2000010000     false            15d
+```
+
+These are used by:
+- `system-cluster-critical`: CoreDNS, kube-proxy, metrics-server
+- `system-node-critical`: etcd, kube-apiserver, kubelet, kube-scheduler
+
+### Creating Priority Classes
+
+```yaml
+# priority-class-production.yaml
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: high-priority-production
+value: 1000000         # High priority for production workloads
+globalDefault: false   # Set true for ONE class to be the default
+description: "Priority class for mission-critical production pods"
+preemptionPolicy: PreemptLowerPriority   # Default: preempt lower priority pods
+                                          # Alternative: Never (wait, don't evict)
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: low-priority-batch
+value: 100
+globalDefault: false
+description: "Priority class for batch/background jobs"
+preemptionPolicy: Never    # Don't evict others; just wait in queue
+```
+
+### Using Priority Classes in Pods
+
+```yaml
+# production-pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: critical-payment-service
+  namespace: production
+spec:
+  priorityClassName: high-priority-production   # References the PriorityClass
+  containers:
+  - name: payment-service
+    image: payment-service:v3.2
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "512Mi"
+      limits:
+        cpu: "1"
+        memory: "1Gi"
+```
+
+### Preemption Flow
+
+```
+Scenario: Cluster near full capacity
+- Node: 8 CPU total, 7.5 CPU allocated to batch jobs
+- New pod: payment-service (priority 1,000,000) needs 1 CPU
+
+Without preemption:
+  payment-service stays Pending indefinitely
+
+With preemption (PreemptLowerPriority):
+[1] Scheduler can't find node with 1 free CPU
+[2] Scheduler identifies batch-job pods with priority < 1,000,000
+[3] Scheduler evicts batch-job pods to free up 1 CPU
+[4] batch-job pods gracefully terminated (tolerationSeconds honored)
+[5] payment-service scheduled on now-available node
+[6] Evicted batch-job pods rescheduled when capacity available
+```
+
+### PriorityClass with preemptionPolicy: Never
+
+```yaml
+# Non-preempting high priority — just gets to front of queue
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: high-priority-no-preempt
+value: 500000
+preemptionPolicy: Never    # High priority BUT won't evict existing pods
+                            # Just gets scheduled BEFORE other pending pods
+description: "Important but not critical enough to evict running pods"
+```
+
+### CKA Exam Tips
+- PriorityClass is a **cluster-scoped** resource (not namespaced)
+- `globalDefault: true` applies priority to pods without `priorityClassName`
+- Only ONE PriorityClass can have `globalDefault: true`
+- Without any priorityClassName → pod gets priority 0
+- Higher value = higher priority
+- `preemptionPolicy: Never` = high priority in queue but won't evict others
+
+### Production Best Practices
+- Define at least 3 tiers: critical, standard, batch
+- Use `preemptionPolicy: Never` for important but non-critical workloads
+- Set system-level pods to `system-cluster-critical` for protection
+- Monitor `scheduler_preemption_attempts_total` metric
+- Test preemption in non-production before relying on it
+
+---
+
+### 🔎 Summary — Priority Classes
+
+- **PriorityClass** = assigns numerical priority to pods for scheduling order
+- Higher priority pods scheduled first; can preempt lower priority pods
+- System classes: `system-cluster-critical` (2B) and `system-node-critical` (2B+)
+- User range: -2B to +1B
+- `preemptionPolicy: PreemptLowerPriority` (default) = evicts lower priority pods
+- `preemptionPolicy: Never` = jumps queue but doesn't evict
+- `globalDefault: true` = default priority for pods without explicit class
+- **Production Takeaway:** Define PriorityClasses from day one. Critical services (payment, auth) should have high priority with preemption enabled. Batch jobs should have low priority and never preempt. This ensures important workloads always get scheduled during resource contention.
+
+---
+
+## 29. Multiple Schedulers
+
+### What Is It?
+Kubernetes allows you to run **multiple schedulers** simultaneously alongside the default scheduler. Each scheduler can implement custom placement logic. Pods specify which scheduler should handle their placement using the `schedulerName` field.
+
+### Why Use Multiple Schedulers
+
+```
+Default scheduler: General-purpose workload placement
+                   (CPU, memory, affinity, taints)
+
+Custom scheduler 1 (gpu-scheduler):
+  - Advanced GPU topology awareness
+  - NVLink bandwidth optimization
+  - GPU memory fragmentation prevention
+
+Custom scheduler 2 (batch-scheduler):
+  - Gang scheduling (all pods of a job start together)
+  - Bin-packing optimization
+  - Preemption-based fairness for ML workloads
+
+Custom scheduler 3 (compliance-scheduler):
+  - Data residency enforcement
+  - Regulatory compliance checks
+  - Pre-scheduling security validation
+```
+
+### Deploying a Custom Scheduler as a Deployment
+
+```yaml
+# custom-scheduler-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-scheduler-config
+  namespace: kube-system
+data:
+  my-scheduler-config.yaml: |
+    apiVersion: kubescheduler.config.k8s.io/v1
+    kind: KubeSchedulerConfiguration
+    profiles:
+    - schedulerName: my-custom-scheduler
+      plugins:
+        score:
+          disabled:
+          - name: TaintToleration    # Disable default plugin
+          enabled:
+          - name: MyCustomScorer     # Add custom plugin
+      leaderElection:
+        leaderElect: false           # Single instance; no HA needed
+---
+# custom-scheduler-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-custom-scheduler
+  namespace: kube-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: my-custom-scheduler
+  template:
+    metadata:
+      labels:
+        component: my-custom-scheduler
+    spec:
+      serviceAccountName: my-scheduler
+      containers:
+      - name: kube-scheduler
+        image: k8s.gcr.io/kube-scheduler:v1.27.0  # Use same image as default
+        command:
+        - kube-scheduler
+        - --config=/etc/kubernetes/my-scheduler/my-scheduler-config.yaml
+        - --v=2
+        resources:
+          requests:
+            cpu: "100m"
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/kubernetes/my-scheduler
+      volumes:
+      - name: config-volume
+        configMap:
+          name: my-scheduler-config
+```
+
+### Required RBAC for Custom Scheduler
+
+```yaml
+# scheduler-rbac.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: my-scheduler
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: my-scheduler-as-kube-scheduler
+subjects:
+- kind: ServiceAccount
+  name: my-scheduler
+  namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: system:kube-scheduler    # Same permissions as default scheduler
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: my-scheduler-as-volume-scheduler
+subjects:
+- kind: ServiceAccount
+  name: my-scheduler
+  namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: system:volume-scheduler
+  apiGroup: rbac.authorization.k8s.io
+```
+
+### Using Custom Scheduler in a Pod
+
+```yaml
+# pod-with-custom-scheduler.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ml-training-job
+spec:
+  schedulerName: my-custom-scheduler   # Tell K8s which scheduler to use
+  # If schedulerName doesn't match any running scheduler → pod stays Pending
+  containers:
+  - name: ml-trainer
+    image: tensorflow/tensorflow:2.9-gpu
+    resources:
+      limits:
+        nvidia.com/gpu: "4"
+```
+
+### Verifying Scheduler Assignment
+
+```bash
+# Check which scheduler assigned a pod
+kubectl get events -o wide | grep Scheduled
+# LAST SEEN   TYPE     REASON      OBJECT    MESSAGE
+# 10s         Normal   Scheduled   Pod/ml-training-job   Successfully assigned 
+#                                            default/ml-training-job to gpu-node-1
+# SOURCE: my-custom-scheduler     ← Confirms custom scheduler was used
+
+# Check scheduler logs
+kubectl logs -n kube-system deployment/my-custom-scheduler
+```
+
+### CKA Exam Tips
+- Custom scheduler deployed as Deployment in `kube-system` namespace
+- Pod references scheduler via `spec.schedulerName`
+- If custom scheduler not running → pod stays `Pending` (no fallback)
+- Default scheduler name is `default-scheduler`
+- Leader election: set `leaderElect: false` for single-instance custom schedulers
+- Use same `kube-scheduler` binary with different config file for simple customization
+
+### Production Best Practices
+- Custom schedulers need same RBAC as `system:kube-scheduler`
+- Enable leader election for HA custom schedulers
+- Name schedulers clearly — `gpu-scheduler`, `batch-scheduler`, etc.
+- Log scheduling decisions for auditability
+- Monitor custom scheduler latency alongside default scheduler
+
+---
+
+### 🔎 Summary — Multiple Schedulers
+
+- **Multiple Schedulers** = run custom scheduling logic alongside default
+- Pods specify `spec.schedulerName` to select their scheduler
+- Custom scheduler = same kube-scheduler binary + different config file
+- Requires RBAC: ServiceAccount + ClusterRoleBinding to `system:kube-scheduler`
+- Pod with invalid `schedulerName` → stays `Pending` indefinitely
+- **Production Takeaway:** Use custom schedulers for specialized workloads: GPU topology scheduling, ML gang scheduling, compliance-enforced placement. For most workloads, the default scheduler with affinity rules is sufficient.
+
+---
+
+## 30. Configuring Scheduler Profiles
+
+### What Is It?
+Instead of running multiple separate scheduler binaries, **Scheduler Profiles** allow a single kube-scheduler binary to run multiple scheduling configurations. Each profile behaves as an independent scheduler with different plugins enabled/disabled.
+
+### Scheduling Extension Points
+
+The Kubernetes scheduler has multiple **extension points** where custom plugins can hook in:
+
+```
+Scheduling Pipeline:
+┌─────────────────────────────────────────────────────────────┐
+│ SCHEDULING QUEUE                                            │
+│   └── queueSort     (orders pods in queue by priority)      │
+├─────────────────────────────────────────────────────────────┤
+│ FILTERING PHASE                                             │
+│   └── preFilter → filter → postFilter                       │
+│       (eliminates nodes that don't fit)                     │
+├─────────────────────────────────────────────────────────────┤
+│ SCORING PHASE                                               │
+│   └── preScore → score → normalizeScore → reserve           │
+│       (ranks remaining nodes)                               │
+├─────────────────────────────────────────────────────────────┤
+│ BINDING PHASE                                               │
+│   └── preBind → bind → postBind                             │
+│       (assigns pod to node)                                 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Key Default Plugins
+
+| Plugin | Phase | Function |
+|---|---|---|
+| PrioritySort | queueSort | Sorts queue by pod priority value |
+| NodeResourcesFit | filter | Eliminates nodes with insufficient CPU/memory |
+| NodeName | filter | Checks if `spec.nodeName` matches |
+| NodeUnschedulable | filter | Skips cordoned/drained nodes |
+| TaintToleration | filter + score | Evaluates taint/toleration rules |
+| NodeAffinity | filter + score | Applies node affinity rules |
+| ImageLocality | score | Prefers nodes that already have the image |
+| DefaultBinder | bind | Writes `nodeName` to etcd via API Server |
+
+### Multiple Profiles Configuration
+
+```yaml
+# kube-scheduler-config.yaml
+apiVersion: kubescheduler.config.k8s.io/v1
+kind: KubeSchedulerConfiguration
+
+profiles:
+# Profile 1: Default scheduler (standard workloads)
+- schedulerName: default-scheduler
+  plugins:
+    score:
+      enabled:
+      - name: NodeResourcesFit
+        weight: 1
+      - name: ImageLocality
+        weight: 1
+
+# Profile 2: GPU-optimized scheduler (ML workloads)
+- schedulerName: gpu-scheduler
+  plugins:
+    filter:
+      disabled:
+      - name: TaintToleration     # Disable default; custom plugin handles it
+    score:
+      disabled:
+      - name: "*"                  # Disable ALL default scoring plugins
+      enabled:
+      - name: GPUTopologyScorer    # Custom GPU-aware scorer
+        weight: 100
+
+# Profile 3: Batch scheduler (batch/low-priority workloads)  
+- schedulerName: batch-scheduler
+  plugins:
+    preScore:
+      disabled:
+      - name: "*"                  # Disable all preScore
+    score:
+      disabled:
+      - name: NodeAffinity         # Don't weight affinity for batch
+      enabled:
+      - name: NodeResourcesFit     # Pack as tightly as possible
+        weight: 100
+  pluginConfig:
+  - name: NodeResourcesFit
+    args:
+      scoringStrategy:
+        type: MostAllocated        # Bin-pack for batch workloads
+```
+
+### Why Profiles Beat Multiple Binaries
+
+```
+Problem with separate scheduler binaries:
+- Each binary maintains its own cache of cluster state
+- Multiple caches can diverge → race conditions
+- Pod A assigned to node by scheduler1 at same time scheduler2
+  assigns Pod B to same node → both think they can fit → overcommit
+
+Solution with profiles:
+- Single binary, single cache, single source of truth
+- Multiple "virtual schedulers" share same cluster state view
+- No race conditions between profiles
+- Simpler deployment and maintenance
+```
+
+### CKA Exam Tips
+- Profiles allow ONE scheduler binary to act as MULTIPLE schedulers
+- Each profile has a unique `schedulerName`
+- Pods reference the profile via `spec.schedulerName`
+- `disabled: name: "*"` disables ALL plugins in that extension point
+- Key advantage: shared cache prevents race conditions
+
+---
+
+### 🔎 Summary — Configuring Scheduler Profiles
+
+- **Scheduler Profiles** = multiple virtual schedulers in one binary
+- Avoids race conditions that occur with separate scheduler binaries
+- Each profile can enable/disable specific plugins per extension point
+- Extension points: queueSort, filter, preScore, score, bind
+- Pods use `spec.schedulerName` to select which profile handles them
+- **Production Takeaway:** Prefer profiles over separate scheduler binaries. They're simpler, more reliable, and eliminate cache consistency issues. Define profiles for different workload types (general, ML/GPU, batch) within one scheduler deployment.
+
+---
+
+## 31. Admission Controllers
+
+### What Is It?
+**Admission Controllers** are plugins that intercept API Server requests **after** authentication and authorization but **before** the object is persisted to etcd. They can validate, modify, or reject requests based on custom rules.
+
+### Where Admission Controllers Fit
+
+```
+Request Flow:
+[1] kubectl apply → API Server
+[2] Authentication (who are you?)
+[3] Authorization (are you allowed to do this?)
+[4] Admission Controllers ← HERE
+    ├── Mutating: can MODIFY the request
+    └── Validating: can ALLOW or DENY the request
+[5] Schema Validation
+[6] Persist to etcd
+```
+
+### Why RBAC Alone Is Insufficient
+
+```
+RBAC can control:
+✓ Can user X create pods? (resource-level)
+✓ Can user X access namespace Y? (namespace-level)
+
+RBAC CANNOT control:
+✗ Are pods using images from approved registries?
+✗ Are pods running as root?
+✗ Do pods have resource limits defined?
+✗ Do pods use the "latest" tag?
+
+Admission controllers fill this gap:
+✓ Reject pods with unapproved registries
+✓ Reject pods running as root
+✓ Auto-inject resource limits
+✓ Reject "latest" tag usage
+```
+
+### Built-in Admission Controllers
+
+| Controller | Type | Function |
+|---|---|---|
+| `AlwaysPullImages` | Mutating | Forces image pull policy to Always |
+| `DefaultStorageClass` | Mutating | Adds default storage class to PVCs |
+| `LimitRanger` | Mutating+Validating | Applies default limits; validates against LimitRange |
+| `NamespaceLifecycle` | Validating | Prevents creating objects in terminating/non-existent namespaces |
+| `NodeRestriction` | Validating | Limits what kubelet can modify |
+| `ResourceQuota` | Validating | Enforces namespace resource quotas |
+| `ServiceAccount` | Mutating | Auto-injects default service account into pods |
+| `PodSecurity` | Validating | Enforces Pod Security Standards |
+
+### Viewing Enabled Admission Controllers
+
+```bash
+# Check running kube-apiserver flags
+ps -aux | grep kube-apiserver | grep admission
+
+# OR for kubeadm setups:
+kubectl exec kube-apiserver-controlplane -n kube-system -- \
+  kube-apiserver -h | grep enable-admission-plugins
+
+# Check what's currently enabled
+kubectl get pod kube-apiserver-controlplane -n kube-system -o yaml | \
+  grep enable-admission-plugins
+```
+
+### Enabling/Disabling Admission Controllers
+
+```yaml
+# /etc/kubernetes/manifests/kube-apiserver.yaml (kubeadm setup)
+spec:
+  containers:
+  - command:
+    - kube-apiserver
+    # ... other flags ...
+    - --enable-admission-plugins=NodeRestriction,NamespaceAutoProvision
+    - --disable-admission-plugins=DefaultStorageClass
+```
+
+```bash
+# After modifying manifest, kubelet auto-restarts API server
+# Verify changes took effect:
+kubectl get pod kube-apiserver-controlplane -n kube-system -o yaml | \
+  grep -A 5 admission
+```
+
+### NamespaceLifecycle vs NamespaceAutoProvision
+
+```bash
+# NamespaceLifecycle (enabled by default):
+kubectl run nginx --image=nginx --namespace=nonexistent
+# Error: namespaces "nonexistent" not found
+
+# NamespaceAutoProvision (disabled by default):
+# Enable it → namespace automatically created if it doesn't exist
+kubectl run nginx --image=nginx --namespace=auto-created
+# namespace/auto-created created (auto)
+# pod/nginx created
+
+# Note: NamespaceAutoProvision is DEPRECATED
+# NamespaceLifecycle replaces both controllers
+```
+
+### CKA Exam Tips
+- Admission controllers run AFTER auth/authz, BEFORE etcd persistence
+- `--enable-admission-plugins` and `--disable-admission-plugins` flags on kube-apiserver
+- In kubeadm: modify `/etc/kubernetes/manifests/kube-apiserver.yaml`
+- Default enabled controllers include: NamespaceLifecycle, LimitRanger, ServiceAccount, NodeRestriction, ResourceQuota
+- Mutating controllers run BEFORE validating controllers
+
+---
+
+### 🔎 Summary — Admission Controllers
+
+- **Admission Controllers** = plugins that intercept API requests to validate/mutate objects
+- Run AFTER auth/authz, BEFORE etcd persistence
+- Two types: **Mutating** (can modify) and **Validating** (can approve/deny)
+- Fill the gap that RBAC can't address: content-level policy enforcement
+- Common ones: NamespaceLifecycle, LimitRanger, ServiceAccount, NodeRestriction
+- Enable/disable via `--enable-admission-plugins` on kube-apiserver
+- **Production Takeaway:** Admission controllers are your policy enforcement layer. Use them to enforce security standards (no root containers, approved registries), auto-inject defaults (service accounts, storage classes), and prevent misconfigurations.
+
+---
+
+## 32. Validating and Mutating Admission Controllers
+
+### What Is It?
+**Mutating Admission Webhooks** modify incoming requests (add labels, inject sidecars, set defaults). **Validating Admission Webhooks** approve or reject requests based on custom rules. Both use external webhook servers, allowing any business logic to be implemented.
+
+### Order of Execution
+
+```
+Request arrives at API Server
+        ↓
+[1] Authentication
+        ↓
+[2] Authorization (RBAC)
+        ↓
+[3] MUTATING admission webhooks run first
+    (modify the object — add defaults, inject sidecars)
+        ↓
+[4] Schema validation
+        ↓
+[5] VALIDATING admission webhooks run
+    (approve or reject the (now-modified) object)
+        ↓
+[6] Persist to etcd
+```
+
+**Critical:** Mutating runs BEFORE validating. This ensures validators see the final, mutated object.
+
+### AdmissionReview Request/Response
+
+The API server sends AdmissionReview objects to webhook servers and expects AdmissionReview responses:
+
+```json
+// Request from API Server → Webhook
+{
+  "apiVersion": "admission.k8s.io/v1",
+  "kind": "AdmissionReview",
+  "request": {
+    "uid": "705ab415-abc123",
+    "kind": {"group": "", "version": "v1", "kind": "Pod"},
+    "resource": {"group": "", "version": "v1", "resource": "pods"},
+    "operation": "CREATE",
+    "object": {
+      "metadata": {"name": "nginx", "namespace": "default"},
+      "spec": {"containers": [{"name": "nginx", "image": "nginx:latest"}]}
+    },
+    "userInfo": {"username": "john-dev", "groups": ["developers"]}
+  }
+}
+```
+
+```json
+// Response from Webhook → API Server
+// Allow:
+{"response": {"uid": "705ab415-abc123", "allowed": true}}
+
+// Deny with message:
+{"response": {
+  "uid": "705ab415-abc123",
+  "allowed": false,
+  "status": {"message": "Image 'nginx:latest' tag 'latest' is not permitted"}
+}}
+
+// Allow with mutation (base64-encoded JSON patch):
+{"response": {
+  "uid": "705ab415-abc123",
+  "allowed": true,
+  "patchType": "JSONPatch",
+  "patch": "W3sib3AiOiJhZGQiLCJwYXRoIjoiL21ldGFkYXRhL2xhYmVscy9yZXZpZXdlZCIsInZhbHVlIjoidHJ1ZSJ9XQ=="
+}}
+```
+
+### Webhook Configuration
+
+```yaml
+# validating-webhook-config.yaml
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: pod-policy-validator
+webhooks:
+- name: "pod-policy.company.com"
+  
+  # What triggers this webhook
+  rules:
+  - apiGroups: [""]
+    apiVersions: ["v1"]
+    operations: ["CREATE", "UPDATE"]   # Which operations trigger this
+    resources: ["pods"]
+    scope: "Namespaced"
+  
+  # How to reach the webhook server
+  clientConfig:
+    # Option 1: Service inside the cluster
+    service:
+      namespace: "webhook-system"
+      name: "policy-webhook-service"
+      path: "/validate"
+      port: 443
+    # Option 2: External URL
+    # url: "https://my-webhook.company.com/validate"
+    caBundle: "LS0tLS1CRUdJTi..."   # CA cert to trust the webhook server
+  
+  # Behavior when webhook is unavailable
+  failurePolicy: Fail              # Fail | Ignore
+  # Fail: reject request if webhook unreachable (safer)
+  # Ignore: allow request if webhook unreachable (less safe but more available)
+  
+  admissionReviewVersions: ["v1"]
+  sideEffects: None
+  
+  # Only apply to specific namespaces (optional)
+  namespaceSelector:
+    matchLabels:
+      policy-check: "enabled"
+  
+  timeoutSeconds: 10               # Webhook must respond within 10s
+```
+
+```yaml
+# mutating-webhook-config.yaml
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: sidecar-injector
+webhooks:
+- name: "sidecar-injector.company.com"
+  rules:
+  - apiGroups: [""]
+    apiVersions: ["v1"]
+    operations: ["CREATE"]
+    resources: ["pods"]
+  clientConfig:
+    service:
+      namespace: "istio-system"
+      name: "istiod"
+      path: "/inject"
+  failurePolicy: Ignore            # Don't block pod creation if Istio unavailable
+  admissionReviewVersions: ["v1"]
+  sideEffects: None
+```
+
+### Simple Python Webhook Server Example
+
+```python
+# webhook_server.py
+from flask import Flask, request, jsonify
+import base64
+import json
+
+app = Flask(__name__)
+
+@app.route("/validate", methods=["POST"])
+def validate():
+    """Reject pods using 'latest' image tag"""
+    review = request.json
+    pod = review["request"]["object"]
+    containers = pod["spec"]["containers"]
+    
+    for container in containers:
+        image = container["image"]
+        if image.endswith(":latest") or ":" not in image:
+            return jsonify({
+                "response": {
+                    "uid": review["request"]["uid"],
+                    "allowed": False,
+                    "status": {
+                        "message": f"Image '{image}' must have explicit version tag. 'latest' not permitted."
+                    }
+                }
+            })
+    
+    return jsonify({
+        "response": {
+            "uid": review["request"]["uid"],
+            "allowed": True
+        }
+    })
+
+@app.route("/mutate", methods=["POST"])
+def mutate():
+    """Auto-inject team label based on namespace"""
+    review = request.json
+    namespace = review["request"]["namespace"]
+    
+    # Add label to pod
+    patch = [
+        {"op": "add", "path": "/metadata/labels/injected-by", "value": "webhook"},
+        {"op": "add", "path": "/metadata/labels/namespace", "value": namespace}
+    ]
+    
+    patch_json = json.dumps(patch)
+    patch_b64 = base64.b64encode(patch_json.encode()).decode()
+    
+    return jsonify({
+        "response": {
+            "uid": review["request"]["uid"],
+            "allowed": True,
+            "patchType": "JSONPatch",
+            "patch": patch_b64
+        }
+    })
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=443, ssl_context=("cert.pem", "key.pem"))
+```
+
+### Real-World Production Scenario
+
+**Use Case:** Enterprise security policy enforcement
+
+```
+Policies enforced via admission webhooks:
+
+1. ValidatingWebhookConfiguration "security-policy":
+   - DENY: pods using images from non-approved registries
+   - DENY: pods running as root (securityContext.runAsUser: 0)
+   - DENY: pods with privileged: true
+   - DENY: pods without resource limits
+
+2. MutatingWebhookConfiguration "defaults-injector":
+   - INJECT: Istio sidecar proxy into every pod
+   - ADD: team/owner labels from namespace annotations
+   - SET: default securityContext (runAsNonRoot: true)
+   - ADD: custom DNS config for service discovery
+```
+
+### Debugging & Troubleshooting
+
+```bash
+# Webhook rejecting all requests?
+# 1. Check if webhook server is running
+kubectl get pods -n webhook-system
+
+# 2. Check webhook server logs
+kubectl logs -n webhook-system deployment/policy-webhook
+
+# 3. Test webhook connectivity
+kubectl exec -it test-pod -- \
+  curl -k https://policy-webhook-service.webhook-system/healthz
+
+# 4. Temporarily disable webhook for debugging
+kubectl delete validatingwebhookconfiguration pod-policy-validator
+# (remember to re-enable!)
+
+# 5. Check webhook config
+kubectl describe validatingwebhookconfiguration pod-policy-validator
+
+# 6. Check API server logs for webhook calls
+kubectl logs kube-apiserver-controlplane -n kube-system | grep webhook
+```
+
+### CKA Exam Tips
+- Mutating runs BEFORE validating (important ordering to remember)
+- `failurePolicy: Fail` = reject request if webhook unreachable (safer, but risky)
+- `failurePolicy: Ignore` = allow request if webhook unreachable (more available)
+- Webhook servers need TLS certificates (self-signed CA registered in `caBundle`)
+- `sideEffects: None` = webhook doesn't have side effects during dry runs
+- Built-in admission controllers = compiled in; Webhooks = external HTTP calls
+
+### Production Best Practices
+- Always run webhook servers with HA (multiple replicas)
+- Set short `timeoutSeconds` (5–10s) — slow webhooks block all matching requests
+- Use `namespaceSelector` to scope webhooks (avoid applying to `kube-system`)
+- Never use `failurePolicy: Fail` for webhooks that are non-critical
+- Test webhooks with `--dry-run` before enabling on production
+- Log all rejections with reasons for auditing
+
+---
+
+### 🔎 Summary — Validating and Mutating Admission Controllers
+
+- **Mutating Webhooks** = modify objects (inject sidecars, add labels, set defaults)
+- **Validating Webhooks** = approve or deny requests based on custom logic
+- Mutating runs FIRST, then Validating (validators see the final mutated object)
+- Both use external HTTP servers returning AdmissionReview JSON
+- `failurePolicy` controls behavior when webhook server is unreachable
+- TLS required between API Server and webhook server
+- **Production Takeaway:** Custom webhooks are the extensibility point for Kubernetes policy enforcement. Use them to implement organizational security standards, auto-inject infrastructure components (Istio sidecars, logging agents), and enforce compliance rules that RBAC cannot cover.
+
+---
+
+# Part III — Logging, Monitoring & Lifecycle Management
+
+---
+
+## 33. Managing Application Logs
+
+### What Is It?
+Kubernetes provides mechanisms to access logs from containers running in pods. Understanding how to retrieve, stream, and manage logs is essential for debugging and monitoring applications in production.
+
+### Docker Logging Foundation
+
+Container applications write output to **stdout** and **stderr**. The container runtime captures this output as logs.
+
+```bash
+# Docker logging
+docker run kodekloud/event-simulator          # Attached (logs to terminal)
+docker run -d kodekloud/event-simulator        # Detached (no terminal output)
+docker logs <container-id>                    # View logs after detach
+docker logs -f <container-id>                 # Stream logs (-f = follow)
+```
+
+### Kubernetes Pod Logging Commands
+
+```bash
+# Basic log retrieval
+kubectl logs <pod-name>
+kubectl logs <pod-name> -n <namespace>
+
+# Stream logs in real-time (-f = follow)
+kubectl logs -f <pod-name>
+
+# View last N lines
+kubectl logs <pod-name> --tail=100
+
+# View logs from last time duration
+kubectl logs <pod-name> --since=1h
+kubectl logs <pod-name> --since=30m
+kubectl logs <pod-name> --since-time=2024-01-01T10:00:00Z
+
+# Logs from PREVIOUS container (after crash)
+kubectl logs <pod-name> --previous
+kubectl logs <pod-name> -p              # shorthand
+
+# Multi-container pods: MUST specify container name
+kubectl logs <pod-name> -c <container-name>
+kubectl logs event-simulator-pod -c event-simulator
+
+# All containers in a pod
+kubectl logs <pod-name> --all-containers=true
+
+# Logs from all pods matching a label
+kubectl logs -l app=webapp --all-containers
+```
+
+### Kubernetes Log Storage
+
+```
+Container writes to stdout/stderr
+        ↓
+Container Runtime (containerd) captures output
+        ↓
+Stored at: /var/log/containers/<pod-name>_<namespace>_<container-name>-<id>.log
+           (symlink) /var/log/pods/<namespace>_<pod-name>_<uid>/<container-name>/0.log
+        ↓
+kubelet manages log rotation (--container-log-max-size, --container-log-max-files)
+        ↓
+kubectl logs reads from these files via API Server
+```
+
+### Pod Definition for Logging Demo
+
+```yaml
+# event-simulator-pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: event-simulator-pod
+spec:
+  containers:
+  - name: event-simulator
+    image: kodekloud/event-simulator
+    # This container writes to stdout:
+    # 2024-01-01 10:00:01 - USER1 logged in
+    # 2024-01-01 10:00:02 - USER2 viewing page1
+    # ...
+
+  - name: image-processor
+    image: some-image-processor
+    # Second container — must specify -c image-processor to get its logs
+```
+
+```bash
+# Without container name (works only for single-container pods)
+kubectl logs event-simulator-pod
+
+# Error for multi-container:
+# Error from server (BadRequest): a container name must be specified for pod
+# event-simulator-pod, choose one of: [event-simulator image-processor]
+
+# With container name:
+kubectl logs event-simulator-pod -c event-simulator
+kubectl logs event-simulator-pod -c image-processor
+```
+
+### Real-World Log Analysis Pattern
+
+```bash
+# Production debugging workflow
+
+# Step 1: Check pod status
+kubectl get pods -n production
+# webapp-xyz  0/1  CrashLoopBackOff  5  10m
+
+# Step 2: Current container logs (may be empty if already crashed)
+kubectl logs webapp-xyz -n production
+
+# Step 3: Previous container logs (THE MOST USEFUL for CrashLoopBackOff)
+kubectl logs webapp-xyz -n production --previous
+# Output: 
+# ERROR: Cannot connect to database: connection refused to db:5432
+# FATAL: Application startup failed
+
+# Step 4: Check pod events
+kubectl describe pod webapp-xyz -n production | grep -A 20 Events
+
+# Step 5: Check if DB service exists
+kubectl get service db -n production
+# Error: service "db" not found ← Root cause found!
+
+# Fix: Deploy missing DB service
+kubectl apply -f db-service.yaml
+```
+
+### Centralized Log Management (Production Pattern)
+
+```
+Production logging architecture:
+
+Node 1                          Node 2
+├── Pod A logs → stdout         ├── Pod C logs → stdout
+├── Pod B logs → stdout         └── Pod D logs → stdout
+        ↓                               ↓
+    Fluent Bit (DaemonSet)          Fluent Bit (DaemonSet)
+        ↓                               ↓
+        └──────────────────────────────→ Elasticsearch Cluster
+                                              ↓
+                                         Kibana (visualization)
+                                         Grafana Loki (alternative)
+```
+
+### Debugging & Troubleshooting Logs
+
+```bash
+# Common log debugging scenarios
+
+# 1. Pod in CrashLoopBackOff
+kubectl logs <pod> --previous        # Get logs BEFORE the crash
+
+# 2. Application error rate spike
+kubectl logs -l app=webapp --tail=200 --since=15m | grep ERROR
+
+# 3. Check control plane logs (kubeadm setup)
+kubectl logs kube-apiserver-controlplane -n kube-system --tail=50
+kubectl logs kube-controller-manager-controlplane -n kube-system --tail=50
+
+# 4. Node-level logs (not accessible via kubectl)
+# SSH to node:
+journalctl -u kubelet -n 100              # kubelet logs
+journalctl -u containerd -n 100          # container runtime logs
+cat /var/log/pods/default_nginx_*/nginx/*.log  # Direct pod log file
+```
+
+### CKA Exam Tips
+- `kubectl logs <pod> -c <container>` required for multi-container pods
+- `kubectl logs <pod> --previous` or `-p` for crashed container logs
+- `--since`, `--tail`, `-f` are frequently needed flags
+- Logs are stored on nodes at `/var/log/pods/` and `/var/log/containers/`
+- Control plane component logs: `kubectl logs -n kube-system <component-pod>`
+
+### Production Best Practices
+- Configure log rotation on kubelet (`--container-log-max-size=10Mi --container-log-max-files=5`)
+- Deploy centralized logging (Fluent Bit + Elasticsearch/Loki) for log aggregation
+- Use structured logging (JSON format) in applications for better parseability
+- Include correlation IDs in all log entries for request tracing
+- Set appropriate log levels (INFO in production, DEBUG only when needed)
+- Implement log retention policies in your log backend
+
+---
+
+### 🔎 Summary — Managing Application Logs
+
+- **kubectl logs** retrieves container stdout/stderr from API Server
+- `--previous` / `-p` = logs from PREVIOUS (crashed) container instance
+- Multi-container pods: always specify `-c <container-name>`
+- Logs stored on nodes at `/var/log/pods/` — managed by kubelet
+- `CrashLoopBackOff` → always check `kubectl logs <pod> --previous` first
+- Production: use centralized log aggregation (Fluent Bit → Elasticsearch/Loki)
+- **Production Takeaway:** `kubectl logs` is for interactive debugging. For production, you need a centralized log system. Implement Fluent Bit as a DaemonSet to ship logs to Elasticsearch or Grafana Loki for searchable, retained logs across all pods.
+
+---
+
+## 34. Rolling Updates and Rollbacks
+
+### What Is It?
+**Rolling Updates** allow Kubernetes Deployments to update pods gradually without downtime. **Rollbacks** allow reverting to a previous version if something goes wrong. Together, they form the foundation of zero-downtime deployments.
+
+### Rollout and Revision Tracking
+
+```
+Deployment history (revisions):
+Revision 1: nginx:1.7.0  ← initial deployment
+Revision 2: nginx:1.7.1  ← image update
+Revision 3: nginx:1.9.1  ← image update + resource change
+                             ↑ current
+
+Each revision = one ReplicaSet
+kubectl rollout undo → goes back to Revision 2 (restores that ReplicaSet)
+```
+
+### Deployment Strategies Deep Dive
+
+```
+Recreate Strategy:
+──── [v1, v1, v1] ─── Scale down all ─── [] ─── Scale up ─── [v2, v2, v2]
+     (serving)           (DOWNTIME)                             (serving)
+     ↑ Application unavailable during transition
+     Use when: breaking changes that can't run alongside old version
+
+RollingUpdate Strategy (default):
+──── [v1, v1, v1] ─────────────────────────────────────────── [v2, v2, v2]
+     (serving)  [v2, v1, v1] → [v2, v2, v1] → [v2, v2, v2]  (serving)
+                ↑ Application always has pods serving (zero downtime)
+     Use when: backward-compatible changes (most cases)
+```
+
+### Complete Deployment with Update Settings
+
+```yaml
+# deployment-with-update-strategy.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp
+  namespace: production
+  annotations:
+    kubernetes.io/change-cause: "Update webapp to v2.0 - Added payment gateway"
+spec:
+  replicas: 5
+  
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1      # At most 1 pod unavailable during update
+      maxSurge: 1            # At most 1 extra pod during update
+      # Effect: update goes 5→6 pods, then 5→4 old, 5→2 new, etc.
+      
+      # With percentages (production preferred):
+      # maxUnavailable: "20%"   # 20% of 5 = 1 pod max unavailable
+      # maxSurge: "20%"         # 20% of 5 = 1 extra pod max
+  
+  minReadySeconds: 30        # New pod must be Ready for 30s before proceeding
+                             # Critical: prevents fast-failing pods from causing premature rollout
+  
+  progressDeadlineSeconds: 300  # Fail rollout if not complete within 5 min
+  revisionHistoryLimit: 5       # Keep 5 old ReplicaSets for rollback
+  
+  selector:
+    matchLabels:
+      app: webapp
+  
+  template:
+    metadata:
+      labels:
+        app: webapp
+        version: "2.0"
+    spec:
+      containers:
+      - name: webapp
+        image: myregistry/webapp:2.0
+        # OOMKilled → increase memory limits
+        # CPU throttling → increase CPU limits or optimize app
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        
+        # CRITICAL for rolling updates: readiness probe gates rollout progression
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          successThreshold: 2      # Must succeed 2 times before pod is "Ready"
+          failureThreshold: 3      # Fail 3 times → pod NOT ready → rollout paused
+        
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 3     # CrashLoopBackOff after 3 failures
+```
+
+### All Rolling Update Commands
+
+```bash
+# ─── Creating and Monitoring ───
+kubectl apply -f deployment.yaml
+kubectl rollout status deployment/webapp
+# Waiting for deployment "webapp" rollout to finish: 2 of 5 updated replicas...
+# deployment "webapp" successfully rolled out
+
+# Watch rollout in real time
+watch kubectl get pods -l app=webapp
+
+# ─── Triggering Updates ───
+# Method 1: Update YAML file then apply
+vim deployment.yaml  # Change image tag
+kubectl apply -f deployment.yaml
+
+# Method 2: Direct image update
+kubectl set image deployment/webapp webapp=myregistry/webapp:2.1
+
+# Method 3: Edit live object (avoid in production)
+kubectl edit deployment webapp
+
+# ─── Viewing History ───
+kubectl rollout history deployment/webapp
+# REVISION  CHANGE-CAUSE
+# 1         Initial deployment v1.0
+# 2         Update webapp to v2.0 - Added payment gateway
+
+kubectl rollout history deployment/webapp --revision=2
+# Detailed info about revision 2
+
+# ─── Rollback ───
+kubectl rollout undo deployment/webapp                    # → previous revision
+kubectl rollout undo deployment/webapp --to-revision=1   # → specific revision
+
+# ─── Pause/Resume (batch multiple changes) ───
+kubectl rollout pause deployment/webapp
+kubectl set image deployment/webapp webapp=myregistry/webapp:2.2
+kubectl set resources deployment/webapp -c webapp --limits=cpu=1,memory=1Gi
+kubectl rollout resume deployment/webapp   # Applies all paused changes at once
+
+# ─── Force Rollout (restart pods without config change) ───
+kubectl rollout restart deployment/webapp
+```
+
+### Real-World Production Scenario
+
+**Application:** Banking microservices — 50 replicas of payment service
+
+**Scenario:** Failed deployment rollout
+
+```bash
+# Deployment started — monitoring
+kubectl rollout status deployment/payment-service
+# Waiting for deployment "payment-service" rollout to finish: 
+# 20 out of 50 updated...
+# (stuck for 5+ minutes)
+
+# Check what's happening
+kubectl get pods -l app=payment-service
+# payment-service-new-abc123   0/1   CrashLoopBackOff   3   2m
+# payment-service-old-xyz789   1/1   Running            0   3h
+# (multiple new pods crashing)
+
+# Get crash logs
+kubectl logs payment-service-new-abc123 --previous
+# ERROR: Database schema version mismatch. Expected v5, found v4.
+# Migration required before upgrade.
+
+# Immediate rollback!
+kubectl rollout undo deployment/payment-service
+# deployment.apps/payment-service rolled back
+
+# Verify rollback complete
+kubectl rollout status deployment/payment-service
+# deployment "payment-service" successfully rolled out
+
+# All pods back to old version
+kubectl get pods -l app=payment-service
+# All: 1/1 Running (old version)
+
+# Fix: Run DB migration, then redeploy
+```
+
+### Debugging & Troubleshooting
+
+```bash
+# Rollout stuck?
+kubectl rollout status deployment/webapp
+# error: deployment "webapp" exceeded its progress deadline
+
+kubectl describe deployment webapp
+# Conditions:
+#   Type           Status   Reason
+#   Progressing    False    ProgressDeadlineExceeded
+# Check: are new pods starting? Any image pull errors?
+
+kubectl get pods -l app=webapp
+kubectl logs webapp-new-pod-xyz --previous
+
+# Check ReplicaSets
+kubectl get rs | grep webapp
+# webapp-abc (0 desired, 0 ready) ← old RS, scaled down
+# webapp-def (3 desired, 0 ready) ← new RS, pods failing
+
+# Force rollback if stuck
+kubectl rollout undo deployment/webapp
+```
+
+### CKA Exam Tips
+- `kubectl rollout status` — check if rollout is complete
+- `kubectl rollout history` — see revision list
+- `kubectl rollout undo` — instant rollback to previous revision
+- `kubectl rollout undo --to-revision=N` — specific revision rollback
+- Readiness probe failure prevents rollout from proceeding (intentional safety mechanism)
+- `progressDeadlineSeconds` auto-fails stuck rollouts
+
+### Production Best Practices
+- Always define readiness probes — they are the safety gate for rolling updates
+- Set `minReadySeconds` to ensure pods are stable before proceeding
+- Use `progressDeadlineSeconds` to auto-detect stuck rollouts
+- Tag images with semantic versions, never `latest`
+- Use `kubernetes.io/change-cause` annotation for meaningful history
+- Keep `revisionHistoryLimit: 5-10` for reasonable rollback depth
+
+---
+
+### 🔎 Summary — Rolling Updates and Rollbacks
+
+- **Rolling Update** = gradual pod replacement; zero downtime
+- **Rollback** = instantly restore previous ReplicaSet via `kubectl rollout undo`
+- Two strategies: `RollingUpdate` (default, zero downtime) and `Recreate` (downtime)
+- `maxUnavailable` + `maxSurge` control rollout speed/safety trade-off
+- Readiness probes GATE rollout progression — failed probe = rollout stops
+- Revision history enables rollback to any previous state
+- **Production Takeaway:** Rolling updates are how you deploy safely in Kubernetes. The readiness probe is your most critical safety mechanism — a pod that fails its readiness probe won't receive traffic and won't advance the rollout. Always define it.
+
+---
+
+## 35. Commands and Arguments in Docker
+
+### What Is It?
+Docker containers run a specific process defined by either the `CMD` or `ENTRYPOINT` instructions in the Dockerfile. Understanding how these work is prerequisite to configuring pod commands and arguments in Kubernetes.
+
+### CMD vs ENTRYPOINT
+
+```dockerfile
+# Using CMD only
+FROM ubuntu
+CMD ["sleep", "5"]
+# docker run ubuntu-sleeper         → runs: sleep 5
+# docker run ubuntu-sleeper 10      → runs: 10 (CMD replaced entirely!)
+# Problem: the command "sleep" is replaced by "10"
+
+# Using ENTRYPOINT + CMD
+FROM ubuntu
+ENTRYPOINT ["sleep"]     # Fixed command — cannot be replaced by args
+CMD ["5"]                # Default argument — CAN be overridden
+# docker run ubuntu-sleeper         → runs: sleep 5  (uses CMD default)
+# docker run ubuntu-sleeper 10      → runs: sleep 10 (overrides CMD, keeps ENTRYPOINT)
+# docker run --entrypoint echo ubuntu-sleeper hello → runs: echo hello (overrides ENTRYPOINT)
+```
+
+### The Critical Distinction
+
+```
+CMD: Provides the DEFAULT full command. ANY argument at runtime REPLACES it entirely.
+     Use when: you want the argument to fully replace the command
+
+ENTRYPOINT: Defines the FIXED executable. Runtime arguments are APPENDED.
+     Use when: you want to always run a specific program, just with different args
+
+ENTRYPOINT + CMD combined (best practice):
+ENTRYPOINT = the program to run (fixed)
+CMD        = default arguments to the program (overridable)
+```
+
+### Docker Command Reference
+
+```bash
+# Build image from Dockerfile
+docker build -t ubuntu-sleeper .
+
+# Run with default CMD
+docker run ubuntu-sleeper
+# → runs: sleep 5
+
+# Override CMD argument (keeps ENTRYPOINT)
+docker run ubuntu-sleeper 10
+# → runs: sleep 10
+
+# Override ENTRYPOINT
+docker run --entrypoint echo ubuntu-sleeper "hello world"
+# → runs: echo "hello world"
+```
+
+### CKA Exam Tips
+- Docker `CMD` → Kubernetes `args` (both are default/overridable commands)
+- Docker `ENTRYPOINT` → Kubernetes `command` (both define the executable)
+- Knowing this mapping is critical for Kubernetes pod configuration
+
+---
+
+### 🔎 Summary — Commands and Arguments in Docker
+
+- `CMD` = default command; completely replaced by runtime arguments
+- `ENTRYPOINT` = fixed executable; runtime arguments are appended
+- `ENTRYPOINT + CMD` = best practice; ENTRYPOINT is program, CMD is default args
+- **Docker → Kubernetes mapping:** `ENTRYPOINT` → `command`, `CMD` → `args`
+- **Production Takeaway:** Always use ENTRYPOINT for the executable and CMD for defaults in production Docker images. This ensures consistent, predictable behavior when containers are parameterized.
+
+---
+
+## 36. Commands and Arguments in Kubernetes
+
+### What Is It?
+Kubernetes pod spec has two fields that map to Docker's `ENTRYPOINT` and `CMD`:
+- `command` → overrides Docker `ENTRYPOINT`
+- `args` → overrides Docker `CMD`
+
+### The Mapping
+
+```
+Dockerfile        Kubernetes Pod Spec
+──────────────    ──────────────────────────────
+ENTRYPOINT   →    spec.containers[].command
+CMD          →    spec.containers[].args
+```
+
+### Comparison Table
+
+| Dockerfile | Docker CLI | Kubernetes spec |
+|---|---|---|
+| `ENTRYPOINT ["sleep"]` | `--entrypoint sleep` | `command: ["sleep"]` |
+| `CMD ["5"]` | `docker run image 10` | `args: ["10"]` |
+
+### Pod Command and Args YAML
+
+```yaml
+# pod-commands-args.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ubuntu-sleeper
+spec:
+  containers:
+  - name: ubuntu-sleeper
+    image: ubuntu-sleeper    # Has: ENTRYPOINT ["sleep"], CMD ["5"]
+    
+    command: ["sleep2.0"]    # Overrides ENTRYPOINT — now runs sleep2.0 instead
+    args: ["10"]             # Overrides CMD — passes 10 as argument
+    
+    # Result: container runs: sleep2.0 10
+    
+    # Without command field:
+    # args: ["10"]
+    # Result: container runs: sleep 10 (uses ENTRYPOINT from Dockerfile)
+```
+
+### Practical Examples
+
+```yaml
+# Example 1: Override only the argument (common case)
+spec:
+  containers:
+  - name: sleeper
+    image: ubuntu-sleeper    # ENTRYPOINT: sleep
+    args: ["30"]             # Override CMD: sleep 30 (not 5)
+
+# Example 2: Override both command and args
+spec:
+  containers:
+  - name: greeter
+    image: ubuntu
+    command: ["echo"]        # Overrides ENTRYPOINT
+    args: ["Hello from Kubernetes!"]  # Overrides CMD
+
+# Example 3: Environment variable in args
+spec:
+  containers:
+  - name: app
+    image: myapp
+    command: ["/bin/sh", "-c"]
+    args: ["echo $APP_ENV; /app/start.sh"]  # Shell script execution
+    env:
+    - name: APP_ENV
+      value: "production"
+
+# Example 4: Multi-line command
+spec:
+  containers:
+  - name: init
+    image: busybox
+    command:
+    - sh
+    - -c
+    - |
+      echo "Starting initialization"
+      mkdir -p /data/config
+      cp /source/config.yaml /data/config/
+      echo "Initialization complete"
+```
+
+### Common Use Cases
+
+```yaml
+# Database migration init container
+initContainers:
+- name: db-migrate
+  image: myapp:latest
+  command: ["/app/migrate"]
+  args: ["--direction=up", "--steps=latest"]
+
+# Health check script
+containers:
+- name: webapp
+  image: webapp:1.0
+  command: ["/bin/sh", "-c"]
+  args: ["trap 'exit 0' SIGTERM; /app/server & wait"]
+
+# Custom entrypoint for debugging
+containers:
+- name: debug
+  image: production-image:1.0
+  command: ["/bin/sh"]    # Override production ENTRYPOINT for debugging
+  args: ["-c", "sleep 3600"]  # Keep container alive for inspection
+  # kubectl exec -it pod -- /bin/sh
+```
+
+### CKA Exam Tips
+- `command` REPLACES Dockerfile `ENTRYPOINT` completely
+- `args` REPLACES Dockerfile `CMD` completely
+- Both `command` and `args` are optional — if omitted, Dockerfile values are used
+- Array format: `command: ["sleep", "5"]` OR multi-line format
+
+```yaml
+command:
+- sleep
+- "5"
+```
+- `command` alone (without `args`): the command string is used as-is
+
+---
+
+### 🔎 Summary — Commands and Arguments in Kubernetes
+
+- `spec.containers[].command` → overrides Docker `ENTRYPOINT` (the program to run)
+- `spec.containers[].args` → overrides Docker `CMD` (arguments to the program)
+- Both are optional — Dockerfile values used if not specified
+- Common use: parameterize container behavior without rebuilding images
+- **Production Takeaway:** Use `args` to customize container behavior per environment without changing the Docker image. Use `command` when you need to completely override the startup behavior (e.g., for debugging or init containers).
+
+---
+
+## 37. Secrets
+
+### What Is It?
+**Secrets** are Kubernetes objects designed to store sensitive data (passwords, tokens, certificates, SSH keys). They keep sensitive information out of application code and pod specs while making it available to containers at runtime.
+
+### Secrets vs ConfigMaps
+
+```
+ConfigMap: Non-sensitive configuration
+           DB_HOST=mysql, APP_ENV=production, LOG_LEVEL=info
+
+Secret: Sensitive data
+        DB_PASSWORD=s3cr3t, API_KEY=abc123, TLS_CERT=...
+
+Both stored in etcd. Difference:
+- Secrets: base64-encoded (obfuscated, NOT encrypted by default)
+- ConfigMaps: plain text
+- Secrets: can be encrypted at rest (requires configuration)
+```
+
+### Creating Secrets
+
+```bash
+# Method 1: Imperative (from literal values)
+kubectl create secret generic app-secret \
+  --from-literal=DB_HOST=mysql \
+  --from-literal=DB_USER=admin \
+  --from-literal=DB_PASSWORD=supersecret123
+
+# Method 2: From a file
+echo -n "supersecret123" > db-password.txt
+kubectl create secret generic app-secret --from-file=db-password.txt
+
+# Method 3: Declarative (base64-encode values first)
+echo -n "mysql" | base64          # → bXlzcWw=
+echo -n "admin" | base64          # → YWRtaW4=
+echo -n "supersecret123" | base64 # → c3VwZXJzZWNyZXQxMjM=
+```
+
+### Secret YAML
+
+```yaml
+# app-secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secret
+  namespace: production
+type: Opaque           # Generic secret (other types: kubernetes.io/tls, 
+                       # kubernetes.io/dockerconfigjson, etc.)
+data:
+  DB_HOST: bXlzcWw=           # base64("mysql")
+  DB_USER: YWRtaW4=           # base64("admin")
+  DB_PASSWORD: c3VwZXJzZWNyZXQxMjM=  # base64("supersecret123")
+
+# Note: "data" uses base64 values
+# Alternative: "stringData" uses plain text (auto-encoded)
+stringData:
+  API_KEY: "plain-text-api-key"    # No need to base64-encode in stringData
+```
+
+### Using Secrets in Pods
+
+```yaml
+# pod-with-secrets.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: webapp
+spec:
+  containers:
+  - name: webapp
+    image: webapp:2.0
+    
+    # Method 1: Inject ALL keys as environment variables
+    envFrom:
+    - secretRef:
+        name: app-secret
+    # Result: DB_HOST, DB_USER, DB_PASSWORD available as env vars
+    
+    # Method 2: Inject SPECIFIC keys as environment variables
+    env:
+    - name: DATABASE_PASSWORD        # Env var name in container
+      valueFrom:
+        secretKeyRef:
+          name: app-secret           # Secret name
+          key: DB_PASSWORD           # Key in the secret
+    
+    # Method 3: Mount as files (each key becomes a file)
+    volumeMounts:
+    - name: secret-volume
+      mountPath: /etc/secrets
+      readOnly: true
+      # /etc/secrets/DB_HOST     ← contains "mysql"
+      # /etc/secrets/DB_PASSWORD ← contains "supersecret123"
+  
+  volumes:
+  - name: secret-volume
+    secret:
+      secretName: app-secret
+      # defaultMode: 0400        # File permissions (owner read-only)
+```
+
+### Decoding Secrets
+
+```bash
+# View secret (values are base64-encoded in output)
+kubectl get secret app-secret -o yaml
+# data:
+#   DB_PASSWORD: c3VwZXJzZWNyZXQxMjM=
+
+# Decode a specific value
+kubectl get secret app-secret -o jsonpath='{.data.DB_PASSWORD}' | base64 --decode
+# Output: supersecret123
+
+# Describe (shows keys but not values)
+kubectl describe secret app-secret
+# Name:    app-secret
+# Data
+# ====
+# DB_HOST:      5 bytes
+# DB_PASSWORD:  15 bytes
+# DB_USER:      5 bytes
+```
+
+### Secret Types
+
+| Type | Usage |
+|---|---|
+| `Opaque` | Generic user-defined secrets |
+| `kubernetes.io/tls` | TLS certificate and key |
+| `kubernetes.io/dockerconfigjson` | Docker registry auth |
+| `kubernetes.io/service-account-token` | Service account token |
+| `kubernetes.io/ssh-auth` | SSH credentials |
+| `kubernetes.io/basic-auth` | Basic authentication |
+
+### Security Considerations
+
+```
+Default security (base64 only):
+- Anyone with kubectl get secret permission can decode values
+- Stored unencrypted in etcd by default
+- Visible in etcd dump
+
+Improved security measures:
+1. Encrypt at rest (configure EncryptionConfiguration)
+2. Use RBAC to restrict secret access
+3. Enable audit logging for secret access
+4. Use external secret management (AWS Secrets Manager, HashiCorp Vault)
+5. Use sealed-secrets (encrypt in git)
+
+Production recommendation: Use external secrets operator
+External Secrets Operator:
+  - Syncs secrets from AWS/GCP/Azure/Vault into Kubernetes Secrets
+  - Source of truth is external, not etcd
+  - Fine-grained IAM-based access control
+  - Automatic rotation support
+```
+
+### Debugging & Troubleshooting
+
+```bash
+# Pod can't start due to missing secret
+kubectl describe pod webapp | grep -A 5 Events
+# Error: secret "app-secret" not found
+
+# Check secret exists
+kubectl get secret app-secret
+
+# Verify secret has correct key
+kubectl get secret app-secret -o jsonpath='{.data}' | python3 -m json.tool
+
+# Test environment variable injection
+kubectl exec -it webapp -- env | grep DB_
+
+# Check file mount
+kubectl exec -it webapp -- ls /etc/secrets/
+kubectl exec -it webapp -- cat /etc/secrets/DB_PASSWORD
+```
+
+### CKA Exam Tips
+- `kubectl create secret generic` for opaque secrets
+- `echo -n "value" | base64` to encode; `echo -n "encoded" | base64 --decode` to decode
+- Secret `data` field = base64-encoded values; `stringData` = plain text
+- `kubectl get secret <name> -o yaml` to see encoded values
+- Secrets are namespace-scoped — must be in same namespace as the pod
+- `envFrom.secretRef` injects all keys; `env.valueFrom.secretKeyRef` injects one key
+
+### Production Best Practices
+- Enable **encryption at rest** for secrets (see next section)
+- Use **External Secrets Operator** to sync from Vault/AWS SM/GCP SM
+- Restrict secret access with RBAC (list/get on secrets is sensitive)
+- Never commit plain-text secrets to git — use sealed-secrets or external operator
+- Use `stringData` in YAML for readability but never commit to git
+- Rotate secrets regularly; Kubernetes secrets do not auto-rotate
+
+---
+
+### 🔎 Summary — Secrets
+
+- **Secrets** = Kubernetes objects for sensitive data (passwords, tokens, certs)
+- Values are **base64-encoded** — obfuscated but NOT encrypted by default
+- Three injection methods: `envFrom` (all keys), `env.valueFrom` (single key), `volume` (files)
+- Namespace-scoped: secrets only accessible to pods in same namespace
+- Security best practice: encrypt at rest + RBAC + external secret management
+- **Interview Answer:** "Kubernetes Secrets store sensitive data separately from application code. They're base64-encoded (not encrypted by default), so for real security you should enable encryption at rest and/or use external secret management like HashiCorp Vault or AWS Secrets Manager."
+- **Production Takeaway:** Never store sensitive data in ConfigMaps or environment variables hardcoded in specs. Use Secrets with encryption at rest enabled. For enterprise production, use the External Secrets Operator to sync from your organization's secret management system.
+
+---
+
+## 38. Encrypting Secret Data at Rest
+
+### What Is It?
+By default, Kubernetes Secrets are stored in etcd as **base64-encoded plain text** — essentially unencrypted. Enabling **encryption at rest** ensures that secret values are cryptographically encrypted before being written to etcd.
+
+### The Problem Without Encryption
+
+```bash
+# Without encryption at rest:
+kubectl create secret generic my-secret --from-literal=key1=supersecret
+
+# Query etcd directly — value is READABLE:
+ETCDCTL_API=3 etcdctl get /registry/secrets/default/my-secret | hexdump -C
+# 00000070  6b 65 79 31 3a 20 73 75 70 65 72 73 65 63 72 65  |key1: supersecre|
+# 00000080  74 0a                                             |t.|
+# ↑ Plain text visible! Anyone with etcd access can read all secrets
+```
+
+### Enabling Encryption at Rest
+
+#### Step 1: Generate Encryption Key
+
+```bash
+# Generate a 32-byte random key (AES-256)
+head -c 32 /dev/urandom | base64
+# Output: y0xTt+U6xgRdNxe4nDYYsijOGgRDoUYC+wAwOKeNfPs=
+```
+
+#### Step 2: Create EncryptionConfiguration
+
+```yaml
+# /etc/kubernetes/enc/enc.yaml
+apiVersion: apiserver.config.k8s.io/v1
+kind: EncryptionConfiguration
+resources:
+- resources:
+  - secrets              # Encrypt secrets
+  # - configmaps         # Can also encrypt configmaps
+  providers:
+  # Providers are tried IN ORDER for decryption
+  # FIRST provider is used for new encryption (writes)
+  
+  - aescbc:              # AES-CBC encryption (recommended)
+      keys:
+      - name: key1
+        secret: y0xTt+U6xgRdNxe4nDYYsijOGgRDoUYC+wAwOKeNfPs=
+  
+  - identity: {}         # No encryption (needed for reading unencrypted data)
+                         # MUST be last; if first, nothing gets encrypted!
+  
+  # Key rotation: add new key at top, keep old key below
+  # - aescbc:
+  #     keys:
+  #     - name: key2       ← new key (used for new writes)
+  #       secret: <new-key>
+  #     - name: key1       ← old key (used to decrypt old data)
+  #       secret: <old-key>
+```
+
+#### Step 3: Configure kube-apiserver
+
+```bash
+# Move config to secure location
+mkdir -p /etc/kubernetes/enc
+mv enc.yaml /etc/kubernetes/enc/
+```
+
+```yaml
+# /etc/kubernetes/manifests/kube-apiserver.yaml (kubeadm)
+spec:
+  containers:
+  - command:
+    - kube-apiserver
+    - --encryption-provider-config=/etc/kubernetes/enc/enc.yaml  # ← Add this
+    # ... other flags ...
+    
+    volumeMounts:
+    # ... existing mounts ...
+    - name: enc
+      mountPath: /etc/kubernetes/enc
+      readOnly: true                    # ← Add this mount
+  
+  volumes:
+  # ... existing volumes ...
+  - name: enc
+    hostPath:
+      path: /etc/kubernetes/enc
+      type: DirectoryOrCreate           # ← Add this volume
+```
+
+```bash
+# Kubelet detects the manifest change and restarts kube-apiserver automatically
+# Verify API server restarted with new config
+kubectl get pods -n kube-system | grep kube-apiserver
+```
+
+#### Step 4: Verify Encryption is Working
+
+```bash
+# Create a new secret AFTER enabling encryption
+kubectl create secret generic my-secret-2 --from-literal=key2=topsecret
+
+# Query etcd — should NOT see plain text
+ETCDCTL_API=3 etcdctl \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key \
+  get /registry/secrets/default/my-secret-2 | hexdump -C
+
+# You should see encrypted binary data, NOT the word "topsecret"
+# Look for: "k8s:enc:aescbc:v1:key1:" prefix = encrypted!
+```
+
+#### Step 5: Re-encrypt Existing Secrets
+
+```bash
+# Secrets created BEFORE encryption was enabled are still unencrypted
+# Re-encrypt ALL existing secrets:
+kubectl get secrets --all-namespaces -o json | kubectl replace -f -
+
+# This reads each secret and writes it back → triggers re-encryption
+# Verify by checking etcd again for old secrets
+```
+
+### Encryption Provider Options
+
+| Provider | Algorithm | Recommendation |
+|---|---|---|
+| `identity` | None | Not for production; only for backward compat |
+| `aescbc` | AES-CBC | Good; widely used; default recommendation |
+| `aesgcm` | AES-GCM | Good; more secure; may need key rotation sooner |
+| `secretbox` | XSalsa20+Poly1305 | Good alternative |
+| `kms` | KMS plugin | BEST for production; uses external key management |
+
+### KMS Provider (Production Best Practice)
+
+```yaml
+# KMS provider configuration (uses AWS KMS, GCP KMS, Azure Key Vault)
+providers:
+- kms:
+    name: myKmsPlugin
+    endpoint: unix:///tmp/socketfile.sock  # KMS plugin socket
+    cachesize: 100                          # Cache decrypted keys
+    timeout: 3s                             # KMS call timeout
+- identity: {}
+```
+
+Benefits of KMS provider:
+- Keys stored in external HSM/KMS (not in the manifest file!)
+- Key rotation without restarting API server
+- Hardware-backed security
+- Audit trail for key usage
+
+### CKA Exam Tips
+- Verify encryption: `ETCDCTL_API=3 etcdctl get /registry/secrets/...` and check for binary output
+- `identity: {}` as FIRST provider = no encryption (use last only for migration)
+- New secrets encrypted; existing secrets need `kubectl replace` to re-encrypt
+- Check if encryption enabled: `ps -aux | grep kube-apiserver | grep encryption`
+- Config file must be mounted into kube-apiserver pod (volume + volumeMount)
+
+---
+
+### 🔎 Summary — Encrypting Secret Data at Rest
+
+- **Default:** Secrets stored as base64 in etcd = effectively plain text
+- **Encryption at rest:** Secrets encrypted before writing to etcd using `EncryptionConfiguration`
+- Steps: generate key → create config → mount in kube-apiserver → verify
+- `identity: {}` must be LAST in providers list (otherwise nothing gets encrypted)
+- Existing secrets need re-encryption after enabling: `kubectl get secrets --all-namespaces -o json | kubectl replace -f -`
+- **Production best practice:** Use KMS provider (AWS KMS/GCP KMS) for hardware-backed key management
+- **Production Takeaway:** Encryption at rest is non-negotiable for production Kubernetes clusters in regulated environments. Combine with external KMS for maximum security. Without it, anyone with etcd access (or an etcd backup) can read all your secrets.
+
+---
+
+## 39. Multi-Container Pods
+
+### What Is It?
+**Multi-container pods** co-locate two or more containers in the same pod, sharing network namespace, storage, and lifecycle. This enables common patterns like sidecar, ambassador, and adapter architectures.
+
+### Why Use Multi-Container Pods
+
+```
+Problem: Monolithic apps are hard to scale and manage
+Solution: Break into microservices
+New problem: Some services are tightly coupled and need to share:
+  - The same network (communicate on localhost)
+  - The same storage volume
+  - The same lifecycle (start/stop together)
+
+Multi-container pods solve this by co-locating tightly coupled containers
+```
+
+### Common Multi-Container Patterns
+
+```
+1. SIDECAR Pattern:
+   Main container (app) + Helper container (log agent, proxy)
+   ┌────────────────────────────────────────┐
+   │  Pod                                   │
+   │  ┌─────────────────┐  ┌─────────────┐  │
+   │  │  App Container  │  │  Log Agent  │  │
+   │  │  (writes logs)  │  │  (ships logs│  │
+   │  └────────┬────────┘  └──────┬──────┘  │
+   │           └─── shared volume ┘         │
+   └────────────────────────────────────────┘
+   Example: Nginx + Fluentd log shipper
+
+2. AMBASSADOR Pattern:
+   Main container + Proxy container
+   ┌─────────────────────────────────────────┐
+   │  Pod                                    │
+   │  ┌─────────────────┐  ┌──────────────┐  │
+   │  │  App Container  │→ │  Ambassador  │→ External DB
+   │  │  localhost:5432 │  │  Proxy       │  │
+   │  └─────────────────┘  └──────────────┘  │
+   └─────────────────────────────────────────┘
+   Example: App → local proxy → database cluster routing
+
+3. ADAPTER Pattern:
+   Main container + Transformer container
+   ┌──────────────────────────────────────────────────────┐
+   │  Pod                                                  │
+   │  ┌─────────────────┐  ┌──────────────────────────┐   │
+   │  │  Legacy App     │  │  Adapter Container       │   │
+   │  │  (old log format│  │  (converts to Prometheus │   │
+   │  └────────┬────────┘  └────────────┬─────────────┘   │
+   │           └───── shared volume ────┘                  │
+   └──────────────────────────────────────────────────────┘
+   Example: Old app with custom metrics → Prometheus adapter
+```
+
+### Multi-Container Pod YAML
+
+```yaml
+# multi-container-pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: webapp-with-logging
+  labels:
+    app: webapp
+spec:
+  # Both containers share:
+  # - Network (same IP, communicate on localhost)
+  # - Volumes (defined at pod level)
+  # - Lifecycle (start/stop together)
+  
+  containers:
+  # Container 1: Main web application
+  - name: webapp
+    image: webapp:2.0
+    ports:
+    - containerPort: 8080
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    volumeMounts:
+    - name: shared-logs
+      mountPath: /var/log/app      # App writes logs here
+  
+  # Container 2: Log shipping sidecar
+  - name: log-agent
+    image: fluent/fluent-bit:2.0
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "100m"
+        memory: "128Mi"
+    volumeMounts:
+    - name: shared-logs
+      mountPath: /var/log/app      # Log agent reads from same directory
+      readOnly: true
+    - name: fluent-bit-config
+      mountPath: /fluent-bit/etc
+  
+  # Shared volume accessible to both containers
+  volumes:
+  - name: shared-logs
+    emptyDir: {}                   # Shared within pod; deleted when pod dies
+  - name: fluent-bit-config
+    configMap:
+      name: fluent-bit-config
+  
+  # All containers must be ready for pod to be Ready
+  # Pod is terminated when ANY container exits (with restartPolicy: Always, they restart)
+  restartPolicy: Always
+```
+
+### Init Containers — A Special Case
+
+**Init containers** run BEFORE the main containers, in sequence. They must complete successfully before the main application starts.
+
+```yaml
+# pod-with-init-containers.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: myapp
+spec:
+  # Init containers run sequentially BEFORE main containers
+  initContainers:
+  - name: wait-for-db
+    image: busybox:1.35
+    command:
+    - sh
+    - -c
+    - |
+      until nc -z db-service 5432; do
+        echo "Waiting for database..."
+        sleep 2
+      done
+      echo "Database is ready!"
+    # This init container blocks until DB is reachable
+  
+  - name: run-migrations
+    image: myapp:latest
+    command: ["/app/migrate"]
+    args: ["--direction=up"]
+    env:
+    - name: DB_URL
+      valueFrom:
+        secretKeyRef:
+          name: db-secret
+          key: url
+  
+  # Main containers start ONLY after all init containers succeed
+  containers:
+  - name: webapp
+    image: myapp:latest
+    ports:
+    - containerPort: 8080
+```
+
+### Container Communication in Multi-Container Pods
+
+```yaml
+# Containers in same pod communicate via localhost
+containers:
+- name: nginx
+  image: nginx
+  # nginx listens on :80
+
+- name: app
+  image: myapp
+  env:
+  - name: NGINX_URL
+    value: "http://localhost:80"  # Same pod = localhost communication
+```
+
+### CKA Exam Tips
+- `containers` field is an array — multi-container = multiple items in array
+- ALL containers must be `Running` for pod to be `Running`
+- `kubectl logs <pod> -c <container>` to get logs from specific container
+- Init containers run before main containers; pod waits until all init containers complete
+- Shared volumes: defined at pod level, referenced by name in containers
+- `kubectl describe pod <name>` shows state of each container separately
+
+### Production Best Practices
+- Keep sidecar containers lightweight — they run on every pod instance
+- Set tight resource limits on sidecars (they multiply by replica count)
+- Use init containers for dependency checks (DB ready, config available)
+- Use sidecar pattern for logging agents, service mesh proxies (Istio/Envoy)
+- Don't use multi-container pods just because it's possible — use separate pods when containers don't NEED to share lifecycle/network/storage
+
+---
+
+### 🔎 Summary — Multi-Container Pods
+
+- **Multi-container pods** = co-located containers sharing network, storage, lifecycle
+- Containers in the same pod communicate on **localhost**
+- Common patterns: Sidecar (helper), Ambassador (proxy), Adapter (transform)
+- **Init containers** run sequentially BEFORE main containers
+- Shared volumes: defined at pod level, mounted by multiple containers
+- ALL main containers must run for pod to be `Running`
+- **Production Takeaway:** Use multi-container pods for tightly coupled helper containers (log agents, service mesh proxies, init scripts). For loosely coupled services, use separate pods with Services. The primary use case in modern Kubernetes is the sidecar pattern for Istio/Envoy proxy injection.
+
+---
+
+## 40. Introduction to Autoscaling
+
+### What Is It?
+**Autoscaling** in Kubernetes automatically adjusts the number of pods or the resources allocated to them based on observed metrics, eliminating the need for manual intervention during traffic changes.
+
+### Scaling Dimensions
+
+```
+Two axes of scaling:
+
+HORIZONTAL SCALING (add more):
+├── Pods: add more pod replicas (HPA)
+└── Nodes: add more cluster nodes (Cluster Autoscaler)
+
+VERTICAL SCALING (make bigger):
+├── Pods: increase CPU/memory limits/requests (VPA)
+└── Nodes: increase node machine size (less common in K8s)
+```
+
+### Manual Scaling Commands
+
+```bash
+# Manually scale workloads
+kubectl scale deployment my-app --replicas=10
+
+# Manually edit resource limits
+kubectl edit deployment my-app
+
+# Add node to cluster
+kubeadm join <master-ip>:6443 --token <token>
+```
+
+### Automated Scaling Tools
+
+| Tool | Scales | Trigger |
+|---|---|---|
+| HPA (Horizontal Pod Autoscaler) | Pod replicas | CPU, memory, custom metrics |
+| VPA (Vertical Pod Autoscaler) | Pod resource limits | Historical resource usage |
+| Cluster Autoscaler | Node count | Pending pods (can't schedule due to resources) |
+| KEDA | Pod replicas | External events (queues, databases, HTTP requests) |
+
+### The Need for Autoscaling
+
+```
+Without autoscaling:
+09:00 - Normal traffic: 3 pods handle load fine
+12:00 - Lunch rush: 10x traffic spike → 3 pods overloaded → timeouts → lost revenue
+Manual response: admin scales up to 10 pods (too late, damage done)
+
+With HPA:
+09:00 - Normal traffic: 3 pods running
+12:00 - CPU hits 60% → HPA detects in 30s → scales to 6 pods
+12:01 - CPU still high → HPA scales to 10 pods
+14:00 - Traffic subsides → HPA scales back to 3 pods
+No manual intervention. No downtime. No over-provisioning.
+```
+
+---
+
+### 🔎 Summary — Introduction to Autoscaling
+
+- Kubernetes supports **horizontal** (more pods/nodes) and **vertical** (bigger pods) scaling
+- **Manual scaling**: `kubectl scale` (pods) or `kubeadm join` (nodes)
+- **Automated scaling**: HPA (pods), Cluster Autoscaler (nodes), VPA (pod resources)
+- Autoscaling requires metrics — metrics-server or custom metrics adapters
+- **Production Takeaway:** Manual scaling is inadequate for production workloads with variable traffic. Implement HPA for all stateless services. Use Cluster Autoscaler for automatic node provisioning in cloud environments.
+
+---
+
+## 41. Horizontal Pod Autoscaler (HPA)
+
+### What Is It?
+The **Horizontal Pod Autoscaler (HPA)** automatically scales the number of pod replicas in a Deployment, ReplicaSet, or StatefulSet based on observed CPU utilization, memory utilization, or custom metrics.
+
+### How HPA Works
+
+```
+[1] metrics-server scrapes CPU/memory from kubelet on each node
+[2] HPA controller queries metrics-server every 15 seconds (default)
+[3] HPA calculates desired replicas using formula:
+    desiredReplicas = ceil(currentReplicas × (currentMetric / desiredMetric))
+[4] If desired ≠ current → HPA updates Deployment replica count
+[5] Deployment controller creates/deletes pods as needed
+```
+
+### HPA Scaling Formula
+
+```
+Example:
+- Current replicas: 3
+- Current CPU utilization: 90%
+- Target CPU utilization: 50%
+
+desiredReplicas = ceil(3 × (90/50)) = ceil(5.4) = 6
+
+HPA scales from 3 → 6 replicas
+```
+
+### Prerequisites — Metrics Server
+
+```bash
+# HPA requires metrics-server to be installed
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/\
+  latest/download/components.yaml
+
+# Verify metrics server is working
+kubectl top pods
+kubectl top nodes
+```
+
+### Creating HPA — Imperative
+
+```bash
+# Create HPA for a deployment
+kubectl autoscale deployment my-app \
+  --cpu-percent=50 \         # Target: 50% CPU utilization
+  --min=1 \                  # Minimum replicas
+  --max=10                   # Maximum replicas
+
+# View HPA status
+kubectl get hpa
+# NAME     REFERENCE              TARGETS   MINPODS  MAXPODS  REPLICAS  AGE
+# my-app   Deployment/my-app      45%/50%   1        10       3         5m
+
+# Delete HPA
+kubectl delete hpa my-app
+```
+
+### HPA YAML — Declarative (autoscaling/v2)
+
+```yaml
+# hpa-production.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: webapp-hpa
+  namespace: production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: webapp-deployment     # Target this deployment
+
+  minReplicas: 2                # Never scale below 2 (for HA)
+  maxReplicas: 20               # Never scale above 20
+
+  metrics:
+  # CPU utilization target
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60    # Scale when average CPU > 60%
+
+  # Memory utilization target (less reliable; memory doesn't decrease fast)
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: AverageValue
+        averageValue: "400Mi"     # Scale when average memory > 400Mi
+
+  # Custom metrics (requires custom metrics adapter)
+  - type: Pods
+    pods:
+      metric:
+        name: http_requests_per_second
+      target:
+        type: AverageValue
+        averageValue: "1000"       # Scale when avg req/sec per pod > 1000
+
+  # External metrics (queue depth, etc.)
+  - type: External
+    external:
+      metric:
+        name: queue_messages_ready
+        selector:
+          matchLabels:
+            queue: payment-queue
+      target:
+        type: AverageValue
+        averageValue: "30"         # Scale when avg queue depth per pod > 30
+
+  # Scale-down behavior (prevent flapping)
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300    # Wait 5 min before scaling down
+      policies:
+      - type: Percent
+        value: 25                         # Scale down max 25% per minute
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0      # Scale up immediately
+      policies:
+      - type: Percent
+        value: 100                        # Can double replicas per 15s
+        periodSeconds: 15
+      - type: Pods
+        value: 4                          # OR add max 4 pods per 15s
+        periodSeconds: 15
+      selectPolicy: Max                   # Use whichever is larger
+```
+
+### Real-World Production Scenario
+
+**Application:** E-commerce checkout service — handles Black Friday traffic spikes
+
+**Setup:**
+```yaml
+# Deployment
+resources:
+  requests:
+    cpu: "250m"     # HPA uses request as baseline for percentage calculation
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+# HPA configuration
+minReplicas: 3        # Always have 3 for HA
+maxReplicas: 50       # Can scale up to 50 during Black Friday
+averageUtilization: 70  # Target 70% CPU
+```
+
+**Behavior during Black Friday:**
+```
+08:00 - Normal traffic:    3 pods  (35% CPU)
+10:00 - Traffic increases: 6 pods  (65% CPU → 8 pods)
+12:00 - Peak (Black Friday): 50 pods (HPA capped at max)
+         Cluster Autoscaler adds new nodes to accommodate
+18:00 - Traffic subsides:  15 pods
+22:00 - Normal traffic:    3 pods  (5-min stabilization window prevents flapping)
+```
+
+**Monitoring:**
+```bash
+# Watch HPA in real time
+watch kubectl get hpa -n production
+
+# HPA events
+kubectl describe hpa webapp-hpa -n production | grep -A 10 Events
+# Normal  SuccessfulRescale  2m    horizontal-pod-autoscaler  
+# New size: 8; reason: cpu resource utilization (percentage of request) 
+# above target
+```
+
+### Common HPA Issues
+
+```bash
+# HPA showing <unknown>/50% for targets?
+# Cause: metrics-server not installed or pod not getting metrics
+kubectl top pod <pod-name>
+# Error: "Metrics not available for pod"
+
+# Fix: Install metrics-server
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/\
+  latest/download/components.yaml
+
+# HPA not scaling despite high CPU?
+# Cause: CPU limits not set (HPA can't calculate percentage without limits)
+kubectl describe pod <pod> | grep -A 3 Limits
+# Limits: none  ← This is the problem
+# Fix: Add CPU limits to deployment
+
+# HPA not scaling down?
+# Cause: stabilizationWindowSeconds is too high
+kubectl describe hpa webapp-hpa | grep stabilization
+```
+
+### CKA Exam Tips
+- HPA requires `metrics-server` to be running
+- Pod MUST have CPU `requests` defined for percentage-based HPA
+- `autoscaling/v2` supports multiple metrics; `autoscaling/v1` supports only CPU
+- HPA adjusts `spec.replicas` in the target Deployment
+- `kubectl autoscale deployment <name> --cpu-percent=X --min=Y --max=Z` creates HPA imperatively
+- `kubectl get hpa` — `TARGETS` shows current/desired metric values
+
+### Production Best Practices
+- Set both `minReplicas >= 2` for HA in production
+- Define CPU requests on ALL pods (required for HPA to calculate percentage)
+- Use `stabilizationWindowSeconds` on scale-down to prevent flapping
+- Set `maxReplicas` conservatively — unexpected scaling can exhaust cluster resources
+- Monitor HPA events with `kubectl describe hpa` to understand scaling decisions
+- Test autoscaling behavior with load testing tools (k6, Locust) before production
+
+---
+
+### 🔎 Summary — Horizontal Pod Autoscaler (HPA)
+
+- **HPA** = automatically scales pod replicas based on metrics (CPU, memory, custom)
+- Requires `metrics-server` installed in the cluster
+- Pods MUST have CPU requests defined for percentage-based scaling
+- Formula: `desiredReplicas = ceil(current × currentMetric/targetMetric)`
+- Scale-down has stabilization window (prevent flapping); scale-up is immediate
+- `autoscaling/v2` supports multiple metrics simultaneously
+- **Production Takeaway:** HPA is the primary tool for handling variable traffic. Configure it for all stateless production services. Always set minReplicas ≥ 2 for high availability, and tune the stabilization window to prevent excessive pod churn during traffic fluctuations.
+
+---
+
+## 42. In-Place Resize of Pods
+
+### What Is It?
+**In-Place Pod Vertical Scaling** (alpha since Kubernetes 1.27) allows updating CPU and memory resource requests/limits on a running pod **without restarting it**. This is particularly important for stateful workloads where restart is costly.
+
+### The Traditional Problem
+
+```
+Default Kubernetes behavior (without in-place resize):
+Deployment: 250m CPU, 256Mi memory
+Admin updates to: 500m CPU, 512Mi memory (more load incoming)
+
+Kubernetes default:
+[1] Old pod TERMINATED
+[2] NEW pod created with updated resources
+[3] Application experiences brief downtime (even for stateful apps)
+
+For databases, caches, stateful services:
+→ Downtime = data loss risk, connection drop, cache flush
+→ Very expensive restart
+```
+
+### In-Place Resize Solution
+
+```
+With InPlacePodVerticalScaling feature gate enabled:
+Admin updates CPU/memory on running pod:
+
+For CPU (no restart needed):
+[1] Admin updates spec.resources.requests.cpu
+[2] CRI (containerd) updates cgroup settings
+[3] Container gets more CPU immediately
+[4] NO restart, NO downtime
+
+For Memory (MAY require restart):
+[1] Admin updates spec.resources.requests.memory
+[2] If increasing: usually no restart needed
+[3] If decreasing: restart may be required if current usage > new limit
+```
+
+### Feature Gate Enablement
+
+```bash
+# Check if feature is enabled (1.27+ alpha, 1.33 beta/stable)
+kubectl get nodes -o json | jq '.items[].status.conditions'
+
+# Enable for testing (set on API server and kubelet):
+# Add to kube-apiserver flags:
+--feature-gates=InPlacePodVerticalScaling=true
+
+# Add to kubelet config:
+featureGates:
+  InPlacePodVerticalScaling: true
+```
+
+### Resize Policy Configuration
+
+```yaml
+# deployment-with-resize-policy.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: webapp
+  template:
+    metadata:
+      labels:
+        app: webapp
+    spec:
+      containers:
+      - name: webapp
+        image: webapp:2.0
+        
+        # Resize policy: controls whether resize requires restart
+        resizePolicy:
+        - resourceName: cpu
+          restartPolicy: NotRequired    # CPU resize = no restart
+        - resourceName: memory
+          restartPolicy: RestartContainer  # Memory resize = restart this container
+        
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+```
+
+### Performing In-Place Resize
+
+```bash
+# Method 1: kubectl patch (in-place update to existing pod)
+kubectl patch pod webapp-xyz \
+  --patch '{"spec":{"containers":[{"name":"webapp","resources":{"requests":{"cpu":"500m"},"limits":{"cpu":"1"}}}]}}'
+
+# Method 2: Update deployment (triggers in-place update for each pod)
+kubectl patch deployment webapp \
+  --patch '{"spec":{"template":{"spec":{"containers":[{"name":"webapp","resources":{"requests":{"cpu":"500m"}}}]}}}}'
+
+# Method 3: kubectl edit
+kubectl edit pod webapp-xyz
+# Modify resources.requests.cpu and resources.limits.cpu
+
+# Monitor resize status
+kubectl get pod webapp-xyz -o json | jq '.status.containerStatuses[].allocatedResources'
+kubectl describe pod webapp-xyz | grep -A 5 "Resources\|Resize"
+```
+
+### Pod Resize Status
+
+```bash
+# Check resize status in pod conditions
+kubectl get pod webapp-xyz -o yaml | grep -A 5 conditions
+# conditions:
+# - type: PodResizePending    # Resize accepted but not yet applied
+# - type: PodResizeInProgress # Being applied
+# - type: PodResizeDeferred   # Can't resize now (insufficient node resources)
+# - type: PodResizeInfeasible # Resize impossible (e.g., reducing below current memory usage)
+```
+
+### Limitations
+
+```
+Current limitations of InPlacePodVerticalScaling:
+├── Only CPU and memory supported (not GPU, storage)
+├── Pod QoS class changes NOT supported
+│   (e.g., Guaranteed → Burstable via limit reduction)
+├── Init containers NOT supported
+├── Ephemeral containers NOT supported
+├── Memory limit CANNOT be reduced below current usage
+├── Windows pods NOT supported
+└── Resource cannot be moved between containers
+```
+
+### CKA Exam Tips
+- Feature gate: `InPlacePodVerticalScaling=true` (alpha in 1.27, evolving)
+- `resizePolicy.restartPolicy`: `NotRequired` or `RestartContainer`
+- Memory limit reduction below current usage = stays `PodResizePending`
+- Only CPU and memory — not other resources
+
+---
+
+### 🔎 Summary — In-Place Resize of Pods
+
+- **In-place resize** = update CPU/memory on running pods WITHOUT restart
+- Alpha since Kubernetes 1.27; enabled via feature gate
+- Critical for stateful workloads (databases, caches) where restart is expensive
+- CPU resize: usually no restart; memory resize: may require container restart
+- `resizePolicy` field controls per-resource restart behavior
+- Current limitation: only CPU and memory; no GPU, init containers, or Windows
+- **Production Takeaway:** In-place resize is transformational for stateful workload management. Once stable, it will be the foundation for VPA (Vertical Pod Autoscaler) to work without pod restarts. Watch for this feature graduating to beta/GA in upcoming Kubernetes releases.
+
+---
+
+# Part IV — Cluster Maintenance
+
+---
+
+## 43. OS Upgrades
+
+### What Is It?
+OS upgrades in Kubernetes require safely removing pods from a node before performing maintenance (OS patches, kernel updates, hardware replacement) and then returning it to service.
+
+### What Happens When a Node Goes Down
+
+```
+Node goes offline:
+
+< 5 minutes offline:
+→ pods show as Terminating/Unknown
+→ kubelet reconnects → pods restart automatically
+→ No pod rescheduling (pods stay on that node)
+
+> 5 minutes offline (pod-eviction-timeout exceeded):
+→ Node marked NotReady
+→ Pods on that node are evicted
+→ ReplicaSet pods rescheduled on other nodes
+→ Pods NOT in ReplicaSet: permanently lost (no rescheduling)
+```
+
+### Drain vs Cordon vs Uncordon
+
+```
+Cordon (kubectl cordon <node>):
+  - Marks node as Unschedulable
+  - No new pods scheduled here
+  - Existing pods CONTINUE running
+  - Use case: prevent new workloads during maintenance prep
+
+Drain (kubectl drain <node>):
+  - Marks node as Unschedulable (implied cordon)
+  - GRACEFULLY terminates existing pods
+  - ReplicaSet pods rescheduled on other nodes
+  - Node is safe for maintenance
+  - Use case: node going offline for maintenance
+
+Uncordon (kubectl uncordon <node>):
+  - Marks node as Schedulable again
+  - New pods can be scheduled here
+  - Does NOT automatically move pods back
+  - Use case: return node to service after maintenance
+```
+
+### Complete OS Upgrade Workflow
+
+```bash
+# ─── Before Maintenance ───
+
+# 1. Check current node status
+kubectl get nodes
+# controlplane  Ready  control-plane  1d  v1.28.0
+# node01        Ready  <none>         1d  v1.28.0
+# node02        Ready  <none>         1d  v1.28.0
+
+# 2. Check what's running on the target node
+kubectl get pods -o wide | grep node01
+
+# 3. Drain the node (safely evict all pods)
+kubectl drain node01 --ignore-daemonsets
+
+# --ignore-daemonsets: DaemonSet pods can't be rescheduled; drain ignores them
+# --force: required if non-ReplicaSet pods exist (they will be DELETED permanently)
+# --delete-emptydir-data: required if pods use emptyDir volumes
+
+# 4. Verify node is now unschedulable
+kubectl get nodes
+# node01   Ready,SchedulingDisabled  <none>  1d  v1.28.0
+#                ↑ SchedulingDisabled = drained/cordoned
+
+# ─── Perform Maintenance ───
+# SSH to node01
+# apt-get update && apt-get upgrade -y
+# reboot (if needed)
+
+# ─── After Maintenance ───
+
+# 5. After node comes back online, verify it's joined
+kubectl get nodes
+# node01  Ready  <none>  1d  v1.28.0 (still SchedulingDisabled)
+
+# 6. Uncordon the node (mark as schedulable again)
+kubectl uncordon node01
+
+# 7. Verify node is schedulable
+kubectl get nodes
+# node01  Ready  <none>  1d  v1.28.0 (no SchedulingDisabled)
+
+# Note: pods don't automatically move back to node01
+# Existing pods on other nodes stay there
+# New pods CAN be scheduled on node01
+```
+
+### Handling Drain Failures
+
+```bash
+# Error: cannot drain node with pods not managed by ReplicaSet
+kubectl drain node01 --ignore-daemonsets
+# error: cannot delete DaemonSet-managed Pods (use --ignore-daemonsets): 
+#   kube-system/fluent-bit-xyz
+# error: cannot delete Pods with local storage: webapp-pod-xyz
+
+# Solution 1: Add --delete-emptydir-data for local storage
+kubectl drain node01 --ignore-daemonsets --delete-emptydir-data
+
+# Solution 2: Add --force to forcefully delete non-managed pods
+# WARNING: This DELETES unmanaged pods permanently!
+kubectl drain node01 --ignore-daemonsets --force
+
+# Check what would happen (dry run)
+kubectl drain node01 --ignore-daemonsets --dry-run
+```
+
+### CKA Exam Tips
+- `drain` = cordon + evict pods; `cordon` = only mark unschedulable (no eviction)
+- `--ignore-daemonsets` is almost always needed (DaemonSets run on every node)
+- `--delete-emptydir-data` needed for pods with emptyDir volumes
+- After `uncordon`, existing pods do NOT automatically return to the node
+- Node `NotReady,SchedulingDisabled` = drained
+
+---
+
+### 🔎 Summary — OS Upgrades
+
+- **Drain** = safest way to take a node offline: evicts all pods gracefully
+- **Cordon** = mark unschedulable without evicting existing pods
+- **Uncordon** = return node to schedulable state
+- Pod eviction timeout: 5 minutes before Kubernetes reschedules pods from failed node
+- `--ignore-daemonsets` always needed; `--delete-emptydir-data` for local storage
+- After uncordon, existing pods don't automatically return; only new pods can schedule there
+- **Production Takeaway:** Always drain before any node maintenance. Have enough cluster capacity to absorb evicted pods. Use PodDisruptionBudgets to ensure critical services maintain minimum replicas during drains.
+
+---
+
+## 44. Cluster Upgrade Process
+
+### What Is It?
+**Cluster upgrades** update all Kubernetes components to a newer version. The process involves upgrading the control plane first, then worker nodes, using the `kubeadm upgrade` toolset.
+
+### Version Skew Policy
+
+```
+Component version constraints:
+├── kube-apiserver:        vX.Y.Z
+├── kube-controller-manager: vX.Y.Z or vX.(Y-1).Z  (1 minor version behind max)
+├── kube-scheduler:        vX.Y.Z or vX.(Y-1).Z
+├── kubelet:               vX.Y.Z to vX.(Y-2).Z     (2 minor versions behind max)
+├── kube-proxy:            same as kubelet
+└── kubectl:               vX.(Y+1).Z to vX.(Y-1).Z (1 ahead or behind)
+
+Rule: NEVER upgrade components beyond API Server version
+      API Server is the anchor version
+
+Upgrade path: ONE MINOR VERSION AT A TIME
+1.26 → 1.27 → 1.28 (not 1.26 → 1.28 directly)
+```
+
+### When to Upgrade
+
+```
+Kubernetes support policy: Latest 3 minor versions supported
+Currently: 1.28 is latest
+Supported: 1.26, 1.27, 1.28
+NOT supported: 1.25 and older
+
+If running 1.26: Upgrade before 1.29 releases (when 1.26 drops out of support)
+```
+
+### Complete Upgrade Walkthrough (1.28 → 1.29)
+
+#### Step 1: Update Package Repository
+
+```bash
+# Update Kubernetes apt repository to 1.29
+echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] \
+  https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" | \
+  sudo tee /etc/apt/sources.list.d/kubernetes.list
+
+# Download signing key
+curl -fsSL https://pkgs.k8s.io/core/stable/v1.29/deb/Release.key | \
+  sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+sudo apt-get update
+```
+
+#### Step 2: Upgrade Control Plane (Master Node)
+
+```bash
+# Check available versions
+apt-cache madison kubeadm
+# kubeadm | 1.29.3-1.1 | ...
+# kubeadm | 1.29.2-1.1 | ...
+
+# Upgrade kubeadm FIRST
+sudo apt-mark unhold kubeadm
+sudo apt-get install -y
+
 
