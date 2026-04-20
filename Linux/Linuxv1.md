@@ -2503,3 +2503,2693 @@ unzip -t archive.zip            # test integrity
 ```
 
 ---
+
+## 🔹 `dd` — Low-Level Copy
+
+### What It Does
+`dd` (data duplicator) copies data at the **block level** — it is not filesystem-aware. It bypasses the filesystem entirely and works directly with raw bytes. This makes it uniquely powerful for disk imaging, wiping, swap file creation, and I/O benchmarking.
+
+### Architecture Flow
+```
+dd if=/dev/sda of=/backup/disk.img
+  └─► Open input file (if=) with read()
+        └─► Read blocks of size bs= from input
+              └─► Write blocks to output file (of=) with write()
+                    └─► Repeat until count= reached or input exhausted
+                          └─► No filesystem interpretation — pure raw bytes
+```
+
+### Syntax & Key Parameters
+```bash
+# Parameter meanings:
+# if=  → input file  (source: device, file, /dev/zero, /dev/urandom, /dev/null)
+# of=  → output file (destination: device, file)
+# bs=  → block size (how many bytes to read/write at once: 512, 4K, 1M, 1G)
+# count= → how many blocks to copy
+# status=progress → show live progress (added in newer versions)
+# oflag=direct → bypass OS write cache (important for accurate speed tests)
+# oflag=sync  → sync after each write (ensures data is written to disk)
+# conv=noerror → continue even if read errors occur (useful for bad disk recovery)
+```
+
+```bash
+$ dd if=/dev/zero of=/tmp/testfile bs=1G count=1 oflag=direct
+# Output:
+# 1+0 records in
+# 1+0 records out
+# 1073741824 bytes (1.1 GB) copied, 2.456 s, 437 MB/s
+# Explanation:
+# "1+0 records in/out" = 1 full block transferred, 0 partial blocks
+# 437 MB/s = disk write speed — this is your raw disk throughput benchmark
+# oflag=direct bypasses OS cache so you measure REAL disk speed, not cache speed
+
+$ dd if=/tmp/testfile of=/dev/null bs=1G
+# Output:
+# 1073741824 bytes (1.1 GB) copied, 0.421 s, 2.5 GB/s
+# Explanation: Read speed is 2.5 GB/s — this is actually reading from page cache
+# To test real disk read speed: drop caches first:
+# echo 3 > /proc/sys/vm/drop_caches  (as root)
+# Then run dd again
+
+$ dd if=/dev/sda of=/backup/full-disk-$(date +%F).img bs=4M status=progress
+# Output (live):
+# 5368709120 bytes (5.4 GB) copied, 12 s, 447 MB/s
+# Explanation: Creates a byte-for-byte image of /dev/sda
+# This image captures EVERYTHING: partition table, bootloader, all partitions
+# Can be restored with: dd if=full-disk.img of=/dev/sda bs=4M
+
+$ dd if=/dev/urandom of=/dev/sdb bs=4M status=progress
+# Explanation: Overwrites entire disk with random data
+# This is a secure wipe — no data recovery possible
+# /dev/urandom = kernel random number generator
+# WARNING: This is irreversible and takes a long time on large disks
+
+$ dd if=/dev/zero of=/swapfile bs=1G count=4 status=progress
+# Output:
+# 4294967296 bytes (4.3 GB) copied, 9.871 s, 435 MB/s
+# Explanation: Creates a 4GB file of zeros = ready to be used as swap space
+# Next steps: chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+```
+
+### ⚠️ The Most Dangerous Command in Linux
+```bash
+# CATASTROPHIC EXAMPLE — do NOT run:
+dd if=/dev/sda of=/dev/sdb   # this is INTENDED: copy disk A to disk B
+
+# ACCIDENTAL DISASTER — wrong argument order:
+dd if=/dev/sdb of=/dev/sda   # this WIPES sda with contents of sdb!
+
+# EVEN WORSE:
+dd if=/dev/urandom of=/dev/sda   # this permanently destroys all data on sda
+
+# SAFETY RULES:
+# 1. Always double-check if= and of= before pressing Enter
+# 2. Use status=progress so you can see what's happening
+# 3. Test with a small count= first when unsure
+# 4. Never run dd from memory or copy-paste — type it carefully every time
+```
+
+### Real-World DevOps Scenario
+**Benchmarking a new EBS volume on AWS before putting it into production:**
+```bash
+# Step 1: Test raw write speed
+dd if=/dev/zero of=/dev/xvdb bs=4M count=256 oflag=direct status=progress
+# Output: 1073741824 bytes copied, 5.2 s, 207 MB/s
+# For gp3 EBS: expect ~125-250 MB/s; io2: up to 1000 MB/s
+
+# Step 2: Drop caches and test raw read speed
+echo 3 > /proc/sys/vm/drop_caches
+dd if=/dev/xvdb of=/dev/null bs=4M count=256 status=progress
+# Output: 1073741824 bytes copied, 4.8 s, 224 MB/s
+
+# Step 3: Compare to expected IOPS for instance type
+# If speed is lower than expected, the volume type or instance limit may be wrong
+```
+
+---
+
+## 🔹 `split`
+
+### What It Does
+`split` divides a large file into smaller pieces. Essential for transferring large files in parts, working around size limits, and parallel processing.
+
+```bash
+split -b 100M largefile.tar.gz part_          # split into 100MB chunks
+split -l 1000 hugefile.txt chunk_             # split by line count (1000 lines each)
+split -n 4 file parts_                        # split into exactly 4 equal parts
+split --additional-suffix=.gz archive.tar.gz piece_  # keep original extension
+
+# Reassemble:
+cat part_* > restored_file.tar.gz             # concatenate in alphabetical order
+# Verify integrity:
+md5sum original.tar.gz
+md5sum restored_file.tar.gz                   # should match exactly
+```
+
+```bash
+$ split -b 500M large-backup.tar.gz backup_part_
+$ ls -lah backup_part_*
+# Output:
+# -rw-r--r-- 1 ec2-user 500M Apr 17 backup_part_aa
+# -rw-r--r-- 1 ec2-user 500M Apr 17 backup_part_ab
+# -rw-r--r-- 1 ec2-user 234M Apr 17 backup_part_ac   ← last piece (smaller)
+# Explanation: Files are named with alphabetical suffixes: aa, ab, ac, ad...
+# Reassemble: cat backup_part_* > restored.tar.gz
+
+# Real-world use: upload 5GB backup to S3 using multipart for reliability
+split -b 500M backup.tar.gz backup_part_
+for part in backup_part_*; do
+    aws s3 cp "$part" "s3://mybucket/backups/$part"
+    echo "Uploaded: $part"
+done
+```
+
+### Summary — Compression & Archiving
+
+**📌 5-Minute Recap:**
+- **`tar -czvf`** creates, **`tar -xzvf`** extracts — the `z` flag means gzip compression
+- **Always `tar -tvf`** to list contents before extracting — verify you're extracting what you think
+- **Compression tradeoff**: `gzip` = fast; `bzip2` = better ratio; `xz` = best ratio but slowest
+- **`dd`** works at the raw byte level — no filesystem awareness; perfect for disk imaging and wiping
+- **`dd` is dangerous** — always verify `if=` and `of=` before running; wrong order destroys data
+- **`status=progress`** in `dd` is essential — without it you have no feedback on a long operation
+- **`split -b 500M`** for breaking large files into uploadable chunks; reassemble with `cat part_*`
+
+---
+
+# 9. Networking & Remote Access
+
+## What Is This Section About?
+Networking commands let you configure interfaces, test connectivity, transfer data, manage remote connections, analyze traffic, and troubleshoot network issues. In cloud environments, networking knowledge is critical — every microservice, database connection, and API call involves the network.
+
+## Internal Architecture — Linux Network Stack
+```
+Application (curl, nginx, java)
+  └─► Socket API (socket(), bind(), connect(), send(), recv())
+        └─► Transport Layer: TCP / UDP
+              └─► Network Layer: IP (routing, addressing)
+                    └─► Link Layer: Ethernet frame
+                          └─► Network Driver (e1000, virtio-net)
+                                └─► Physical/Virtual NIC (eth0, ens3)
+                                      └─► Wire / Virtual switch / VPC
+```
+
+---
+
+## 🔹 `ip` / `ifconfig`
+
+### `ip` — Modern Network Management (Preferred)
+```bash
+ip a                               # show ALL interfaces with IP addresses
+ip -4 a                            # IPv4 addresses only
+ip -6 a                            # IPv6 addresses only
+ip a show eth0                     # specific interface details
+ip link show                       # layer-2 link information (MAC, MTU, state)
+ip route show                      # routing table
+ip route add default via 10.0.1.1  # add default gateway
+ip addr add 192.168.1.100/24 dev eth0  # add IP to interface
+ip link set eth0 up                # bring interface up
+ip link set eth0 down              # bring interface down
+ip neigh show                      # ARP table (IP to MAC mappings)
+ip netns list                      # list network namespaces (used by Docker)
+```
+
+```bash
+$ ip a
+# Output:
+# 1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN
+#     link/loopback 00:00:00:00:00:00
+#     inet 127.0.0.1/8 scope host lo        ← loopback address
+# 2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 9001 state UP
+#     link/ether 02:ab:cd:ef:12:34 brd ff:ff:ff:ff:ff:ff  ← MAC address
+#     inet 10.0.1.50/24 brd 10.0.1.255 scope global dynamic eth0  ← IP/subnet
+#     inet6 fe80::ab:cdff:feef:1234/64 scope link  ← IPv6 link-local
+#
+# Reading this output:
+# mtu 9001 = Maximum Transmission Unit (jumbo frames enabled on EC2)
+# state UP = interface is active
+# /24 = subnet mask (255.255.255.0) in CIDR notation
+# scope global = routable from outside
+# dynamic = IP assigned via DHCP (not static)
+
+$ ip route show
+# Output:
+# default via 10.0.1.1 dev eth0 proto dhcp    ← default gateway for all traffic
+# 10.0.1.0/24 dev eth0 proto kernel scope link ← local subnet (directly connected)
+#
+# Explanation: Any traffic not matching a specific route goes to 10.0.1.1 (gateway)
+# Traffic to 10.0.1.0/24 goes directly out eth0 without a gateway
+```
+
+### `ifconfig` — Legacy (Still Common)
+```bash
+ifconfig                           # show all interfaces (legacy)
+ifconfig eth0                      # specific interface
+ifconfig eth0 up / down            # enable/disable
+```
+
+### 🎯 Interview Point
+> `ifconfig` is from the deprecated `net-tools` package. `ip` from `iproute2` is the modern replacement. On any system from RHEL7/Ubuntu 16.04+, prefer `ip`. However, `ifconfig` still appears on older servers, embedded systems, and many exam questions — know both.
+
+---
+
+## 🔹 `ping` / `traceroute` / `mtr`
+
+### `ping` — Test Basic Connectivity
+```bash
+ping hostname                   # continuous ping (Ctrl+C to stop)
+ping -c 4 8.8.8.8              # send exactly 4 packets then stop
+ping -c 4 -i 0.2 host          # send every 0.2 seconds (faster)
+ping -s 1400 host              # test with large packet size (MTU testing)
+ping -W 1 host                 # wait max 1 second per response
+```
+
+```bash
+$ ping -c 3 8.8.8.8
+# Output:
+# PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.
+# 64 bytes from 8.8.8.8: icmp_seq=1 ttl=118 time=1.23 ms
+# 64 bytes from 8.8.8.8: icmp_seq=2 ttl=118 time=1.15 ms
+# 64 bytes from 8.8.8.8: icmp_seq=3 ttl=118 time=1.19 ms
+# --- 8.8.8.8 ping statistics ---
+# 3 packets transmitted, 3 received, 0% packet loss
+# rtt min/avg/max/mdev = 1.15/1.19/1.23/0.033 ms
+#
+# Reading results:
+# ttl=118 = Time To Live (starts at 128 for Windows, 64 for Linux)
+#   each router hop decrements TTL by 1
+#   118 means ~10 hops to reach 8.8.8.8
+# time= = round-trip latency in milliseconds
+# 0% packet loss = healthy connection
+# mdev = mean deviation (jitter) — high value means inconsistent latency
+
+# No response example:
+$ ping -c 2 192.168.1.99
+# Output:
+# Request timeout for icmp_seq 0
+# 2 packets transmitted, 0 received, 100% packet loss
+# Could mean: host is down, ICMP blocked by firewall, or IP doesn't exist
+```
+
+### `traceroute` — Trace the Network Path
+```bash
+traceroute hostname              # trace route (uses UDP by default)
+traceroute -n hostname           # numeric only (no DNS, faster)
+traceroute -T hostname           # use TCP SYN (better for firewalled paths)
+traceroute -p 80 hostname        # trace to specific port
+```
+
+```bash
+$ traceroute 8.8.8.8
+# Output:
+# traceroute to 8.8.8.8 (8.8.8.8), 30 hops max
+#  1  10.0.1.1     1.234 ms    ← your default gateway (router)
+#  2  203.0.113.1  5.123 ms    ← ISP/cloud provider gateway
+#  3  * * *                    ← firewall dropping traceroute packets (ICMP/UDP)
+#  4  209.85.241.9 8.456 ms    ← Google network
+#  5  8.8.8.8      9.123 ms    ← destination reached
+#
+# "* * *" means a router is not responding to traceroute probes
+# This is NORMAL for many firewall-protected hops — doesn't mean the path is broken
+# The fact that you reach 8.8.8.8 eventually proves the path works
+```
+
+### `mtr` — Real-Time Combined ping+traceroute
+```bash
+mtr hostname              # interactive real-time route analysis
+mtr -n hostname           # no DNS lookups (faster)
+mtr --report hostname     # single report output (good for sharing)
+mtr -r -c 100 hostname    # 100-packet report
+```
+
+```bash
+$ mtr --report 8.8.8.8
+# Output:
+# HOST: myserver               Loss%   Snt  Last   Avg  Best  Wrst StDev
+#   1. 10.0.1.1                0.0%   100   1.2   1.2   1.1   1.5   0.1
+#   2. 203.0.113.1             0.0%   100   5.1   5.2   4.9   8.1   0.5
+#   3. ???                    100.0%  100   0.0   0.0   0.0   0.0   0.0  ← drops probes (normal)
+#   4. 8.8.8.8                 0.0%   100   9.1   9.2   8.9  12.3   0.4
+#
+# Loss% column is the KEY insight:
+# 100% loss at hop 3 but 0% loss at hop 4 = hop 3 drops probes but forwards traffic
+# If you see 5% loss at hop 3 AND 5% loss at hop 4 = hop 3 has REAL packet loss
+# mtr is the best tool for diagnosing intermittent network issues
+```
+
+### 🎯 Interview Point
+> **`mtr` is superior to both `ping` and `traceroute`** for network diagnostics. It shows per-hop packet loss AND latency in real-time across 100+ packets. Key interpretation: **packet loss only matters at a hop if subsequent hops also show loss**. A hop showing 100% loss but the destination showing 0% loss means that hop simply doesn't respond to probes (firewall) but forwards traffic just fine.
+
+---
+
+## 🔹 `curl` / `wget`
+
+### `curl` — Transfer Data to/from URLs
+`curl` is the Swiss Army knife for HTTP operations in DevOps — API calls, health checks, file downloads, authentication testing.
+
+```bash
+curl URL                                         # GET request
+curl -X POST URL -d '{"key":"value"}'            # POST with JSON body
+curl -X POST URL -d "param=value"               # POST with form data
+curl -H "Authorization: Bearer TOKEN" URL        # custom header
+curl -H "Content-Type: application/json" URL     # content type header
+curl -o filename URL                             # save to specific filename
+curl -O URL                                      # save with original filename from URL
+curl -L URL                                      # follow redirects (301/302)
+curl -I URL                                      # HEAD request (headers only, no body)
+curl -v URL                                      # verbose: show request + response headers
+curl -s URL                                      # silent: no progress/errors
+curl -f URL                                      # fail: return error on HTTP 4xx/5xx
+curl --connect-timeout 5 URL                     # connection timeout in seconds
+curl --max-time 30 URL                           # total timeout in seconds
+curl -k URL                                      # ignore SSL certificate errors
+curl -u user:pass URL                            # basic authentication
+curl --retry 3 --retry-delay 2 URL              # retry on failure
+```
+
+```bash
+$ curl -I https://google.com
+# Output:
+# HTTP/1.1 301 Moved Permanently
+# Location: https://www.google.com/
+# Content-Type: text/html
+# Date: Fri, 17 Apr 2026 18:00:01 GMT
+# Explanation: -I sends only a HEAD request — gets headers without downloading body
+# 301 = permanent redirect to www.google.com
+# Use -L to follow the redirect automatically
+
+$ curl -o /dev/null -s -w "%{http_code}\n" http://localhost:8080/health
+# Output: 200
+# Explanation: -o /dev/null discards the body, -s silences progress output
+# -w "%{http_code}" prints ONLY the HTTP status code
+# This is the standard health check pattern in scripts and CI/CD pipelines
+
+$ curl -X POST \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer eyJhbGc..." \
+    -d '{"user":"alice","role":"admin"}' \
+    https://api.example.com/users
+# Output: {"id":123,"user":"alice","role":"admin","created":"2026-04-17"}
+# Explanation: Full API call with headers, auth token, and JSON body
+# This is how you interact with REST APIs from shell scripts
+```
+
+### Real-World DevOps Scenario
+**CI/CD post-deployment health check:**
+```bash
+#!/bin/bash
+set -e
+
+APP_URL="http://localhost:8080"
+MAX_RETRIES=10
+SLEEP_BETWEEN=3
+
+for i in $(seq 1 $MAX_RETRIES); do
+    HTTP_CODE=$(curl -o /dev/null -s -w "%{http_code}" \
+                --connect-timeout 3 \
+                --max-time 5 \
+                "${APP_URL}/health")
+    
+    if [ "$HTTP_CODE" = "200" ]; then
+        echo "Health check passed after $i attempts (HTTP $HTTP_CODE)"
+        exit 0
+    fi
+    
+    echo "Attempt $i/$MAX_RETRIES: HTTP $HTTP_CODE — waiting ${SLEEP_BETWEEN}s..."
+    sleep $SLEEP_BETWEEN
+done
+
+echo "Health check FAILED after $MAX_RETRIES attempts"
+exit 1
+```
+
+### `wget` — File Downloader
+```bash
+wget URL                                  # download file
+wget -c URL                               # resume interrupted download
+wget -O filename URL                      # save as specific name
+wget --limit-rate=1m URL                  # limit download speed
+wget -q URL                               # quiet mode
+wget --user=user --password=pass URL      # authentication
+wget -r -l2 --no-parent URL              # recursive download, 2 levels deep
+```
+
+```bash
+$ wget -c https://releases.hashicorp.com/terraform/1.5.0/terraform_linux_amd64.zip
+# Output:
+# Connecting to releases.hashicorp.com...
+# HTTP request sent, awaiting response... 200 OK
+# Length: 22156245 (21M) [application/zip]
+# Saving to: 'terraform_linux_amd64.zip'
+# terraform_linux_amd64.zip  100%[================================>]  21.1M  5.00MB/s  in 4.2s
+# Explanation: -c allows resuming if interrupted (reads Range header)
+# Shows progress bar with speed and ETA by default
+```
+
+---
+
+## 🔹 `ssh`
+
+### How SSH Works Internally
+```
+Client (you)                          Server (remote)
+    │                                       │
+    ├─── TCP connection to port 22 ────────►│
+    │◄── Server sends its host key ─────────┤
+    │    (first time: add to known_hosts)   │
+    ├─── Client verifies host key ──────────┤
+    │    Key exchange (Diffie-Hellman)      │
+    │◄──────── Encrypted channel ──────────►│
+    │                                       │
+    ├─── Authentication ────────────────────┤
+    │    (password OR public key)           │
+    │    For key auth:                      │
+    │    Client proves it has private key   │
+    │    that matches authorized_keys entry │
+    │                                       │
+    ├─── Encrypted shell session ──────────►│
+```
+
+```bash
+ssh user@hostname                                   # basic connection
+ssh -i ~/.ssh/key.pem ec2-user@54.1.2.3            # with private key file
+ssh -p 2222 user@host                              # custom port (default is 22)
+ssh -v user@host                                   # verbose (debug connection issues)
+ssh user@host "command"                            # run single command, don't open shell
+ssh user@host "df -h && free -h && uptime"         # run multiple commands
+ssh -L 5432:rds.endpoint.com:5432 user@bastion -N  # local port forward (tunnel)
+ssh -R 9090:localhost:3000 user@server             # remote port forward
+ssh -D 1080 user@host                             # SOCKS5 proxy
+ssh -N -f user@host -L 5432:rds:5432             # background tunnel (no shell)
+```
+
+### SSH Config File — Essential for Production
+```bash
+# ~/.ssh/config — define connection profiles
+
+Host prod-web
+    HostName 54.1.2.3
+    User ec2-user
+    IdentityFile ~/.ssh/prod-ec2-key.pem
+    Port 22
+    StrictHostKeyChecking yes
+
+Host bastion
+    HostName bastion.company.com
+    User ubuntu
+    IdentityFile ~/.ssh/bastion-key.pem
+    ServerAliveInterval 60   # send keepalive every 60 seconds
+    ServerAliveCountMax 3    # disconnect after 3 missed keepalives
+
+Host internal-server
+    HostName 10.0.1.50       # private IP — only reachable via bastion
+    User ec2-user
+    IdentityFile ~/.ssh/internal-key.pem
+    ProxyJump bastion        # automatically hop through bastion host
+```
+
+```bash
+# With config file:
+ssh prod-web                  # instead of: ssh -i ~/.ssh/prod-ec2-key.pem ec2-user@54.1.2.3
+ssh internal-server           # automatically jumps through bastion — no extra commands needed
+```
+
+```bash
+$ ssh -L 5432:prod-db.cluster.us-east-1.rds.amazonaws.com:5432 ec2-user@bastion-host -N -f
+# Explanation:
+# -L 5432:rds-host:5432 = forward local port 5432 to rds-host:5432 via bastion
+# -N = don't execute a remote command (tunnel only)
+# -f = go to background after authentication
+# After this: connect to "localhost:5432" to reach the private RDS database
+# This is how DevOps engineers access private RDS from their laptops
+```
+
+### Common SSH Mistakes and Fixes
+```bash
+# Problem: "WARNING: UNPROTECTED PRIVATE KEY FILE!"
+chmod 600 ~/.ssh/id_rsa
+chmod 700 ~/.ssh/
+# SSH refuses to use keys that are too permissive (readable by others)
+
+# Problem: "Host key verification failed" (server changed)
+ssh-keygen -R hostname          # remove old host key from known_hosts
+# Or edit ~/.ssh/known_hosts and delete the offending line
+
+# Problem: Connection keeps timing out
+# Add to ~/.ssh/config:
+ServerAliveInterval 30
+ServerAliveCountMax 6
+# Sends keepalive packets every 30 seconds — prevents idle disconnection
+```
+
+---
+
+## 🔹 `scp` / `rsync`
+
+### `scp` — Secure Copy
+```bash
+scp localfile user@host:/remote/path/          # upload file
+scp user@host:/remote/file /local/path/        # download file
+scp -r localdir/ user@host:/remote/path/       # recursive (directory)
+scp -i ~/.ssh/key.pem file user@host:/path/    # with specific key
+scp -P 2222 file user@host:/path/              # custom port (note: capital P)
+scp -C file user@host:/path/                   # compress during transfer
+scp -3 user1@host1:/path user2@host2:/path     # transfer between two remote servers
+```
+
+```bash
+$ scp -i ~/.ssh/ec2-key.pem app-v2.tar.gz ec2-user@54.1.2.3:/opt/deployments/
+# Output:
+# app-v2.tar.gz    100%  45MB  8.9MB/s   00:05
+# Explanation: Shows filename, progress (100%), total size, speed, and time taken
+
+$ scp -r ec2-user@prod-server:/var/log/app/ /local/logs/incident-$(date +%F)/
+# Output: downloads entire /var/log/app/ directory with recursive copy
+# Explanation: Good for pulling logs from a server for offline analysis
+```
+
+### `rsync` — Efficient Synchronization
+`rsync` is smarter than `scp` — it only transfers files that have changed (or the changed PARTS of files), making repeated transfers much faster.
+
+```bash
+rsync -avz source/ destination/                              # local sync
+rsync -avz source/ user@host:/remote/                        # to remote
+rsync -avz user@host:/remote/ /local/                        # from remote
+rsync -avz --delete source/ destination/                     # mirror (delete extras in dest)
+rsync -avz --dry-run source/ destination/                    # preview without transferring
+rsync -avz --exclude='*.log' --exclude='.git' source/ dest/  # with exclusions
+rsync -avzP source/ destination/                             # P = progress + resume
+rsync -avz -e "ssh -i ~/.ssh/key.pem -p 2222" src/ user@host:/dst/  # custom SSH options
+rsync -avz --bwlimit=10240 src/ dest/                       # limit bandwidth to 10 MB/s
+```
+
+**Option breakdown:**
+```
+-a  = archive mode: recursive + preserves permissions, ownership, timestamps, symlinks
+-v  = verbose: show each file being transferred
+-z  = compress data during transfer (saves bandwidth on slow links)
+-P  = show progress per file + allow resuming interrupted transfers
+--delete = delete files in destination that no longer exist in source (true mirror)
+--dry-run = simulate without making any changes (always test first!)
+```
+
+```bash
+$ rsync -avz --dry-run /opt/app/ ec2-user@prod-server:/opt/app/
+# Output:
+# sending incremental file list
+# ./
+# config/database.yml    ← only changed files shown
+# bin/app-v2.jar         ← new binary
+# Explanation: --dry-run shows EXACTLY what would be transferred without doing it
+# Review this output before running without --dry-run
+
+$ rsync -avz --delete /var/www/html/ ec2-user@server2:/var/www/html/
+# Output:
+# sending incremental file list
+# deleting old_page.html   ← files in dest but not source are DELETED
+# index.html
+# about.html
+# Explanation: --delete makes dest a PERFECT mirror of source
+# WARNING: --delete will remove files from destination that don't exist in source
+```
+
+### Real-World DevOps Scenario
+**Rolling deployment across multiple web servers:**
+```bash
+SERVERS=("web-01" "web-02" "web-03")
+
+for server in "${SERVERS[@]}"; do
+    echo "=== Syncing to $server ==="
+    rsync -avz \
+        --exclude='*.log' \
+        --exclude='.git' \
+        --delete \
+        /opt/myapp/ \
+        "deploy@${server}:/opt/myapp/"
+    
+    echo "Restarting app on $server..."
+    ssh "deploy@${server}" "sudo systemctl restart myapp && systemctl is-active myapp"
+done
+```
+
+---
+
+## 🔹 `ss` / `netstat`
+
+### `ss` — Socket Statistics (Modern)
+`ss` is the modern, faster replacement for `netstat`. The flags are identical.
+
+```bash
+ss -tulpn              # TCP+UDP Listening ports with Process names, Numeric addresses
+ss -t                  # TCP connections only
+ss -u                  # UDP only
+ss -l                  # listening sockets only
+ss -a                  # all (listening + established)
+ss -s                  # summary statistics
+ss -p                  # show process using each socket
+ss -n                  # numeric (don't resolve hostnames/ports to names)
+ss state ESTABLISHED   # only established connections
+ss -o                  # show connection timers
+```
+
+```bash
+$ ss -tulpn
+# Output:
+# Netid  State   Recv-Q Send-Q  Local Address:Port  Peer Address:Port  Process
+# tcp    LISTEN  0      128     0.0.0.0:22           0.0.0.0:*          users:(("sshd",pid=998))
+# tcp    LISTEN  0      511     0.0.0.0:80           0.0.0.0:*          users:(("nginx",pid=1234))
+# tcp    LISTEN  0      128     0.0.0.0:443          0.0.0.0:*          users:(("nginx",pid=1234))
+# tcp    LISTEN  0      128     127.0.0.1:8080        0.0.0.0:*          users:(("java",pid=5678))
+# udp    UNCONN  0      0       0.0.0.0:123          0.0.0.0:*          users:(("ntpd",pid=777))
+#
+# Reading the output:
+# Recv-Q = bytes waiting to be received by the application (if high, app is slow processing)
+# Send-Q = bytes waiting to be sent (if high, network is slow or receiver is slow)
+# 0.0.0.0:80 = listening on ALL interfaces on port 80
+# 127.0.0.1:8080 = listening ONLY on localhost (not exposed externally)
+# This is important: 8080 on localhost is safe; 8080 on 0.0.0.0 is exposed to world
+
+$ ss -s
+# Output:
+# Total: 142
+# TCP:   12 (estab 5, closed 2, orphaned 0, timewait 2)
+# UDP:   3
+# Explanation: Quick overview of connection counts
+# High timewait count = many connections being closed (normal for HTTP servers)
+# High established + small timewait = persistent connections (keep-alive)
+```
+
+### `netstat` — Legacy (Still Widely Used)
+```bash
+netstat -tulpn             # same as ss -tulpn
+netstat -an                # all connections, numeric
+netstat -r                 # routing table
+netstat -i                 # interface statistics
+netstat -s                 # protocol statistics
+```
+
+### 🎯 Interview Point
+> **`ss` is faster than `netstat`** because it reads directly from kernel structures via netlink socket rather than parsing `/proc/net/*` files. `netstat` comes from the deprecated `net-tools` package; `ss` comes from `iproute2`. The flags `-tulpn` work identically on both. In interviews and production, know both.
+
+---
+
+## 🔹 `tcpdump` / `nmap`
+
+### `tcpdump` — Packet Capture
+```bash
+tcpdump -i eth0                         # capture all traffic on eth0
+tcpdump -i eth0 port 80                 # only port 80 traffic
+tcpdump -i eth0 host 10.0.0.1          # only traffic from/to specific host
+tcpdump -i eth0 -w capture.pcap         # save raw packets to file
+tcpdump -r capture.pcap                 # read and display saved pcap file
+tcpdump -n -i eth0                      # no DNS resolution (numeric)
+tcpdump -nn -i eth0                     # no DNS + no service name resolution
+tcpdump -A -i eth0 port 80             # print packet payload as ASCII text
+tcpdump -i eth0 'tcp port 80 and host 10.0.0.1'  # combined filter
+tcpdump -i eth0 'src net 10.0.0.0/8'  # source network filter
+```
+
+```bash
+$ tcpdump -nn -i eth0 port 443 -c 10
+# Output:
+# 18:00:01.123456 IP 10.0.0.5.52341 > 10.0.1.50.443: Flags [S], seq 123456789
+# 18:00:01.123500 IP 10.0.1.50.443 > 10.0.0.5.52341: Flags [S.], seq 987654321
+# 18:00:01.123520 IP 10.0.0.5.52341 > 10.0.1.50.443: Flags [.], ack 1
+# Explanation: This is the TCP 3-way handshake:
+# [S] = SYN (client initiates)
+# [S.] = SYN-ACK (server responds)
+# [.] = ACK (client acknowledges — connection established)
+# -c 10 = capture only 10 packets then stop
+# -nn = no hostname/port resolution (faster, clearer output)
+
+# Real incident debugging:
+$ tcpdump -i eth0 -A 'host service-b and port 8080' 2>/dev/null | grep -A3 "HTTP/1"
+# Shows actual HTTP request/response bodies between microservices
+```
+
+### `nmap` — Network Scanner
+```bash
+nmap hostname                      # basic scan (most common ports)
+nmap -p 1-65535 hostname           # all 65535 ports
+nmap -p 22,80,443,8080 10.0.0.0/24 # specific ports across a subnet
+nmap -sV hostname                  # service version detection
+nmap -O hostname                   # OS detection (requires root)
+nmap -A hostname                   # aggressive scan (OS + version + scripts)
+nmap -sn 10.0.0.0/24              # ping scan — discover live hosts, no port scan
+nmap --script vuln hostname        # run vulnerability detection scripts
+nmap -oN output.txt hostname       # save output to file
+```
+
+```bash
+$ nmap -p 1-65535 54.1.2.3
+# Output:
+# PORT     STATE  SERVICE
+# 22/tcp   open   ssh
+# 80/tcp   open   http
+# 443/tcp  open   https
+# 8080/tcp open   http-proxy  ← unexpected! Should this be open?
+# Explanation: Port 8080 is open — is this intentional?
+# If not, it's a security misconfiguration (maybe dev server exposed)
+# Action: firewall-cmd or ufw rule to close 8080 to the public internet
+```
+
+---
+
+## 🔹 `dig` / `nslookup`
+
+### `dig` — DNS Query Tool (Preferred)
+```bash
+dig domain.com                  # A record (IPv4 address)
+dig domain.com MX               # mail exchange records
+dig domain.com TXT              # TXT records (SPF, DKIM, verification)
+dig domain.com NS               # nameserver records
+dig domain.com CNAME            # CNAME records
+dig @8.8.8.8 domain.com         # query specific DNS server
+dig +short domain.com           # output only the answer (no headers)
+dig -x 1.2.3.4                  # reverse DNS lookup (IP to hostname)
+dig +trace domain.com           # trace full DNS resolution chain
+dig +nocmd +noall +answer domain.com  # cleanest output format
+```
+
+```bash
+$ dig +short google.com
+# Output:
+# 142.250.195.46
+# Explanation: Just the IP — cleanest format for scripting
+
+$ dig google.com MX +short
+# Output:
+# 10 smtp.google.com.
+# 20 alt1.aspmx.l.google.com.
+# Explanation: Mail servers for google.com with priority (lower = preferred)
+
+$ dig @8.8.8.8 myapp.example.com +short
+# Output: 54.1.2.3
+# Explanation: Querying Google's DNS (8.8.8.8) instead of local resolver
+# Use this to check what the WORLD sees vs what your local DNS shows
+
+$ dig +trace myapp.example.com
+# Output: Shows every DNS server queried from root → TLD → authoritative
+# Output shows: . (root) → .com. (TLD) → example.com. (authoritative) → answer
+# Explanation: Useful for diagnosing DNS delegation issues
+
+$ dig -x 8.8.8.8 +short
+# Output: dns.google.
+# Explanation: Reverse lookup — who owns this IP?
+```
+
+### Real-World DevOps Scenario
+**After pointing a domain to a new load balancer, verify DNS propagation from multiple resolvers:**
+```bash
+for dns in 8.8.8.8 1.1.1.1 9.9.9.9 208.67.222.222; do
+    result=$(dig @$dns myapp.example.com +short)
+    echo "DNS $dns sees: $result"
+done
+# Output:
+# DNS 8.8.8.8 sees: 54.1.2.3
+# DNS 1.1.1.1 sees: 54.1.2.3
+# DNS 9.9.9.9 sees: 203.0.113.5  ← still showing old IP!
+# DNS 208.67.222.222 sees: 54.1.2.3
+# Explanation: Most DNS servers are updated but 9.9.9.9 still has cached old IP
+# The old record's TTL hasn't expired yet — wait and retry
+```
+
+### Summary — Networking & Remote Access
+
+**📌 5-Minute Recap:**
+- **`ip a`** for interface info, **`ip route`** for routing — replace `ifconfig` and `route` on modern systems
+- **`mtr`** is the best network diagnostic tool — shows per-hop packet loss in real-time across many packets
+- **`curl -o /dev/null -s -w "%{http_code}"`** is the standard health check pattern in CI/CD scripts
+- **`ssh -L localport:remotehost:remoteport user@bastion`** — essential for accessing private databases
+- **`rsync -avz --dry-run`** always before `rsync --delete` — preview before mirroring
+- **`ss -tulpn`** to see listening ports and which processes own them — use `lsof -i :port` for more detail
+- **`tail -f` on `tcpdump -w`** output + Wireshark offline is the debugging combination for complex network issues
+- **`dig @8.8.8.8 domain +short`** to check DNS from outside your internal resolver — essential during deployments
+
+---
+
+# 10. Package Management
+
+## What Is This Section About?
+Package managers handle installing, upgrading, removing, and querying software packages. Different Linux distributions use different package managers. Understanding both Debian-based (apt, dpkg) and RPM-based (dnf, rpm) systems is essential for a cross-platform DevOps engineer.
+
+---
+
+## 🔹 `apt` — Debian/Ubuntu
+
+### Internal Architecture
+```
+apt install nginx
+  └─► Reads /etc/apt/sources.list + /etc/apt/sources.list.d/*
+        └─► Downloads package metadata from repositories
+              └─► Resolves dependencies automatically
+                    └─► Downloads .deb packages to /var/cache/apt/archives/
+                          └─► Calls dpkg to install each package
+                                └─► Runs post-install scripts
+```
+
+```bash
+apt update                         # refresh package INDEX from repositories
+apt upgrade                        # upgrade all installed packages
+apt full-upgrade                   # upgrade + allow adding/removing packages
+apt install nginx                  # install package
+apt install -y nginx curl git vim  # install multiple packages, auto-confirm
+apt remove nginx                   # remove package (KEEP config files)
+apt purge nginx                    # remove package AND its config files
+apt autoremove                     # remove packages that are no longer needed
+apt clean                          # clear downloaded package files cache
+apt search keyword                 # search for packages by keyword
+apt show nginx                     # detailed package information
+apt list --installed               # show all installed packages
+apt list --installed | grep nginx  # check if nginx is installed
+apt-cache policy nginx             # show available versions and priority
+apt-cache depends nginx            # show package dependencies
+```
+
+```bash
+$ apt update
+# Output:
+# Get:1 http://security.ubuntu.com/ubuntu jammy-security InRelease [110 kB]
+# Get:2 http://archive.ubuntu.com/ubuntu jammy InRelease [270 kB]
+# Fetched 8,532 kB in 3s (2,844 kB/s)
+# Reading package lists... Done
+# Explanation: Downloads the package INDEX (not the packages themselves)
+# Always run apt update before apt install to get the latest package info
+
+$ apt show nginx
+# Output:
+# Package: nginx
+# Version: 1.18.0-6ubuntu14.4
+# Installed-Size: 43.0 kB
+# Depends: libpcre2-8-0, libssl3, zlib1g, nginx-common
+# Conflicts: nginx-extras, nginx-light
+# Homepage: https://nginx.net
+# Description: small, powerful, scalable web/proxy server
+# Explanation: Shows version, size, dependencies, conflicts before installing
+```
+
+### New Server Provisioning (Ubuntu):
+```bash
+# Best practice: update first, then install
+apt update && apt upgrade -y
+
+# Install common DevOps tools
+apt install -y \
+    nginx \
+    curl \
+    wget \
+    git \
+    vim \
+    htop \
+    tree \
+    jq \
+    unzip \
+    net-tools \
+    dnsutils \
+    tcpdump
+
+systemctl enable --now nginx
+```
+
+---
+
+## 🔹 `dnf` / `yum` — RHEL/CentOS/Fedora
+
+```bash
+# dnf (RHEL8+, Fedora) — preferred modern tool
+dnf update                      # update all packages
+dnf update nginx                # update specific package
+dnf install nginx               # install package
+dnf install -y nginx curl git   # multiple packages, auto-confirm
+dnf remove nginx                # remove package
+dnf search keyword              # search packages
+dnf info nginx                  # package details
+dnf list installed              # list installed packages
+dnf list available              # list available packages
+dnf history                     # show all transaction history
+dnf history undo last           # UNDO the last transaction (very useful!)
+dnf provides /usr/sbin/nginx    # which package provides this file?
+dnf repolist                    # list configured repositories
+dnf clean all                   # clear all caches
+
+# yum (RHEL7/CentOS7) — legacy
+yum update
+yum install nginx
+yum remove nginx
+yum list installed
+yum provides /usr/sbin/nginx
+```
+
+```bash
+$ dnf history
+# Output:
+# ID  | Command                   | Date and time    | Action(s)
+#  5  | install nginx             | 2026-04-17 10:00 | Install
+#  4  | update                    | 2026-04-16 09:00 | Upgrade
+#  3  | install -y curl wget git  | 2026-04-15 14:00 | Install
+#
+# Explanation: Full audit trail of all package operations
+# Each entry has an ID you can use to undo
+
+$ dnf history undo 5
+# Output: Undoes transaction 5 (the nginx install) — removes nginx
+# Explanation: This is how you rollback a problematic package installation
+```
+
+---
+
+## 🔹 `rpm` / `dpkg`
+
+### `rpm` — RPM Package Manager (Red Hat)
+```bash
+rpm -ivh package.rpm            # install (verbose, with progress bar)
+rpm -Uvh package.rpm            # upgrade (install if not present)
+rpm -e packagename              # erase/remove
+rpm -qa                         # query ALL installed packages
+rpm -qa | grep nginx            # check if nginx is installed
+rpm -ql nginx                   # list all FILES installed by nginx package
+rpm -qf /usr/sbin/nginx         # which package installed this FILE?
+rpm -qi nginx                   # query package information
+rpm --verify nginx              # verify package files haven't been tampered with
+rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-redhat  # import signing key
+```
+
+```bash
+$ rpm -qf /usr/sbin/nginx
+# Output: nginx-1.20.1-14.el9.x86_64
+# Explanation: The nginx binary was installed by this specific package version
+# Use case: "Who put this binary here?" → rpm -qf tells you exactly
+
+$ rpm --verify nginx
+# Output: (empty = package is intact)
+# OR:
+# S.5....T.  /usr/sbin/nginx
+# Explanation: Flags indicate what changed:
+# S = Size changed, 5 = MD5 checksum mismatch, T = mtime changed
+# Non-empty output = file was modified after installation (potential tampering)
+```
+
+### `dpkg` — Debian Package Manager
+```bash
+dpkg -i package.deb             # install .deb file
+dpkg -r packagename             # remove (keep config)
+dpkg -P packagename             # purge (remove + config)
+dpkg -l                         # list all installed packages
+dpkg -l | grep nginx            # check if installed
+dpkg -L nginx                   # list files installed by package
+dpkg -S /usr/sbin/nginx         # which package owns this file?
+dpkg --print-architecture       # show system architecture
+dpkg --configure -a             # configure all unconfigured packages (fix broken)
+```
+
+```bash
+$ dpkg -S /bin/ls
+# Output: coreutils: /bin/ls
+# Explanation: /bin/ls was installed by the coreutils package
+
+$ dpkg -l | head -5
+# Output:
+# Desired=Unknown/Install/Remove/Purge/Hold
+# Status=Not/Inst/Conf-files/Unpacked/halF-conf/Half-inst/trig-aWait/Trig-pend
+# ||/ Name        Version      Architecture Description
+# +++-==========-============-============-==================================
+# ii  adduser     3.129ubuntu7 all          add and remove users and groups
+# Explanation: ii = installed, rc = removed but config remains, pn = purged
+```
+
+---
+
+## 🔹 `snap` / `flatpak`
+
+```bash
+# snap — containerized packages from Canonical
+snap find keyword          # search snap store
+snap install package       # install
+snap remove package        # remove
+snap list                  # list installed snaps
+snap refresh               # update all snaps
+snap info package          # details and available channels
+
+# flatpak — sandboxed applications (cross-distro)
+flatpak install flathub org.gimp.GIMP
+flatpak run org.gimp.GIMP
+flatpak list
+flatpak update
+```
+
+### Summary — Package Management
+
+**📌 5-Minute Recap:**
+- **Debian/Ubuntu**: `apt update` (refresh index) → `apt install` → `apt purge` (remove including configs)
+- **RHEL/CentOS**: `dnf update` → `dnf install` → `dnf history undo` (rollback transactions)
+- **`apt update` ≠ `apt upgrade`**: update refreshes the package INDEX; upgrade actually upgrades packages
+- **`rpm -qf /path/to/file`** and **`dpkg -S /path/to/file`** — find which package owns a file
+- **`dnf history undo`** — powerful rollback mechanism for RHEL-based systems
+- **Always `apt update && apt upgrade -y`** when provisioning new servers before installing anything
+- **`apt purge` vs `apt remove`**: `remove` keeps config files; `purge` removes everything cleanly
+
+---
+
+# 11. Services & Systemd
+
+## What Is This Section About?
+`systemd` is the init system and service manager for most modern Linux distributions (RHEL7+, Ubuntu 16.04+, Debian 8+). It manages services, defines boot order, handles system state, and collects logs. Understanding systemd is essential for running any production service.
+
+## Internal Architecture
+```
+Kernel starts PID 1 = systemd
+  └─► systemd reads unit files from:
+        /lib/systemd/system/      (package-provided)
+        /etc/systemd/system/      (admin overrides — these take priority)
+        /run/systemd/system/      (runtime units)
+  └─► Resolves dependencies (Wants=, Requires=, After=, Before=)
+  └─► Starts units in parallel where possible
+  └─► Monitors processes, restarts on failure (if configured)
+  └─► Collects stdout/stderr into journal
+```
+
+---
+
+## 🔹 `systemctl`
+
+### Service Lifecycle Commands
+```bash
+systemctl start nginx           # start now (doesn't affect boot)
+systemctl stop nginx            # stop now
+systemctl restart nginx         # stop then start (brief downtime)
+systemctl reload nginx          # reload config without restart (zero downtime)
+systemctl status nginx          # show status, recent logs, PID, memory
+systemctl enable nginx          # enable auto-start at boot
+systemctl disable nginx         # disable auto-start at boot
+systemctl enable --now nginx    # enable AND start immediately (one command)
+systemctl disable --now nginx   # disable AND stop immediately
+systemctl is-active nginx       # returns "active" or "inactive" (good for scripts)
+systemctl is-enabled nginx      # returns "enabled" or "disabled"
+systemctl is-failed nginx       # returns "failed" if service is in failed state
+```
+
+```bash
+$ systemctl status nginx
+# Output:
+# ● nginx.service - A high performance web server and a reverse proxy server
+#      Loaded: loaded (/lib/systemd/system/nginx.service; enabled; preset: enabled)
+#      Active: active (running) since Fri 2026-04-17 10:00:01 UTC; 8h ago
+#    Main PID: 1234 (nginx)
+#       Tasks: 5 (limit: 4915)
+#      Memory: 25.3M (peak: 28.1M)
+#         CPU: 1.234s
+#      CGroup: /system.slice/nginx.service
+#              ├─1234 "nginx: master process /usr/sbin/nginx -g daemon off;"
+#              ├─1235 "nginx: worker process"
+#              └─1236 "nginx: worker process"
+# Apr 17 10:00:01 server nginx[1234]: nginx: configuration file test is ok
+# Apr 17 10:00:01 server systemd[1]: Started A high performance web server
+#
+# Reading the output:
+# "enabled" in Loaded line = will start at boot
+# "active (running)" = service is UP and healthy
+# Main PID = the master process PID
+# Memory: current memory usage + peak
+# CGroup tree shows master and all worker processes
+# Recent log lines shown at the bottom — first stop for debugging
+```
+
+```bash
+# System-wide commands
+systemctl list-units                  # list all loaded units
+systemctl list-units --state=failed   # show only FAILED units (first check after boot issues)
+systemctl list-unit-files             # list all unit files (enabled/disabled status)
+systemctl daemon-reload               # reload unit file definitions (MUST run after editing unit files)
+systemctl reset-failed                # clear failed state from all units
+systemctl reset-failed nginx          # clear failed state for specific service
+
+# System state
+systemctl reboot
+systemctl poweroff
+systemctl rescue                      # enter rescue/single-user mode
+
+# Targets (equivalent to runlevels)
+systemctl isolate multi-user.target   # switch to multi-user (no GUI)
+systemctl isolate graphical.target    # switch to GUI
+systemctl get-default                 # show current default target
+systemctl set-default multi-user.target  # set default target for next boot
+```
+
+### Creating a Custom Unit File
+```bash
+# /etc/systemd/system/myapp.service
+[Unit]
+Description=My Application Service
+Documentation=https://company.com/docs
+After=network.target postgresql.service    # start AFTER network and postgres are ready
+Requires=postgresql.service               # if postgres fails, this fails too
+Wants=redis.service                       # try to start redis, but ok if it fails
+
+[Service]
+Type=simple                               # process stays in foreground
+User=appuser                              # run as this user (NOT root!)
+Group=appgroup
+WorkingDirectory=/opt/myapp
+ExecStart=/opt/myapp/bin/server --config /etc/myapp/config.yml
+ExecReload=/bin/kill -HUP $MAINPID       # how to reload config
+ExecStop=/opt/myapp/bin/graceful-stop
+Restart=always                            # always restart if it crashes
+RestartSec=5                              # wait 5 seconds before restarting
+StartLimitIntervalSec=60                  # within 60 seconds
+StartLimitBurst=3                         # allow max 3 restarts (prevents restart loops)
+StandardOutput=journal                    # send stdout to systemd journal
+StandardError=journal                     # send stderr to systemd journal
+Environment="APP_ENV=production"          # set environment variables
+EnvironmentFile=/etc/myapp/env            # load env vars from file
+
+[Install]
+WantedBy=multi-user.target               # enable for normal multi-user boot
+
+# After creating/editing:
+systemctl daemon-reload                  # reload unit file definitions
+systemctl enable --now myapp             # enable and start
+systemctl status myapp                   # verify it's running
+```
+
+### 🎯 Interview Point
+> **`restart` vs `reload`**: `restart` stops the service and starts it again — there is a brief moment with no service. `reload` sends a signal to the process (usually SIGHUP) to re-read its configuration WITHOUT stopping — zero downtime. For nginx, `systemctl reload nginx` is correct for config changes. `restart` is only needed when the binary itself changes (after `apt upgrade nginx`).
+
+---
+
+## 🔹 `journalctl`
+
+### What It Does
+`journalctl` queries the **systemd journal** — a binary log database that collects stdout/stderr from all services, kernel messages, boot messages, and more. It replaces reading multiple log files across `/var/log/`.
+
+```bash
+journalctl                                      # ALL logs from oldest to newest
+journalctl -f                                   # follow (live tail ALL services)
+journalctl -u nginx                             # logs for nginx service only
+journalctl -u nginx -f                          # live tail nginx logs
+journalctl -u nginx -n 50                       # last 50 lines for nginx
+journalctl -u nginx --no-pager                  # don't use pager (good for grep)
+journalctl -xe                                  # recent logs with explanation and context
+journalctl -b                                   # logs from current boot only
+journalctl -b -1                                # logs from PREVIOUS boot (before last reboot)
+journalctl --since "1 hour ago"                 # last hour of logs
+journalctl --since "2026-04-17 10:00"           # from specific time
+journalctl --since "2026-04-17 10:00" --until "2026-04-17 12:00"  # time range
+journalctl -p err                               # only ERROR level and above
+journalctl -p warning..err                      # warning through error
+journalctl -k                                   # kernel messages only (like dmesg)
+journalctl --disk-usage                         # how much disk journal is using
+journalctl --vacuum-size=500M                   # trim journal to 500MB
+journalctl --vacuum-time=30d                    # delete logs older than 30 days
+```
+
+```bash
+$ journalctl -u myapp -n 50 --no-pager
+# Output:
+# Apr 17 18:20:55 server myapp[5678]: INFO  Starting application on port 8080
+# Apr 17 18:20:56 server myapp[5678]: INFO  Connected to database successfully
+# Apr 17 18:21:10 server myapp[5678]: ERROR Database connection lost: timeout
+# Apr 17 18:21:11 server systemd[1]: myapp.service: Main process exited, code=exited, status=1
+# Apr 17 18:21:11 server systemd[1]: myapp.service: Failed with result 'exit-code'
+# Apr 17 18:21:16 server systemd[1]: myapp.service: Scheduled restart job (restart)
+# Apr 17 18:21:16 server myapp[5679]: INFO  Starting application on port 8080
+# Explanation: Complete picture of the crash + auto-restart cycle
+# systemd logged the failure AND the restart — all in one place
+
+$ journalctl -p err --since "1 hour ago" | grep -v "audit"
+# Output: only error-level messages from all services in last hour
+# Excludes audit messages (can be noisy)
+# Explanation: Quick system-wide error scan — first thing after an alert fires
+
+$ journalctl --disk-usage
+# Output: Archived and active journals take up 1.2G in the filesystem.
+# Explanation: Journal is consuming 1.2GB of disk
+$ journalctl --vacuum-size=200M
+# Trims journal to 200MB by removing oldest entries
+```
+
+---
+
+## 🔹 `service` (Legacy)
+
+```bash
+service nginx start
+service nginx stop
+service nginx restart
+service nginx status
+```
+
+### 🎯 Interview Point
+> On modern systemd systems, `service` is a **compatibility wrapper** that calls `systemctl` internally. It's kept for backward compatibility. Use `systemctl` in all new scripts and for manual operations — it provides more information and more control.
+
+---
+
+## 🔹 `logger`
+
+```bash
+logger "Deployment started: version 2.1.0"                    # log to syslog
+logger -t deployment "Started by: $USER at $(date)"           # with custom tag
+logger -p user.err "Critical error: failed to connect to DB"  # with priority
+logger -p user.info "Health check: PASSED"
+```
+
+```bash
+# After logging with logger:
+$ journalctl -t deployment -n 5
+# Output:
+# Apr 17 18:00:01 server deployment[12345]: Started by: ec2-user at Fri Apr 17 18:00:01
+# Apr 17 18:05:22 server deployment[12346]: Deploy completed successfully
+# Explanation: Custom log entries appear in the journal with your tag
+# Use this for: creating audit trails in deployment scripts
+```
+
+### Real-World DevOps Scenario
+**Add structured logging to a deployment script:**
+```bash
+#!/bin/bash
+set -euo pipefail
+
+LOG_TAG="deploy-${APP_NAME}"
+VERSION="${1:?Usage: deploy.sh <version>}"
+
+logger -t "$LOG_TAG" "STARTED: deploying version $VERSION by $USER"
+
+# ... deployment steps ...
+
+logger -t "$LOG_TAG" "COMPLETED: version $VERSION deployed successfully"
+
+# Now all deployment events are in systemd journal:
+# journalctl -t "deploy-myapp" --since "today"
+```
+
+### Summary — Services & Systemd
+
+**📌 5-Minute Recap:**
+- **`systemctl status service`** is always the first command when a service has issues — shows state, PID, memory, and recent logs
+- **`systemctl daemon-reload`** MUST be run after creating or editing unit files — otherwise changes are ignored
+- **`enable` vs `start`**: `enable` makes it start at boot; `start` starts it NOW; `enable --now` does both
+- **`restart` causes brief downtime; `reload` is zero-downtime** — use `reload` for config changes on nginx, httpd
+- **`journalctl -u service -f`** for live debugging; **`-b -1`** for logs from previous boot (post-reboot analysis)
+- **`Restart=always` in unit files** provides automatic recovery from crashes — essential for production
+- **`journalctl --vacuum-size=500M`** prevents journal from consuming too much disk space
+
+---
+
+# 12. Scheduling
+
+## What Is This Section About?
+Scheduling tools let you run commands automatically at specific times or intervals. This is how you automate backups, log rotation, health checks, cleanup jobs, and any recurring task without manual intervention.
+
+---
+
+## 🔹 `cron` / `crontab`
+
+### How cron Works Internally
+```
+crond daemon runs constantly in background
+  └─► Every minute: reads /etc/crontab + /etc/cron.d/* + each user's crontab
+        └─► For each job: check if current time matches the schedule
+              └─► If match: fork() + exec() the command
+                    └─► Run as the specified user
+                          └─► Email output to user (if not redirected)
+```
+
+### Crontab Syntax
+```
+* * * * * command_to_run
+│ │ │ │ │
+│ │ │ │ └── Day of Week  (0-7, 0 and 7 = Sunday)
+│ │ │ └──── Month        (1-12)
+│ │ └────── Day of Month (1-31)
+│ └──────── Hour         (0-23)
+└────────── Minute       (0-59)
+
+Special values:
+*     = every value (every minute/hour/day)
+*/5   = every 5 units (every 5 minutes, every 5 hours, etc.)
+5,10  = at 5 AND 10
+5-10  = range from 5 to 10
+```
+
+```bash
+crontab -e          # edit current user's crontab (opens in $EDITOR)
+crontab -l          # list current user's crontab
+crontab -r          # REMOVE entire crontab (WARNING — no confirmation!)
+crontab -u user -l  # list another user's crontab (as root)
+crontab -u user -e  # edit another user's crontab (as root)
+```
+
+```bash
+# Examples of crontab entries:
+
+# Run backup at 2:30 AM every day
+30 2 * * * /opt/app/backup.sh >> /var/log/backup.log 2>&1
+
+# Run health check every 5 minutes
+*/5 * * * * /opt/scripts/health-check.sh >> /var/log/health.log 2>&1
+
+# Run report every Monday at 6 AM
+0 6 * * 1 /opt/scripts/weekly-report.sh
+
+# Run cleanup on first day of every month at midnight
+0 0 1 * * /opt/scripts/monthly-cleanup.sh
+
+# Run on weekdays (Monday-Friday) at 9 AM
+0 9 * * 1-5 /opt/scripts/morning-report.sh
+
+# Run every 30 minutes between 8 AM and 6 PM on weekdays
+*/30 8-18 * * 1-5 /opt/scripts/sync.sh
+
+# Special shorthand strings:
+@reboot   /opt/app/start-on-reboot.sh     # runs once on every system boot
+@daily    /opt/scripts/daily-cleanup.sh   # runs at midnight daily
+@weekly   /opt/scripts/weekly-report.sh   # runs Sunday at midnight
+@monthly  /opt/scripts/monthly-backup.sh  # runs 1st of month at midnight
+@hourly   /opt/scripts/hourly-check.sh    # runs every hour at minute 0
+```
+
+### Critical Crontab Rules for Production
+```bash
+# RULE 1: Always use full absolute paths
+# BAD:
+30 2 * * * backup.sh          # cron has minimal PATH — backup.sh won't be found
+# GOOD:
+30 2 * * * /opt/scripts/backup.sh
+
+# RULE 2: Always redirect output (or cron emails it to root, filling /var/spool/mail)
+# BAD:
+30 2 * * * /opt/scripts/backup.sh   # output goes to root's mailbox!
+# GOOD:
+30 2 * * * /opt/scripts/backup.sh >> /var/log/backup.log 2>&1
+# ">>" = append (not overwrite), "2>&1" = redirect stderr to same file as stdout
+
+# RULE 3: Set PATH explicitly if your script needs specific binaries
+0 * * * * export PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin && /opt/scripts/run.sh
+
+# RULE 4: Test the script manually as the cron user first
+sudo -u www-data /opt/scripts/cleanup.sh   # test as www-data user before scheduling
+
+# RULE 5: Verify cron is running and your job is scheduled
+systemctl status cron         # Ubuntu
+systemctl status crond        # RHEL
+crontab -l                    # verify your entry was saved
+grep CRON /var/log/syslog     # Ubuntu: check cron execution logs
+grep CRON /var/log/cron       # RHEL: check cron execution logs
+```
+
+### 🎯 Interview Point
+> **`crontab -r` vs `crontab -e`**: The `r` key and `e` key are next to each other. Typing `crontab -r` when you meant `crontab -e` **silently deletes your entire crontab** with no confirmation prompt. This is a famously dangerous typo. Some engineers use `crontab -r` replacements that ask for confirmation. Always double-check before pressing Enter.
+
+---
+
+## 🔹 `at` / `batch`
+
+### `at` — One-Time Scheduled Job
+```bash
+at 10:30                      # schedule job for 10:30 today
+at 10:30 tomorrow             # schedule for tomorrow at 10:30
+at now + 2 hours              # 2 hours from now
+at now + 30 minutes           # 30 minutes from now
+at 10:30 April 20             # specific date and time
+atq                           # list pending at jobs
+atrm 3                        # remove job number 3
+at -l                         # same as atq — list jobs
+```
+
+```bash
+$ at now + 5 minutes
+# at> /opt/app/restart.sh
+# at> logger "Scheduled restart executed"
+# at> Ctrl+D                  ← press Ctrl+D to finish entering commands
+# job 5 at Fri Apr 17 18:30:00 2026
+# Output: job 5 = job ID, at the specified time
+
+$ atq
+# Output:
+# 5    Fri Apr 17 18:30:00 2026 a ec2-user
+# Explanation: Job 5 scheduled for 18:30 by ec2-user
+
+$ atrm 5                      # cancel job 5 before it runs
+```
+
+### `batch` — Run When System Load Is Low
+```bash
+batch
+> /opt/heavy-processing-script.sh
+> Ctrl+D
+# Runs the script automatically when system load average drops below 0.8
+# Good for heavy batch jobs that shouldn't compete with production traffic
+```
+
+---
+
+## 🔹 `anacron`
+
+### What Makes anacron Different from cron
+```
+cron:    "Run at 2 AM exactly" — if machine is OFF at 2 AM, job is MISSED forever
+anacron: "Run once per day" — if machine was off, run it on next startup
+```
+
+```bash
+# /etc/anacrontab
+# period   delay   job-identifier   command
+# period = 1 (daily), 7 (weekly), 30 (monthly) — or @daily, @weekly, @monthly
+# delay = minutes to wait after boot before running (prevents thundering herd)
+
+1         5      daily.backup    /opt/scripts/daily-backup.sh
+7         10     weekly.report   /opt/scripts/weekly-report.sh
+30        15     monthly.clean   /opt/scripts/monthly-cleanup.sh
+
+# Each job runs if it hasn't run within the 'period' days
+# Timestamps stored in /var/spool/anacron/
+```
+
+### 🎯 Interview Point
+> **`cron` vs `anacron`**: Use `cron` for jobs that must run at a **specific time** on servers that run 24/7 (web servers, databases). Use `anacron` for jobs that must run **at least once per period** on systems that aren't always on (developer laptops, periodic EC2 instances). `anacron` is what makes `cron.daily`, `cron.weekly`, `cron.monthly` directories work reliably.
+
+---
+
+## 🔹 systemd Timers
+
+### Why Use systemd Timers Instead of cron?
+- Logs to the journal (visible with `journalctl`)
+- Can depend on other services
+- Can be activated by events, not just time
+- Better error handling and restart behavior
+
+```bash
+# Step 1: Create the service unit
+# /etc/systemd/system/myapp-backup.service
+[Unit]
+Description=Daily backup of myapp
+
+[Service]
+Type=oneshot                          # run once and exit (not a daemon)
+User=appuser
+ExecStart=/opt/scripts/backup.sh
+StandardOutput=journal
+StandardError=journal
+
+# Step 2: Create the timer unit
+# /etc/systemd/system/myapp-backup.timer
+[Unit]
+Description=Daily backup timer for myapp
+Requires=myapp-backup.service
+
+[Timer]
+OnCalendar=daily                      # run daily at midnight
+# OnCalendar=*-*-* 02:30:00          # custom time: every day at 2:30 AM
+# OnCalendar=Mon *-*-* 06:00:00      # every Monday at 6 AM
+# OnBootSec=5min                     # 5 minutes after boot
+Persistent=true                       # run missed executions on next boot (like anacron)
+Unit=myapp-backup.service
+
+[Install]
+WantedBy=timers.target
+
+# Step 3: Enable and start
+systemctl daemon-reload
+systemctl enable --now myapp-backup.timer
+systemctl list-timers                  # verify it's scheduled
+```
+
+```bash
+$ systemctl list-timers
+# Output:
+# NEXT                           LEFT      LAST                           PASSED  UNIT
+# Sat 2026-04-18 00:00:00 UTC    5h 59min  Fri 2026-04-17 00:00:00 UTC   18h ago myapp-backup.timer
+# Sat 2026-04-18 00:00:00 UTC    5h 59min  Fri 2026-04-17 00:00:00 UTC   18h ago logrotate.timer
+# Explanation: Shows when each timer will NEXT run and when it LAST ran
+# Much more informative than looking at crontab entries
+```
+
+### Summary — Scheduling
+
+**📌 5-Minute Recap:**
+- **Crontab format**: `Minute Hour DayOfMonth Month DayOfWeek command` — memorize this
+- **Always use full paths in cron** — cron's `$PATH` is minimal; relative paths will not work
+- **Always redirect output** in cron: `>> /var/log/job.log 2>&1` — prevents email flooding
+- **`crontab -r` is dangerous** — deletes entire crontab silently; be very careful with it
+- **`at now + 30 minutes`** for one-time scheduled tasks — great for scheduled restarts during maintenance windows
+- **`anacron`** for jobs on non-24/7 systems — ensures missed jobs run on next boot
+- **systemd timers** are the modern cron replacement — better logging, dependency handling, and missed job recovery
+
+---
+
+# 13. Shell Environment & Variables
+
+## What Is This Section About?
+The shell environment defines how your command-line session behaves — what commands are available, what your prompt looks like, what shortcuts you have, and how scripts behave. Mastering the shell environment makes you dramatically faster and more productive.
+
+---
+
+## 🔹 `export` / `env`
+
+### How Environment Variables Work Internally
+```
+Shell process (bash PID 1000)
+  └─► Has its own copy of environment variables (key=value pairs)
+        └─► When you fork() a child process:
+              └─► Child inherits a COPY of parent's environment
+                    └─► export makes variables visible to child processes
+                          └─► Unexported variables are LOCAL to current shell only
+```
+
+```bash
+MY_VAR="hello"         # local shell variable (NOT visible to child processes)
+export MY_VAR="hello"  # exported variable (visible to child processes)
+export ANOTHER="world" # shorthand: declare and export in one line
+
+# Verify what's exported:
+env | grep MY_VAR        # shows exported variables
+set | grep MY_VAR        # shows ALL variables (including local)
+
+# Unset a variable:
+unset MY_VAR
+
+# Pass variable only to one command (doesn't change current shell):
+DEBUG=true ./script.sh   # script sees DEBUG=true, your shell doesn't
+```
+
+```bash
+# Real-world: AWS credential setup
+export AWS_ACCESS_KEY_ID="AKIAIOSFODNN7EXAMPLE"
+export AWS_SECRET_ACCESS_KEY="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+export AWS_DEFAULT_REGION="ap-south-1"
+aws s3 ls    # this aws call inherits all three variables automatically
+
+# Verify in scripts:
+if [ -z "$AWS_ACCESS_KEY_ID" ]; then
+    echo "ERROR: AWS credentials not set"
+    exit 1
+fi
+```
+
+```bash
+$ env
+# Output (partial):
+# PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# HOME=/home/ec2-user
+# USER=ec2-user
+# SHELL=/bin/bash
+# TERM=xterm-256color
+# LANG=en_US.UTF-8
+# AWS_DEFAULT_REGION=ap-south-1
+# Explanation: Shows ALL exported environment variables for current session
+
+$ env -i PATH=/usr/bin /bin/bash    # start bash with EMPTY environment (except PATH)
+# Explanation: -i = ignore inherited environment
+# Useful for: testing scripts in a clean environment to find hidden dependencies
+```
+
+---
+
+## 🔹 `alias`
+
+```bash
+alias ll='ls -lah'              # create alias
+alias k='kubectl'               # short form for kubectl
+alias tf='terraform'            # short form for terraform
+alias ..='cd ..'
+alias ...='cd ../..'
+alias grep='grep --color=auto'  # always colorize grep output
+alias df='df -h'                # always human-readable
+alias du='du -sh'               # always summary human-readable
+alias myip='curl -s ifconfig.me' # quick public IP check
+
+unalias ll                      # remove alias for this session
+
+# Make aliases PERMANENT — add to ~/.bashrc:
+echo "alias ll='ls -lah'" >> ~/.bashrc
+source ~/.bashrc                # reload immediately without logging out
+```
+
+```bash
+$ alias
+# Output (shows all current aliases):
+# alias grep='grep --color=auto'
+# alias k='kubectl'
+# alias l='ls -CF'
+# alias la='ls -A'
+# alias ll='ls -alF'
+# alias tf='terraform'
+```
+
+---
+
+## 🔹 `.bashrc` / `.profile`
+
+### When Each File Is Read
+```
+Login shell (SSH login, su -, console login):
+  /etc/profile                 → system-wide settings for all users
+  /etc/profile.d/*.sh          → modular system-wide settings
+  ~/.bash_profile OR ~/.profile → per-user settings (run ONCE at login)
+  ~/.bash_profile sources ~/.bashrc (by convention)
+
+Non-login interactive shell (new terminal, subshell, tmux pane):
+  /etc/bash.bashrc             → system-wide interactive settings
+  ~/.bashrc                    → per-user interactive settings
+```
+
+```bash
+# ~/.bashrc — sourced every time you open a terminal (non-login shell)
+# Good for: aliases, functions, PS1 prompt, interactive settings
+
+export EDITOR=vim
+export HISTSIZE=10000
+export HISTFILESIZE=20000
+export HISTTIMEFORMAT="%F %T "      # timestamp in history: "2026-04-17 18:00:01 command"
+
+# Useful aliases
+alias ll='ls -lah'
+alias k='kubectl'
+alias tf='terraform'
+alias grep='grep --color=auto'
+alias myip='curl -s ifconfig.me'
+
+# Custom prompt with git branch
+parse_git_branch() {
+    git branch 2>/dev/null | grep '\*' | sed 's/* //'
+}
+export PS1='\[\033[1;32m\]\u@\h\[\033[0m\]:\[\033[1;34m\]\w\[\033[33m\][$( parse_git_branch)]\[\033[0m\]\$ '
+# Shows: user@hostname:/current/path[branch-name]$
+
+# Function example (more powerful than aliases)
+mkcd() { mkdir -p "$1" && cd "$1"; }  # create directory and cd into it
+```
+
+```bash
+# ~/.profile — sourced at LOGIN (not every new terminal)
+# Good for: PATH modifications, environment variables needed by all programs
+
+export PATH="$PATH:/opt/myapp/bin:/usr/local/go/bin"
+export JAVA_HOME="/usr/lib/jvm/java-17"
+export KUBECONFIG="$HOME/.kube/config"
+export GOPATH="$HOME/go"
+
+# Source .bashrc from .profile (standard practice on Ubuntu)
+if [ -f "$HOME/.bashrc" ]; then
+    . "$HOME/.bashrc"
+fi
+```
+
+### 🎯 Interview Point
+> **`.bashrc` vs `.profile`**: `.bashrc` is sourced for **every interactive non-login shell** (new terminal, `bash` subshell). `.profile` is sourced **once at login**. Put aliases and functions in `.bashrc`. Put `PATH` modifications and environment variables in `.profile` (so they're available system-wide, not just in terminals). The key confusion: **SSH login sources `.profile`, opening a terminal in GUI sources `.bashrc`**.
+
+---
+
+## 🔹 `PATH`
+
+```bash
+echo $PATH
+# Output: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/ec2-user/.local/bin
+
+# How PATH is used:
+# When you type "nginx", the shell searches each directory in $PATH left to right
+# First match wins and is executed
+# If not found in any directory: "command not found" error
+
+# Add directory to PATH (current session only):
+export PATH="$PATH:/opt/myapp/bin"
+
+# Add permanently (add to ~/.bashrc or ~/.profile):
+echo 'export PATH="$PATH:/opt/myapp/bin"' >> ~/.profile
+source ~/.profile
+
+# Prepend to PATH (new version takes priority over system version):
+export PATH="/opt/newer-tool/bin:$PATH"
+# Tools in /opt/newer-tool/bin are found BEFORE /usr/bin equivalents
+
+# Debug "command not found":
+which terraform           # is terraform in your PATH?
+echo $PATH                # is the terraform directory in PATH?
+ls /usr/local/bin/terraform  # does the binary actually exist?
+```
+
+---
+
+## 🔹 `set` / `unset`
+
+### Shell Flags That Matter in Scripts
+```bash
+set -e            # Exit immediately if ANY command returns non-zero exit code
+set -u            # Treat undefined variables as errors (not silently empty)
+set -o pipefail   # Pipeline fails if ANY command in the pipe fails
+set -x            # Print each command before executing it (debug mode)
+set +x            # Turn off debug mode
+set -euo pipefail # The standard "strict mode" combination for production scripts
+```
+
+```bash
+# Bad script (no strict mode — silently continues on errors):
+#!/bin/bash
+rm -rf /important/data    # if this fails, script continues!
+deploy_app                 # may deploy with corrupted state
+
+# Good script (strict mode — stops on first error):
+#!/bin/bash
+set -euo pipefail         # ALWAYS start production scripts with this!
+
+rm -rf /important/data    # if this fails, entire script stops here
+deploy_app                 # only runs if previous command succeeded
+
+# set -x for debugging:
+set -x
+./failing_script.sh
+# Output:
+# + source /etc/app/config
+# + export DB_HOST=localhost
+# + connect_to_db localhost
+# + psql -h localhost -U app mydb
+# psql: error: connection refused
+# Explanation: -x shows each command with + prefix before executing
+# Now you can see EXACTLY which line fails and with what values
+```
+
+---
+
+## 🔹 `history`
+
+```bash
+history                    # show all command history
+history 20                 # last 20 commands
+history | grep terraform   # search history for terraform commands
+
+# History shortcuts (extremely useful):
+!!                         # re-run the last command
+!curl                      # re-run the most recent command starting with "curl"
+!123                       # re-run command number 123 from history
+!-2                        # re-run second-to-last command
+sudo !!                    # re-run last command with sudo (forgot sudo!)
+Ctrl+R                     # interactive reverse search through history
+
+history -c                 # clear entire history (security: before capturing image)
+```
+
+```bash
+$ history | grep kubectl | tail -10
+# Output:
+#  456  kubectl get pods -n production
+#  457  kubectl describe pod nginx-abc123 -n production
+#  458  kubectl logs nginx-abc123 -n production --previous
+# Explanation: Find recent kubectl commands without retyping them
+# Use !456 to re-run command 456
+
+$ Ctrl+R, then type "kubectl get pods"
+# (reverse-i-search)`kubectl get pods': kubectl get pods -n production
+# Press Enter to run, or Right arrow to edit it first
+```
+
+### Summary — Shell Environment & Variables
+
+**📌 5-Minute Recap:**
+- **`export VAR=value`** makes variables visible to child processes; without `export` they're shell-local only
+- **`set -euo pipefail`** at the top of every production script — prevents silent failures
+- **`.bashrc`** for interactive settings (aliases, prompt); **`.profile`** for login settings (PATH, env vars)
+- **`alias ll='ls -lah'`** in `.bashrc` — small efficiency gains add up to hours saved per year
+- **`PATH` order matters** — directories earlier in PATH take precedence for command lookup
+- **`Ctrl+R`** for reverse history search — fastest way to find and re-run previous commands
+- **`sudo !!`** to re-run the last command with sudo — saves retyping long commands
+
+---
+
+# 14. Security & Access Control
+
+## What Is This Section About?
+Linux security is multi-layered — from firewall rules and SELinux policies to file encryption and immutable attributes. In production, security isn't optional — it's built into every decision.
+
+---
+
+## 🔹 SELinux
+
+### What SELinux Does Internally
+SELinux implements **Mandatory Access Control (MAC)** on top of Linux's standard permissions. Every process and file has a **security context label**. Access decisions are made based on policy rules that define which contexts can interact with which other contexts — NOT just based on user permissions.
+
+```
+Standard Linux (DAC): "Is the user alice allowed to read this file?"
+SELinux (MAC):         "Is a process with httpd_t context allowed to read a file with httpd_sys_content_t context?"
+SELinux applies EVEN IF the user is root!
+```
+
+```bash
+getenforce                      # show current mode: Enforcing, Permissive, or Disabled
+sestatus                        # detailed status including policy name and version
+sestatus -v                     # very verbose
+
+setenforce 0                    # switch to PERMISSIVE mode (logs but doesn't block)
+setenforce 1                    # switch back to ENFORCING mode (blocks violations)
+# Note: setenforce change is NOT persistent across reboots
+# For permanent change: edit /etc/selinux/config and change SELINUX=enforcing
+```
+
+```bash
+$ sestatus
+# Output:
+# SELinux status:                 enabled
+# SELinuxfs mount:                /sys/fs/selinux
+# SELinux mount point:            enforcing
+# Loaded policy name:             targeted       ← "targeted" policy protects key services
+# Current mode:                   enforcing
+# Mode from config file:          enforcing
+# Policy MLS status:              enabled
+# Policy deny_unknown status:     allowed
+# Memory protection checking:     actual (secure)
+# Max kernel policy version:      33
+
+# View SELinux context of a file:
+$ ls -lZ /var/www/html/index.html
+# Output: -rw-r--r--. root root system_u:object_r:httpd_sys_content_t:s0 index.html
+# The :httpd_sys_content_t: part is the SELinux type label
+# httpd (nginx/apache) can read files labeled httpd_sys_content_t
+```
+
+```bash
+# Real-world SELinux troubleshooting:
+
+# Problem: nginx can't read files in /webdata even though permissions are 755
+ls -lZ /webdata/
+# Output: unconfined_u:object_r:default_t:s0  ← wrong label! nginx can't read default_t
+
+# Fix: Set correct SELinux context
+semanage fcontext -a -t httpd_sys_content_t "/webdata(/.*)?"
+restorecon -Rv /webdata   # apply the policy recursively
+ls -lZ /webdata/
+# Output: system_u:object_r:httpd_sys_content_t:s0  ← now nginx can read it
+
+# If you're unsure if SELinux is the cause:
+setenforce 0    # temporarily disable enforcement
+# test your application — if it works now, SELinux was blocking it
+setenforce 1    # RE-ENABLE (don't leave it disabled!)
+# then fix the context properly with semanage/restorecon
+```
+
+### 🎯 Interview Point
+> **Never permanently disable SELinux in production.** The correct response to "SELinux is blocking my app" is NOT `SELINUX=disabled` in `/etc/selinux/config`. Use `ausearch -m avc -ts recent` to find the denial, then use `semanage port/fcontext` to add the correct policy, and `restorecon` to apply it. Disabling SELinux removes a critical security layer.
+
+---
+
+## 🔹 AppArmor
+
+```bash
+# Ubuntu/Debian use AppArmor instead of SELinux
+
+apparmor_status          # show AppArmor status and loaded profiles
+aa-status                # same command
+
+# Profiles are in /etc/apparmor.d/
+aa-enforce /etc/apparmor.d/usr.sbin.nginx     # enforce profile
+aa-complain /etc/apparmor.d/usr.sbin.nginx    # complain mode (log but don't block)
+aa-disable /etc/apparmor.d/usr.sbin.nginx     # disable profile
+
+# Check AppArmor denials:
+grep apparmor /var/log/syslog | grep DENIED
+journalctl | grep apparmor | grep DENIED
+```
+
+---
+
+## 🔹 `ufw` — Uncomplicated Firewall (Ubuntu)
+
+```bash
+ufw status                     # show status and all rules
+ufw status verbose             # more detailed status
+ufw enable                     # enable firewall
+ufw disable                    # disable firewall
+
+# Rules:
+ufw allow 22/tcp               # allow SSH
+ufw allow 80/tcp               # allow HTTP
+ufw allow 443/tcp              # allow HTTPS
+ufw deny 3306                  # deny MySQL from anywhere
+ufw allow from 10.0.0.0/8     # allow all from private subnet
+ufw allow from 10.0.0.0/8 to any port 5432    # allow postgres from private subnet only
+ufw deny from 192.168.1.50     # deny specific IP entirely
+
+# Default policies (most important):
+ufw default deny incoming       # deny all inbound unless explicitly allowed
+ufw default allow outgoing      # allow all outbound
+
+# Remove rules:
+ufw delete allow 80/tcp
+ufw delete 3                   # delete rule number 3 (see numbers with: ufw status numbered)
+
+ufw reload                     # reload rules
+ufw reset                      # reset all rules to default (CAREFUL!)
+ufw logging on                 # enable logging to /var/log/ufw.log
+```
+
+### New Server Hardening with ufw:
+```bash
+# Order matters: set defaults first, then allow exceptions, then enable
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow from YOUR_IP to any port 22    # only allow SSH from your IP
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw enable                               # firewall is now active
+ufw status verbose                       # verify rules are correct
+```
+
+---
+
+## 🔹 `firewall-cmd` — firewalld (RHEL/CentOS)
+
+```bash
+firewall-cmd --state                                           # check if running
+firewall-cmd --list-all                                        # show all rules in default zone
+firewall-cmd --zone=public --list-all                         # specific zone
+firewall-cmd --get-zones                                       # list all zones
+firewall-cmd --get-default-zone                               # current default zone
+
+# Add rules (--permanent makes them survive reboot):
+firewall-cmd --permanent --add-service=http                   # allow HTTP
+firewall-cmd --permanent --add-service=https                  # allow HTTPS
+firewall-cmd --permanent --add-port=8080/tcp                  # allow port 8080
+firewall-cmd --permanent --remove-port=8080/tcp               # remove port
+firewall-cmd --permanent --add-rich-rule='rule family=ipv4 source address=10.0.0.0/8 port port=5432 protocol=tcp accept'  # complex rule
+
+# MUST reload after --permanent changes:
+firewall-cmd --reload
+
+# Verify:
+firewall-cmd --list-ports
+firewall-cmd --list-services
+```
+
+---
+
+## 🔹 `iptables`
+
+### Architecture
+```
+Incoming packet
+  └─► PREROUTING chain (NAT, DNAT)
+        └─► Routing decision
+              ├─► If for this machine: INPUT chain
+              │     └─► Local process
+              └─► If forwarded: FORWARD chain
+                        └─► POSTROUTING chain (SNAT, masquerade)
+Local process OUTPUT
+  └─► OUTPUT chain
+        └─► POSTROUTING chain
+              └─► Network interface
+```
+
+```bash
+iptables -L -n -v                  # list all rules with counters, numeric
+iptables -L INPUT -n -v --line-numbers  # INPUT chain with line numbers
+
+# Add rules:
+iptables -A INPUT -p tcp --dport 22 -j ACCEPT      # allow SSH
+iptables -A INPUT -p tcp --dport 80 -j ACCEPT      # allow HTTP
+iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT  # allow established
+iptables -A INPUT -j DROP                           # drop everything else (MUST be last)
+
+# Insert rule at specific position:
+iptables -I INPUT 1 -s 10.0.0.0/8 -j ACCEPT       # insert at position 1
+
+# Delete rules:
+iptables -D INPUT -p tcp --dport 80 -j ACCEPT      # delete specific rule
+iptables -D INPUT 3                                 # delete rule at line 3
+
+# Save and restore:
+iptables-save > /etc/iptables/rules.v4             # save current rules
+iptables-restore < /etc/iptables/rules.v4          # restore saved rules
+
+# Flush (clear all rules):
+iptables -F        # flush ALL chains — DANGER: removes all rules including SSH allow
+iptables -F INPUT  # flush only INPUT chain
+```
+
+### ⚠️ Critical Warning
+```bash
+# NEVER do this on a remote server without a safety net:
+iptables -F     # this removes ALL rules including the SSH allow rule
+                # you are now locked out of the server!
+
+# Safe approach: set a timer to flush rules in case you get locked out
+at now + 5 minutes
+> iptables -F
+> Ctrl+D
+# Now make your iptables changes
+# If you get locked out, iptables will auto-flush in 5 minutes and you can reconnect
+# If everything works, cancel: atrm <job_number>
+```
+
+---
+
+## 🔹 `openssl`
+
+```bash
+# Generate RSA private key:
+openssl genrsa -out private.key 2048
+openssl genrsa -aes256 -out private-encrypted.key 2048   # with passphrase
+
+# Generate Certificate Signing Request (CSR):
+openssl req -new -key private.key -out request.csr
+
+# Generate self-signed certificate:
+openssl req -new -x509 -key private.key -out certificate.pem -days 365
+
+# View certificate details:
+openssl x509 -in certificate.pem -text -noout
+
+# Check certificate expiry date:
+openssl x509 -in certificate.pem -noout -enddate
+# Output: notAfter=Jun 30 00:00:00 2026 GMT
+
+# Check remote server certificate:
+echo | openssl s_client -connect myapp.example.com:443 2>/dev/null | \
+    openssl x509 -noout -enddate
+# Output: notAfter=Jun 30 00:00:00 2026 GMT
+
+# Verify certificate matches private key:
+openssl x509 -noout -modulus -in cert.pem | openssl md5
+openssl rsa -noout -modulus -in private.key | openssl md5
+# Both MD5 values must match — if they don't, the cert and key are mismatched
+
+# Test HTTPS connection and view full certificate chain:
+openssl s_client -connect myapp.com:443 -showcerts
+```
+
+### Real-World DevOps Scenario
+**Automate SSL certificate expiry monitoring:**
+```bash
+#!/bin/bash
+DOMAINS=("api.company.com" "app.company.com" "admin.company.com")
+WARN_DAYS=30
+
+for domain in "${DOMAINS[@]}"; do
+    expiry=$(echo | openssl s_client -connect "${domain}:443" 2>/dev/null | \
+             openssl x509 -noout -enddate | cut -d= -f2)
+    
+    expiry_epoch=$(date -d "$expiry" +%s)
+    now_epoch=$(date +%s)
+    days_left=$(( (expiry_epoch - now_epoch) / 86400 ))
+    
+    if [ $days_left -lt $WARN_DAYS ]; then
+        echo "WARNING: $domain certificate expires in $days_left days ($expiry)"
+    else
+        echo "OK: $domain expires in $days_left days"
+    fi
+done
+```
+
+---
+
+## 🔹 `gpg`
+
+```bash
+gpg --gen-key                          # generate key pair
+gpg --list-keys                        # list all public keys in keyring
+gpg --list-secret-keys                 # list private keys
+gpg --export -a "Your Name" > mykey.pub  # export public key (share this)
+gpg --import mykey.pub                 # import someone else's public key
+
+# Encrypt file (recipient needs their private key to decrypt):
+gpg -e -r "recipient@company.com" secrets.env
+# Creates: secrets.env.gpg
+
+# Decrypt file (you need your private key):
+gpg -d secrets.env.gpg > secrets.env
+
+# Sign a file (prove it came from you):
+gpg --sign --armor release.tar.gz
+# Creates: release.tar.gz.asc
+
+# Verify signature:
+gpg --verify release.tar.gz.asc release.tar.gz
+```
+
+---
+
+## 🔹 Checksums
+
+```bash
+# SHA256 (most commonly used for software verification):
+sha256sum file.tar.gz                          # compute hash
+sha256sum -c checksums.sha256                  # verify multiple files from checksum file
+
+# Generate checksum file:
+sha256sum *.tar.gz > checksums.sha256
+
+# MD5 (faster but weaker — don't use for security, only for quick integrity checks):
+md5sum file.tar.gz
+
+# Verify a downloaded binary (e.g., Terraform):
+wget https://releases.hashicorp.com/terraform/1.5.0/terraform_1.5.0_linux_amd64.zip
+wget https://releases.hashicorp.com/terraform/1.5.0/terraform_1.5.0_SHA256SUMS
+sha256sum -c terraform_1.5.0_SHA256SUMS
+# Output: terraform_1.5.0_linux_amd64.zip: OK
+# If you see: FAILED — the file is corrupted or tampered with!
+```
+
+---
+
+## 🔹 `chroot`
+
+```bash
+chroot /mnt/rescue /bin/bash     # enter chroot environment with bash
+chroot /mnt/rescue               # uses /bin/sh if bash not specified
+```
+
+### Full Rescue Mode Recovery with chroot:
+```bash
+# Boot from rescue disk/ISO, then:
+
+# 1. Mount the broken system's root partition
+mount /dev/sda1 /mnt
+
+# 2. Mount virtual filesystems (needed for many repair tools)
+mount --bind /proc /mnt/proc
+mount --bind /sys /mnt/sys
+mount --bind /dev /mnt/dev
+mount --bind /dev/pts /mnt/dev/pts
+mount --bind /run /mnt/run
+
+# 3. Enter the chroot environment
+chroot /mnt /bin/bash
+
+# 4. Now you're "inside" the broken system — fix your issues:
+passwd root                                      # reset root password
+grub2-install /dev/sda                          # reinstall GRUB bootloader
+grub2-mkconfig -o /boot/grub2/grub.cfg          # regenerate GRUB config
+vim /etc/fstab                                  # fix bad fstab entry
+dnf reinstall kernel                            # reinstall kernel
+
+# 5. Exit and reboot
+exit
+umount -R /mnt                                  # unmount everything
+reboot
+```
+
+### Summary — Security & Access Control
+
+**📌 5-Minute Recap:**
+- **Never disable SELinux permanently** — use `setenforce 0` for testing, then fix with `semanage`/`restorecon`
+- **`ufw default deny incoming`** then explicitly allow — deny-all-by-default is the correct firewall posture
+- **`iptables -F` can lock you out remotely** — always set an `at` job to clear rules as a safety net
+- **`openssl s_client -connect domain:443`** to check remote certificate expiry — automate this in monitoring
+- **`sha256sum -c`** to verify downloaded binaries before installing — security supply chain best practice
+- **`chroot`** into a broken system from a rescue disk to repair without booting into the broken OS
+- **`gpg -e -r`** to encrypt sensitive files before storing them in repos or S3
+
+---
+
+# 15. Logging & Auditing
+
+## What Is This Section About?
+Logs are the historical record of everything that happened on your system. In production, logs are how you diagnose problems, detect security incidents, prove compliance, and understand system behavior. Knowing how to efficiently navigate logs is a core DevOps skill.
+
+---
+
+## 🔹 `journalctl` (Extended Coverage)
+
+*(Core mechanics covered in Services & Systemd section — additional patterns here)*
+
+```bash
+# Pattern: Debug a service that crashed overnight
+journalctl -u myapp -b -1 --no-pager | grep -E "ERROR|FATAL|Exception"
+# -b -1 = logs from previous boot (the boot before last reboot)
+# Explanation: If the server rebooted at 3 AM, this shows what happened before the reboot
+
+# Pattern: Correlate events across multiple services at a specific time
+journalctl --since "2026-04-17 03:00" --until "2026-04-17 03:05"
+# Explanation: See everything that happened across all services in that 5-minute window
+
+# Pattern: Find OOM kills
+journalctl -k | grep -i "oom\|killed process"
+# -k = kernel messages only
+# Explanation: OOM killer events are kernel messages, not service messages
+
+# Pattern: Filter by priority levels
+journalctl -p 0..3   # only emergency, alert, critical, error (most severe)
+journalctl -p err    # error and above
+
+# Pattern: Real-time monitoring across multiple services
+journalctl -f -u nginx -u myapp -u postgres
+# Explanation: Follow logs from three services simultaneously in one stream
+```
+
+---
+
+## 🔹 `/var/log/syslog` and `/var/log/messages`
+
+```bash
+# Ubuntu/Debian: /var/log/syslog  (general system messages)
+# RHEL/CentOS:   /var/log/messages (same purpose)
+
+tail -f /var/log/syslog          # live follow all system messages
+grep -i "error" /var/log/syslog | tail -50   # recent errors
+grep "kernel" /var/log/syslog | grep -v "audit"  # kernel messages
+grep "Apr 17" /var/log/syslog | grep "myapp"    # specific date and service
+
+# Other important log files:
+# /var/log/auth.log    (Ubuntu) — authentication, sudo, SSH
+# /var/log/secure      (RHEL)   — same as auth.log
+# /var/log/kern.log             — kernel messages
+# /var/log/dpkg.log             — package install/remove events (Ubuntu)
+# /var/log/dnf.log              — package install/remove events (RHEL)
+# /var/log/cron                 — cron job execution events (RHEL)
+# /var/log/nginx/access.log     — nginx access log
+# /var/log/nginx/error.log      — nginx error log
+```
+
+```bash
+# Check for brute force SSH attacks:
+$ grep "Failed password" /var/log/auth.log | tail -20
+# Output:
+# Apr 17 18:00:01 server sshd[9876]: Failed password for root from 203.0.113.50 port 54321 ssh2
+# Apr 17 18:00:02 server sshd[9877]: Failed password for root from 203.0.113.50 port 54322 ssh2
+# Explanation: Same IP attempting many times = brute force attack
+# Action: block with ufw/iptables or fail2ban
+
+# Check who used sudo recently:
+$ grep sudo /var/log/auth.log | tail -20
+# Output:
+# Apr 17 18:00:01 server sudo: ec2-user : TTY=pts/0 ; COMMAND=/usr/bin/systemctl restart nginx
+# Explanation: Full audit trail of sudo usage with user, terminal, and exact command
+```
+
+---
+
+## 🔹 `dmesg`
+
+### What It Does
+`dmesg` reads the kernel **ring buffer** — a circular buffer in memory where the kernel writes messages about hardware detection, driver events, filesystem mounting, OOM killer activity, and more.
+
+```bash
+dmesg                          # show all kernel messages (from boot to now)
+dmesg -T                       # with human-readable timestamps
+dmesg -H                       # human-readable + follow mode
+dmesg | tail -20               # last 20 kernel messages
+dmesg | grep -i "error\|fail"  # filter errors
+dmesg | grep -i "oom"          # OOM killer events
+dmesg | grep -i "eth\|ens\|enp"  # network interface events
+dmesg | grep -i "nvme\|sda\|xvd"  # disk events
+dmesg -C                       # clear ring buffer (requires root)
+dmesg --level=err,crit         # only errors and critical messages
+```
+
+```bash
+$ dmesg -T | grep -i "killed\|oom" | tail -5
+# Output:
+# [Fri Apr 17 03:14:56 2026] Out of memory: Kill process 5678 (java) score 800 or sacrifice child
+# [Fri Apr 17 03:14:56 2026] Killed process 5678 (java) total-vm:4194304kB, anon-rss:3145728kB
+# Explanation:
+# score 800 = OOM score (higher = more likely to be killed)
+# total-vm = total virtual memory the process had claimed
+# anon-rss = physical anonymous memory it was actually using (3GB!)
+# This java process was using 3GB of RAM and got OOM-killed
+# Action: increase instance size, add swap, or tune JVM memory settings
+
+$ dmesg -T | grep -i "disk error\|I/O error\|SCSI error"
+# Output (if any):
+# [Fri Apr 17 10:00:01 2026] blk_update_request: I/O error, dev sda, sector 12345
+# Explanation: Hardware disk errors — urgent! Check disk health with smartctl
+```
+
+---
+
+## 🔹 `auditd` — Linux Audit System
+
+### What auditd Does
+The Linux audit framework provides a complete audit trail of security-relevant events: file access, system calls, authentication, privilege use. It can answer "who did what, when, on which file."
+
+```bash
+# auditctl — configure audit rules
+auditctl -l                              # list current audit rules
+auditctl -w /etc/passwd -p wa -k passwd_watch    # watch passwd file for writes
+auditctl -w /etc/sudoers -p rwa -k sudoers       # watch sudoers
+auditctl -w /etc/ssh/sshd_config -p wa -k sshd_config  # watch SSH config
+auditctl -a always,exit -F arch=b64 -S execve -k all_commands  # log ALL commands
+
+# Permission flags:
+# -p w = write, r = read, a = attribute change, x = execute
+
+# ausearch — search audit logs
+ausearch -m AVC                          # SELinux denials
+ausearch -m USER_LOGIN -ts today         # login events today
+ausearch -k passwd_watch                 # events matching our "passwd_watch" key
+ausearch -ui 1001 -ts recent            # events for UID 1001, recently
+ausearch -x /bin/su -ts today           # all su executions today
+ausearch -f /etc/passwd                  # all accesses to /etc/passwd
+
+# aureport — generate summary reports
+aureport                                 # overall summary
+aureport --auth                          # authentication report
+aureport --failed                        # all failed events
+aureport --login                         # login report
+aureport --file                          # file access report
+```
+
+```bash
+$ ausearch -k passwd_watch -ts today
+# Output:
+# ----
+# time->Fri Apr 17 18:00:01 2026
+# type=PROCTITLE msg=audit(1713362401.000:1234): proctitle=757365726D6F64002D6147006465766F7073006563322D75736572
+# type=PATH msg=audit(1713362401.000:1234): item=0 name="/etc/passwd" inode=655363 dev=fd:01 mode=0100644 ouid=0 ogid=0
+# type=SYSCALL msg=audit(1713362401.000:1234): arch=c000003e syscall=188 success=yes exit=0 a0=... comm="usermod" exe="/usr/sbin/usermod"
+# Explanation: usermod command modified /etc/passwd at the specified time
+# Can decode proctitle: echo 757365726d6f64... | xxd -r -p = "usermod -aG devops ec2-user"
+```
+
+---
+
+## 🔹 `logrotate`
+
+### What It Does
+`logrotate` manages log file size by rotating (archiving old logs), compressing, and cleaning them up automatically. Without it, log files grow unboundedly and fill your disk.
+
+```bash
+logrotate /etc/logrotate.conf          # run logrotate manually
+logrotate -d /etc/logrotate.conf       # dry run — show what WOULD happen without doing it
+logrotate -f /etc/logrotate.conf       # FORCE rotation even if not due
+logrotate -d /etc/logrotate.d/myapp    # test specific config
+```
+
+```bash
+# /etc/logrotate.d/myapp — example configuration
+/var/log/myapp/*.log {
+    daily                  # rotate daily (alternatives: weekly, monthly, size 100M)
+    rotate 14              # keep 14 rotated files (14 days of history)
+    compress               # gzip old files (saves 80-90% disk space)
+    delaycompress          # compress on second rotation (current rotation kept uncompressed)
+    missingok              # don't error if log file is missing (app may not have started yet)
+    notifempty             # skip rotation if log is empty
+    create 0640 appuser appgroup   # create fresh log file with these permissions
+    dateext                # add date to rotated filename (app.log-2026-04-17.gz)
+    sharedscripts          # run postrotate script ONCE for all matched files
+    postrotate
+        # Tell the app to reopen its log file after rotation
+        /usr/bin/kill -USR1 $(cat /var/run/myapp.pid 2>/dev/null) 2>/dev/null || true
+    endscript
+}
+```
+
+### Why `postrotate` matters
+When logrotate renames `app.log` to `app.log-2026-04-17`, the application still has a file handle to the original inode. It keeps writing to the rotated file, not the new `app.log`. The `postrotate` script signals the app to close and reopen its log file.
+
+---
+
+## 🔹 `last` / `lastb`
+
+```bash
+last                          # successful login history (reads /var/log/wtmp)
+last -n 20                    # last 20 logins
+last -a                       # show hostname in last column
+last reboot                   # show reboot history
+last -F                       # full timestamps
+
+lastb                         # failed login attempts (reads /var/log/btmp)
+lastb -n 20                   # last 20 failed attempts
+```
+
+```bash
+$ last -n 10
+# Output:
+# ec2-user pts/0  10.0.0.5   Fri Apr 17 10:00   still logged in
+# root     pts/1  10.0.1.1   Thu Apr 16 14:22 - 15:00  (00:38)
+# reboot   system boot  5.15.0-aws  Wed Apr 15 08:00   still running
+# Explanation:
+# "still logged in" = currently active session
+# "(00:38)" = session lasted 38 minutes
+# "system boot" lines show when the server rebooted
+
+$ lastb | awk '{print $3}' | sort | uniq -c | sort -rn | head -5
+# Output:
+# 4521 203.0.113.50    ← this IP has 4521 failed SSH attempts!
+#  892 198.51.100.22
+# Explanation: Identifies attackers by counting failed login attempts per IP
+# Action: block top IPs: ufw deny from 203.0.113.50
+```
+
+### Summary — Logging & Auditing
+
+**📌 5-Minute Recap:**
+- **`journalctl -u service -f`** for live debugging; **`-b -1`** for post-crash analysis
+- **`dmesg -T | grep -i oom`** to find OOM killer events — explains mystery process kills
+- **`grep "Failed password" /var/log/auth.log`** for SSH brute force detection
+- **`auditd` with `-w /etc/passwd -p wa`** provides file-level access auditing for compliance
+- **`logrotate` prevents disk-full incidents** — configure it for every application log
+- **`postrotate` in logrotate** is critical for apps that keep file handles open (signal them to reopen)
+- **`lastb | sort | uniq -c`** identifies IPs with most failed logins — first step in SSH attack investigation
+
+---
+
+# 16. System Information & OS Details
+
+## What Is This Section About?
+Understanding your system's hardware, OS version, CPU, memory, and configuration is essential before troubleshooting, capacity planning, or deciding whether a workload is right for an instance type.
+
+---
+
+## 🔹 `uname` / `arch`
+
+```bash
+uname -a       # ALL: kernel name, hostname, kernel version, build, arch, OS
+uname -r       # kernel RELEASE version only
+uname -m       # machine hardware name (x86_64, aarch64, armv7l)
+uname -s       # OS name (Linux)
+uname -n       # network node hostname
+arch           # machine hardware architecture (same as uname -m)
+```
+
+```bash
+$ uname -a
+# Output:
+# Linux ip-10-0-1-50 5.15.0-1031-aws #35-Ubuntu SMP Fri Jan 20 21:45:05 UTC 2023 x86_64 x86_64 x86_64 GNU/Linux
+# Breakdown:
+# Linux         = OS type
+# ip-10-0-1-50  = hostname
+# 5.15.0-1031-aws = kernel version (5.15.0 = main version, 1031-aws = AWS patch level)
+# #35-Ubuntu SMP = build number, SMP = Symmetric Multi-Processing (multi-core support)
+# x86_64        = hardware architecture
+# GNU/Linux     = operating system
+
+$ uname -r
+# Output: 5.15.0-1031-aws
+# Use case: checking if you need to reboot after a kernel update
+# After: apt upgrade linux-image-* → if "uname -r" doesn't match latest installed → reboot needed
+```
+
+---
+
+## 🔹 `lscpu` / `lshw`
+
+```bash
+lscpu           # detailed CPU architecture information
+lscpu | grep -E "^CPU\(s\)|Thread|Core|Socket|Model name|MHz"  # key fields only
+nproc           # just the count of available processors (simplest)
+nproc --all     # total processors including offline
+```
+
+```bash
+$ lscpu
+# Output:
+# Architecture:           x86_64
+# CPU(s):                 4          ← total logical CPUs (cores × threads)
+# Thread(s) per core:     2          ← hyperthreading is enabled
+# Core(s) per socket:     2          ← 2 physical cores
+# Socket(s):              1          ← 1 physical CPU socket
+# NUMA node(s):           1
+# Model name:             Intel(R) Xeon(R) Platinum 8259CL @ 2.50GHz
+# CPU MHz:                2499.998
+# L1d cache:              32K
+# L2 cache:               1024K
+# L3 cache:               36608K
+#
+# For Java thread pool sizing: use CPU(s) = 4 as base
+# For CPU-intensive apps: Cores = 2 is the real parallel capacity
+# L3 cache 36M: large enough for most JVM applications
+
+$ lshw -short
+# Output:
+# H/W path   Device    Class      Description
+# ========================================
+# /0/0                  memory     8GiB System Memory
+# /0/1                  processor  Intel Xeon Platinum 8259CL
+# /0/100/1/0   xvda     disk       20GB Elastic Block Store
+# /0/1/0/0     eth0     network    Elastic Network Adapter
+# Explanation: Quick hardware inventory — useful for capacity assessment
+```
+
+---
+
+## 🔹 `hostname` / `hostnamectl`
+
+```bash
+hostname                             # show current hostname
+hostname -I                          # show all IP addresses
+hostname -f                          # FQDN (fully qualified domain name)
+hostnamectl                          # detailed info including virtualization type
+hostnamectl set-hostname newname     # permanently change hostname
+```
+
+```bash
+$ hostnamectl
+# Output:
+#    Static hostname: prod-web-01
+#          Icon name: computer-vm
+#            Chassis: vm
+#         Machine ID: abc123def456789abc123def456789ab
+#            Boot ID: xyz789012345678xyz789012345678xy
+#     Virtualization: amazon       ← running on AWS!
+#   Operating System: Ubuntu 22.04.3 LTS
+#             Kernel: Linux 5.15.0-1031-aws
+#       Architecture: x86-64
+#
+# Key info:
+# Virtualization: amazon = this is an EC2 instance
+# Operating System: for apt vs dnf decision, patch management, etc.
+# Kernel: to check if kernel patches have been applied
+
+# Change hostname permanently (survives reboot):
+hostnamectl set-hostname prod-web-01
+# Also update /etc/hosts to add: 127.0.0.1 prod-web-01
+```
+
+---
+
+## 🔹 `timedatectl`
+
+```bash
+timedatectl                               # show current date/time/timezone/NTP status
+timedatectl list-timezones                # show all available timezones
+timedatectl list-timezones | grep Asia    # filter by region
+timedatectl set-timezone Asia/Kolkata     # set timezone
+timedatectl set-ntp true                  # enable NTP synchronization
+timedatectl show                          # machine-readable format
+```
+
+```bash
+$ timedatectl
+# Output:
+#                Local time: Fri 2026-04-17 18:00:01 IST
+#            Universal time: Fri 2026-04-17 12:30:01 UTC
+#                  RTC time: Fri 2026-04-17 12:30:01
+#                 Time zone: Asia/Kolkata (IST, +0530)
+# System clock synchronized: yes         ← NTP is working
+#               NTP service: active
+#           RTC in local TZ: no
+#
+# "System clock synchronized: yes" = NTP is keeping time accurate
+# If "no" = time may drift, which causes SSL cert validation failures,
+#           log correlation issues, and distributed system problems
+
+# Fix wrong timezone on a new EC2 instance:
+timedatectl set-timezone UTC   # AWS recommends UTC for all servers
+# OR: timedatectl set-timezone America/New_York for specific region
+timedatectl   # verify change took effect
+```
+
+---
+
+## 🔹 `lsns` — List Namespaces
+
+```bash
+lsns                    # list all namespaces on the system
+lsns -t net             # network namespaces only
+lsns -t pid             # PID namespaces only
+lsns -t mnt             # mount namespaces only
+```
+
+```bash
+$ lsns -t net
+# Output:
+#         NS TYPE NPROCS   PID USER   COMMAND
+# 4026531992 net    142     1 root   /usr/lib/systemd/systemd --switched-root
+# 4026532500 net      2  5678 root   docker-proxy -proto tcp -host-ip 0.0.0.0
+# 4026532510 net      3  5689 root   /pause                 ← Kubernetes pause container
+#
+# Explanation: Each Docker container has its own network namespace
+# The pause container is Kubernetes's network container that holds the pod's network namespace
+# lsns helps you understand which process is in which isolation boundary
+```
+
+### Summary — System Information & OS Details
+
+**📌 5-Minute Recap:**
+- **`uname -r`** for kernel version; **`cat /etc/os-release`** for distro version — essential for patching
+- **`lscpu`** shows CPU count for thread pool sizing; **`nproc`** for quick core count in scripts
+- **`hostnamectl`** shows virtualization type — confirms you're on AWS/GCP/bare metal
+- **`timedatectl set-timezone UTC`** for servers — log correlation across systems requires consistent timezone
+- **`timedatectl` NTP synchronized: yes** must be true — time drift causes SSL errors and distributed system issues
+- **`lsns -t net`** for understanding container network isolation — maps processes to their network namespaces
+- **`free -h`** watch the `available` column, not `free` — Linux caches aggressively and that's normal
+
+---
+
+# 17. Power & Boot Management
+
+## What Is This Section About?
+Controlling system power state and managing the boot process are critical operational skills — especially during maintenance windows, disaster recovery, and post-incident system restoration.
+
+---
+
+## 🔹 `shutdown` / `reboot`
+
+```bash
+# shutdown
+shutdown now                    # immediate shutdown (halt)
+shutdown -h now                 # halt now
+shutdown -r now                 # reboot now
+shutdown -h +10                 # shutdown in 10 minutes
+shutdown -h 22:00               # shutdown at 10:00 PM
+shutdown -r +5 "Maintenance reboot in 5 minutes"  # with broadcast message to users
+shutdown -c                     # cancel a scheduled shutdown
+
+# reboot
+reboot                          # reboot immediately
+reboot --force                  # force reboot if normal reboot hangs
+systemctl reboot                # via systemd (preferred on systemd systems)
+
+# poweroff
+poweroff                        # power off immediately
+systemctl poweroff              # via systemd
+
+# halt
+halt                            # stop the CPU (may not power off)
+halt -p                         # halt and power off
+```
+
+```bash
+$ shutdown -r +10 "Server rebooting in 10 minutes for kernel update"
+# Output: Broadcast message to all logged-in users:
+# "Server rebooting in 10 minutes for kernel update"
+# Shutdown scheduled for Fri 2026-04-17 18:10:00 UTC, use 'shutdown -c' to cancel
+
+$ wall "System maintenance starting in 5 minutes - please save your work"
+# Sends message to all logged-in users' terminals (useful before shutdown)
+```
+
+---
+
+## 🔹 GRUB
+
+### What GRUB Does
+GRUB2 (Grand Unified Bootloader version 2) is the first program that runs after BIOS/UEFI hands control to the disk. It:
+1. Loads the Linux kernel from `/boot/`
+2. Passes kernel parameters (like `quiet`, `ro`, `init=`)
+3. Loads the initial RAM filesystem (`initramfs`)
+4. Transfers control to the kernel
+
+```bash
+# Update GRUB config after changes:
+update-grub                                           # Ubuntu/Debian
+grub2-mkconfig -o /boot/grub2/grub.cfg               # RHEL/CentOS (legacy BIOS)
+grub2-mkconfig -o /boot/efi/EFI/redhat/grub.cfg      # RHEL/CentOS (UEFI)
+
+# Install GRUB bootloader (from rescue mode):
+grub2-install /dev/sda                               # legacy BIOS
+grub2-install --target=x86_64-efi \
+    --efi-directory=/boot/efi \
+    --bootloader-id=grub                             # UEFI
+
+# GRUB configuration file:
+# /etc/default/grub — user-editable settings
+# GRUB_TIMEOUT=5 — menu display time
+# GRUB_CMDLINE_LINUX_DEFAULT="quiet splash" — kernel parameters
+# After editing: run update-grub or grub2-mkconfig to apply
+```
+
+---
+
+## 🔹 Rescue Mode
+
+### When You Need Rescue Mode
+- System won't boot (bad `/etc/fstab`, broken kernel, missing file)
+- Root password lost
+- GRUB bootloader corrupted
+- Filesystem corruption
+- Wrong runlevel/target configured
+
+### Method 1: Single-User Mode via GRUB
+```bash
+# At GRUB menu, press 'e' to edit the boot entry
+# Find the line starting with "linux" (or "linuxefi")
+# At the end of that line, add one of:
+    systemd.unit=rescue.target    # rescue mode (minimal services, root filesystem RW)
+    systemd.unit=emergency.target # emergency mode (minimal, read-
