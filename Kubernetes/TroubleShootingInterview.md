@@ -3001,3 +3001,2980 @@ kubectl describe resourcequota -n <namespace>
 
 ---
 
+## 4️⃣ Fix / Resolution
+
+**Fix 1: Reduce memory requests**
+```yaml
+resources:
+  requests:
+    memory: "256Mi"   # ✅ Reduced from 1Gi — fits on nodes
+    cpu: "100m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+```
+
+**Fix 2: Update ResourceQuota if namespace limit is too low**
+```yaml
+# resourcequota.yaml
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: ns-quota
+  namespace: production
+spec:
+  hard:
+    requests.memory: "8Gi"    # ✅ Increased from 2Gi
+    requests.cpu: "4"
+    pods: "20"                # ✅ Increased pod count limit
+```
+
+```bash
+# Apply quota update
+kubectl apply -f resourcequota.yaml
+
+# Watch pending pods get scheduled
+kubectl get pods -w
+```
+
+---
+
+## 5️⃣ Interview Answer Version
+
+> *"When scaled pods stay Pending, I first describe the deployment's ReplicaSet to check events — common errors are 'Insufficient memory' or 'exceeded quota'. I then describe a Pending pod to confirm. If it's resource pressure, I either reduce the memory request in the deployment spec or request the infrastructure team to add nodes. If it's a ResourceQuota issue, I check `kubectl describe resourcequota` and request a quota increase for the namespace."*
+
+---
+
+## 6️⃣ Real-World Scenario Example
+
+> **Scenario:** Black Friday scaling event — team scales app from 2 to 6 replicas. Only 4 come up. 2 pods stuck Pending for 20 minutes.
+>
+> **Alert:** Deployment health check shows 4/6 ready.
+>
+> **Investigation:** `kubectl describe pod` shows:
+> ```
+> 0/5 nodes are available: 5 Insufficient memory
+> ```
+>
+> **Resolution:** Reduced memory request from 1Gi to 512Mi. All 6 pods scheduled immediately. Long-term: implemented Cluster Autoscaler to add nodes automatically during scaling events.
+
+---
+
+## 7️⃣ kubectl Commands Cheat Sheet
+
+| Command | Purpose |
+|---------|---------|
+| `kubectl get deployment` | Check READY vs DESIRED count |
+| `kubectl describe rs <name>` | ReplicaSet events — why pod creation failed |
+| `kubectl describe pod <pending-pod>` | Why specific pod is Pending |
+| `kubectl top nodes` | Live memory/CPU usage per node |
+| `kubectl describe resourcequota -n <ns>` | Check namespace quota limits and usage |
+| `kubectl get limitrange -n <ns>` | Check per-container resource limits |
+
+---
+
+## 8️⃣ Advanced Debugging Tips
+
+- 🔍 Two separate issues can look identical — **node resource pressure** vs **namespace ResourceQuota**. Always check both.
+- 🔍 `kubectl describe resourcequota` shows `used` vs `hard` — if used ≈ hard, quota is the blocker
+- 🛡️ Use **Cluster Autoscaler** in cloud environments — automatically adds nodes when pods are Pending due to resource pressure
+- 🛡️ Set up **LimitRange** in every namespace to enforce default requests/limits so developers can't accidentally request too much
+- 🛡️ Use **VPA (Vertical Pod Autoscaler)** in recommendation mode to get right-sized resource values
+
+---
+
+## 9️⃣ Common Follow-Up Interview Questions
+
+**Q: What is the difference between ResourceQuota and LimitRange?**
+> `ResourceQuota` sets total limits for an entire namespace (total CPU, memory, pod count). `LimitRange` sets default and max/min limits per individual container or pod within a namespace.
+
+**Q: What is Cluster Autoscaler and when does it trigger?**
+> Cluster Autoscaler automatically adds nodes when pods are stuck in Pending due to insufficient resources, and removes underutilized nodes to save cost. It triggers when the scheduler can't place pods due to resource constraints.
+
+**Q: How would you proactively prevent this issue?**
+> Monitor node resource utilization with Prometheus alerts at 75-80% threshold. Implement Cluster Autoscaler. Set proper resource requests based on VPA recommendations. Run regular capacity planning reviews.
+
+---
+
+## 🔟 Related Concepts to Revise
+- ResourceQuota and LimitRange
+- Kubernetes Cluster Autoscaler
+- VPA (Vertical Pod Autoscaler)
+- Node resource capacity planning
+- kube-scheduler resource-based filtering
+
+---
+---
+
+# 🟡 Q22 — Downtime During Rolling Update
+
+## 1️⃣ Issue Summary
+| Field | Detail |
+|-------|--------|
+| **What** | Users experience downtime during a rolling deployment update |
+| **Where** | Deployment rolling update strategy |
+| **Symptom** | HTTP 503 errors or connection timeouts during deployment rollout |
+
+> 🟢 **Beginner Explanation:** During renovation (deployment update), too many rooms (pods) were closed at once, leaving no rooms available for guests (users). The fix is to close only one room at a time while keeping others open.
+
+---
+
+## 2️⃣ Root Cause Explanation
+- `maxUnavailable: 2` allowed 2 pods to go down simultaneously — too many for the load
+- No `readinessProbe` or `initialDelaySeconds` too low — new pods marked ready before they're truly ready to serve
+- Traffic is routed to new pods before they finish warming up
+- **Components involved:** Deployment controller, readinessProbe, kube-proxy, Endpoints controller
+
+---
+
+## 3️⃣ Step-by-Step Troubleshooting Approach
+
+```bash
+# Step 1: Check rollout status during downtime
+kubectl rollout status deployment/<name>
+# "Waiting for deployment rollout to finish: 1 out of 3 updated replicas are available"
+
+# Step 2: Check deployment strategy settings
+kubectl get deployment <name> -o yaml | grep -A10 strategy
+# maxUnavailable: 2  ← Too high! Allows 2 pods down at once
+# maxSurge: 1
+
+# Step 3: Check readiness probe configuration
+kubectl get deployment <name> -o yaml | grep -A15 readinessProbe
+# initialDelaySeconds: 0  ← Too low! Pod marked ready immediately
+
+# Step 4: Check pod events during rollout
+kubectl describe pod <new-pod-name>
+# Pod marked Ready before application fully initialized
+
+# Step 5: Fix strategy and readiness probe (see below)
+
+# Step 6: Redeploy and verify zero downtime
+kubectl apply -f deployment.yaml
+kubectl rollout status deployment/<name>
+```
+
+---
+
+## 4️⃣ Fix / Resolution
+
+```yaml
+# BEFORE — Causes downtime ❌
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 2    # ❌ Too many pods down at once
+      maxSurge: 1
+  template:
+    spec:
+      containers:
+      - name: app
+        image: myapp:v2
+        # No readinessProbe configured! ❌
+```
+
+```yaml
+# AFTER — Zero downtime configuration ✅
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0    # ✅ Never take down pods until new ones are ready
+      maxSurge: 1          # ✅ Allow 1 extra pod above desired count during rollout
+  template:
+    spec:
+      containers:
+      - name: app
+        image: myapp:v2
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10   # ✅ Wait 10s before first check
+          periodSeconds: 5          # ✅ Check every 5 seconds
+          failureThreshold: 3       # ✅ Must pass 3 checks before marked Ready
+```
+
+```bash
+kubectl apply -f deployment.yaml
+kubectl rollout status deployment/<name>
+# "successfully rolled out" — with zero downtime
+```
+
+---
+
+## 5️⃣ Interview Answer Version
+
+> *"Downtime during rolling updates usually comes from two issues: `maxUnavailable` set too high (removing too many pods at once) and missing or poorly configured readinessProbe (new pods receiving traffic before they're ready). My fix is: set `maxUnavailable: 0` so existing pods stay up until new ones are ready, set `maxSurge: 1` for smooth transition, and configure a proper readinessProbe with `initialDelaySeconds` to ensure new pods are truly ready before traffic is sent to them."*
+
+---
+
+## 6️⃣ Real-World Scenario Example
+
+> **Scenario:** Tuesday deployment. Users report 503 errors for ~90 seconds. Rollout completes but incident is filed.
+>
+> **Root cause:** `maxUnavailable: 2` with a 3-replica deployment. 2 pods terminated before 1 new pod was ready. Cluster briefly had only 1 pod for full load.
+>
+> **Resolution:**
+> - Changed `maxUnavailable: 0`, `maxSurge: 1`
+> - Added readinessProbe with `initialDelaySeconds: 15`
+> - Added PodDisruptionBudget as additional safety
+
+```yaml
+# PodDisruptionBudget — extra safety net
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: app-pdb
+spec:
+  minAvailable: 2    # Always keep at least 2 pods running
+  selector:
+    matchLabels:
+      app: myapp
+```
+
+---
+
+## 7️⃣ kubectl Commands Cheat Sheet
+
+| Command | Purpose |
+|---------|---------|
+| `kubectl rollout status deployment/<name>` | Monitor rollout live |
+| `kubectl get deployment <name> -o yaml` | Check strategy and probe config |
+| `kubectl rollout pause deployment/<name>` | Pause mid-rollout if issues detected |
+| `kubectl rollout undo deployment/<name>` | Rollback if downtime continues |
+| `kubectl get pdb` | Check PodDisruptionBudget status |
+
+---
+
+## 8️⃣ Advanced Debugging Tips
+
+- 🔍 `maxUnavailable: 0` + `maxSurge: 1` = safest zero-downtime config but needs slightly more resources temporarily
+- 🔍 `readinessProbe` failure removes pod from Service endpoints — traffic stops going to it. `livenessProbe` failure restarts the container.
+- 🛡️ Always configure both `readinessProbe` and `livenessProbe` for production workloads
+- 🛡️ Add `PodDisruptionBudget` (PDB) to enforce minimum available pods during both rollouts and node maintenance
+- 🛡️ Use `preStop` hook with a sleep to allow in-flight requests to complete before pod termination
+
+```yaml
+# preStop hook — graceful shutdown
+lifecycle:
+  preStop:
+    exec:
+      command: ["/bin/sh", "-c", "sleep 10"]
+```
+
+---
+
+## 9️⃣ Common Follow-Up Interview Questions
+
+**Q: What is the difference between maxUnavailable and maxSurge?**
+> `maxUnavailable` = max pods that can be unavailable during rollout (can be 0 for zero-downtime). `maxSurge` = max extra pods above desired count created during rollout to replace the old ones.
+
+**Q: What is a PodDisruptionBudget?**
+> PDB defines the minimum number of pods that must remain available during voluntary disruptions (deployments, node drains). It prevents Kubernetes from taking down too many pods at once.
+
+**Q: How does readinessProbe prevent downtime?**
+> Kubernetes only adds a pod to the Service's endpoint list (making it receive traffic) when its readinessProbe passes. So traffic only flows to pods that have confirmed they're ready.
+
+---
+
+## 🔟 Related Concepts to Revise
+- Rolling update strategy (maxUnavailable, maxSurge)
+- readinessProbe, livenessProbe, startupProbe
+- PodDisruptionBudget
+- Graceful shutdown (preStop hook, terminationGracePeriodSeconds)
+- Service Endpoints and traffic routing
+
+---
+---
+
+# 🔴 Q23 — ClusterIP Unreachable Inside Cluster
+
+## 1️⃣ Issue Summary
+| Field | Detail |
+|-------|--------|
+| **What** | ClusterIP service exists but pods inside cluster can't reach it |
+| **Where** | Service — label selector / endpoints |
+| **Symptom** | `curl <cluster-ip>` times out or connection refused from inside a pod |
+
+> 🟢 **Beginner Explanation:** The service is like a receptionist (ClusterIP) who should forward calls to employees (pods). If the receptionist's directory (selector) has the wrong employee names (wrong labels), no calls get forwarded — the line just rings with no answer.
+
+---
+
+## 2️⃣ Root Cause Explanation
+- ClusterIP service routes traffic to pods **matching its label selector**
+- If the selector labels don't match the actual pod labels — even by one character — no endpoints are created
+- No endpoints = service has no backend = connection hangs or refused
+- **Components involved:** Service, Endpoints controller, kube-proxy, label selectors
+
+---
+
+## 3️⃣ Step-by-Step Troubleshooting Approach
+
+```bash
+# Step 1: Confirm service exists
+kubectl get svc <service-name>
+# Service shown but IP unreachable
+
+# Step 2: CHECK ENDPOINTS — most important step ← 
+kubectl get endpoints <service-name>
+# NAME           ENDPOINTS   AGE
+# my-service     <none>      5m   ← No endpoints! Root cause found.
+
+# Step 3: Compare service selector vs pod labels
+kubectl get svc <service-name> -o yaml | grep -A5 selector
+# selector:
+#   app: my-app
+#   tier: backend
+
+kubectl get pods --show-labels
+# Labels: app=my-app, tier=be  ← "be" vs "backend" — MISMATCH!
+
+# Step 4: Fix the selector in service YAML
+# Change tier: backend → tier: be (or fix pod labels to match)
+
+# Step 5: Apply fix
+kubectl apply -f service.yaml
+
+# Step 6: Verify endpoints now populated
+kubectl get endpoints <service-name>
+# NAME         ENDPOINTS              AGE
+# my-service   10.244.1.5:8080,...   5m  ✅ Now shows pod IPs
+
+# Step 7: Test connectivity
+kubectl exec -it <any-pod> -- curl http://<service-name>:<port>
+# Should return response now ✅
+```
+
+---
+
+## 4️⃣ Fix / Resolution
+
+```yaml
+# BEFORE — Selector mismatch ❌
+# Service YAML
+spec:
+  selector:
+    app: my-app
+    tier: backend     # ❌ Service looks for "backend"
+
+---
+# Pod YAML
+metadata:
+  labels:
+    app: my-app
+    tier: be          # ❌ Pod has "be" — mismatch!
+```
+
+```yaml
+# AFTER — Selector matches pod labels ✅
+# Service YAML
+spec:
+  selector:
+    app: my-app
+    tier: backend     # ✅ Now matches pod label
+
+---
+# Pod YAML
+metadata:
+  labels:
+    app: my-app
+    tier: backend     # ✅ Fixed to match service selector
+```
+
+```bash
+kubectl apply -f service.yaml
+kubectl get endpoints <service-name>
+# Endpoints should now show pod IPs ✅
+```
+
+---
+
+## 5️⃣ Interview Answer Version
+
+> *"When a ClusterIP service is unreachable inside the cluster, the first thing I check is `kubectl get endpoints <service-name>`. If it shows `<none>`, the selector isn't matching any pods. I then compare the service selector with actual pod labels using `kubectl get pods --show-labels`. Even a single character mismatch (like 'backend' vs 'be') means no traffic is forwarded. Fix the selector, verify endpoints are populated, and connectivity restores."*
+
+---
+
+## 6️⃣ Real-World Scenario Example
+
+> **Scenario:** App can't reach its Redis service. App pods running. Redis pods running. Service exists.
+>
+> **Investigation:** `kubectl get endpoints redis-service` shows `<none>`.
+>
+> **Root cause:** Redis pods had label `app: redis-cache` but service selector had `app: redis`. One word difference.
+>
+> **Resolution:** Updated service selector to `app: redis-cache`. Endpoints immediately populated. Connectivity restored.
+
+---
+
+## 7️⃣ kubectl Commands Cheat Sheet
+
+| Command | Purpose |
+|---------|---------|
+| `kubectl get endpoints <name>` | **KEY** — shows if service has any backends |
+| `kubectl get svc <name> -o yaml` | See full service spec with selector |
+| `kubectl get pods --show-labels` | See all pod labels |
+| `kubectl get pods -l <key>=<value>` | Test if selector matches any pods |
+| `kubectl exec -it <pod> -- curl http://<svc>:<port>` | Test connectivity from inside cluster |
+
+---
+
+## 8️⃣ Advanced Debugging Tips
+
+- 🔍 **`kubectl get endpoints` is your fastest diagnostic tool** for service issues — always check this first
+- 🔍 Quick selector test: `kubectl get pods -l app=my-app,tier=backend` — if this returns pods, the service selector will work
+- 🛡️ Use consistent label naming conventions across your team (enforce via OPA policies)
+- 🛡️ In Helm charts, template labels so service selectors and pod labels always stay in sync automatically
+
+```bash
+# Quick way to test if selector matches pods
+kubectl get pods -l $(kubectl get svc <name> -o jsonpath='{.spec.selector}' | \
+  tr -d '{}"' | tr ',' ' ' | sed 's/:/=/g')
+```
+
+---
+
+## 9️⃣ Common Follow-Up Interview Questions
+
+**Q: What is the difference between ClusterIP, NodePort, and LoadBalancer service types?**
+> `ClusterIP` — internal only, accessible within cluster. `NodePort` — exposes service on a static port on each node's IP. `LoadBalancer` — provisions a cloud load balancer, accessible externally.
+
+**Q: How does a Service find its backend pods?**
+> Through label selectors. The Endpoints controller watches for pods matching the service's selector and populates the Endpoints object with their IPs. kube-proxy then sets up iptables/IPVS rules to route traffic.
+
+---
+
+## 🔟 Related Concepts to Revise
+- Kubernetes Services (ClusterIP, NodePort, LoadBalancer)
+- Label selectors
+- Endpoints and EndpointSlices
+- kube-proxy and iptables
+- Service discovery in Kubernetes
+
+---
+---
+
+# 🟡 Q24 — ClusterIP Resolves but Connection Refused
+
+## 1️⃣ Issue Summary
+| Field | Detail |
+|-------|--------|
+| **What** | DNS resolves the service name, endpoints exist, but requests fail with "connection refused" |
+| **Where** | Service port → container target port mapping |
+| **Symptom** | `curl http://my-service` returns `Connection refused` |
+
+> 🟢 **Beginner Explanation:** You dialed the right phone number (DNS resolves), the call connected (endpoint exists), but when transferred to the employee's extension (target port), the phone rings on the wrong desk — no one picks up.
+
+---
+
+## 2️⃣ Root Cause Explanation
+- Service `port` (what external callers use) and `targetPort` (what the container listens on) are mismatched
+- Service forwards to port 80, but app listens on 8080 → port 80 is unbound on the pod → connection refused
+- **Components involved:** Service targetPort, container's listening port, kube-proxy iptables rules
+
+---
+
+## 3️⃣ Step-by-Step Troubleshooting Approach
+
+```bash
+# Step 1: Check service — it exists and DNS resolves
+kubectl get svc <service-name>
+
+# Step 2: Check endpoints — they exist (selector is correct)
+kubectl get endpoints <service-name>
+# Shows pod IPs ✅ — so selector is fine
+
+# Step 3: Inspect service port vs targetPort
+kubectl get svc <service-name> -o yaml | grep -A10 ports
+# ports:
+# - port: 80          ← Service listens on 80
+#   targetPort: 80    ← Forwards to pod port 80 ← WRONG!
+
+# Step 4: Check what port the container actually listens on
+kubectl describe pod <pod-name> | grep -A5 Ports
+# Container Port: 8080  ← App listens on 8080!
+
+# Alternatively exec and check
+kubectl exec -it <pod-name> -- ss -tlnp
+# Shows: *:8080  ← Confirmed, app listens on 8080
+
+# Step 5: Fix targetPort in service YAML
+# Change targetPort: 80 → targetPort: 8080
+
+# Step 6: Apply and test
+kubectl apply -f service.yaml
+kubectl exec -it <test-pod> -- curl http://<service-name>
+# ✅ Response received
+```
+
+---
+
+## 4️⃣ Fix / Resolution
+
+```yaml
+# BEFORE — targetPort mismatch ❌
+spec:
+  ports:
+  - protocol: TCP
+    port: 80          # Service exposed on port 80
+    targetPort: 80    # ❌ Forwards to pod port 80, but app listens on 8080!
+```
+
+```yaml
+# AFTER — targetPort matches container's listening port ✅
+spec:
+  ports:
+  - protocol: TCP
+    port: 80           # Service still exposed on port 80 (no change for callers)
+    targetPort: 8080   # ✅ Now correctly forwards to pod port 8080
+```
+
+```bash
+kubectl apply -f service.yaml
+
+# Verify
+kubectl get svc <name> -o yaml | grep targetPort
+# targetPort: 8080 ✅
+
+# Test
+kubectl exec -it <any-pod> -- curl http://my-service:80
+# Returns response ✅
+```
+
+---
+
+## 5️⃣ Interview Answer Version
+
+> *"Connection refused with valid DNS and existing endpoints points to a port mismatch. I check the service YAML for `targetPort` and compare it against the actual port the container listens on — using `kubectl exec -- ss -tlnp` or `kubectl describe pod` to see container ports. In this case, service forwarded to port 80 but the app listened on 8080. Fixing targetPort to 8080 resolved it immediately."*
+
+---
+
+## 6️⃣ Real-World Scenario Example
+
+> **Scenario:** New Node.js service deployed. DNS works. Endpoints exist. Still 503.
+>
+> **Root cause:** Developer changed app port from 80 to 8080 in code but didn't update the Kubernetes service YAML's `targetPort`.
+>
+> **Resolution:** Updated `targetPort: 8080`. Added container port validation in the CI pipeline — service targetPort must match the Dockerfile `EXPOSE` value.
+
+---
+
+## 7️⃣ kubectl Commands Cheat Sheet
+
+| Command | Purpose |
+|---------|---------|
+| `kubectl get svc <name> -o yaml` | See port and targetPort |
+| `kubectl describe pod <name>` | See container's declared ports |
+| `kubectl exec -it <pod> -- ss -tlnp` | Check what ports app actually listens on |
+| `kubectl exec -it <pod> -- netstat -tlnp` | Alternative port check |
+| `kubectl exec -it <pod> -- curl localhost:8080` | Test container port directly |
+
+---
+
+## 8️⃣ Advanced Debugging Tips
+
+- 🔍 **Debugging flow for service issues:** DNS → Endpoints → Port → App
+- 🔍 `targetPort` can be a **named port** — define `name: http` on container port and reference it by name in targetPort for clarity
+- 🛡️ Use named ports in service YAML to avoid magic numbers:
+
+```yaml
+# Pod spec
+containers:
+- name: app
+  ports:
+  - name: http
+    containerPort: 8080
+
+# Service spec
+ports:
+- port: 80
+  targetPort: http    # ✅ References named port — self-documenting
+```
+
+---
+
+## 9️⃣ Common Follow-Up Interview Questions
+
+**Q: What is the difference between `port`, `targetPort`, and `nodePort` in a service?**
+> `port` = port the service exposes inside the cluster. `targetPort` = port on the pod/container the service forwards traffic to. `nodePort` = port exposed on each node's IP for external access (NodePort services only).
+
+**Q: Can targetPort be a string?**
+> Yes — it can reference a named port defined on the container (`containerPort` with a `name` field). This is a best practice as it decouples the service from the specific port number.
+
+---
+
+## 🔟 Related Concepts to Revise
+- Service port, targetPort, nodePort
+- Named ports in pod spec
+- kube-proxy iptables rules
+- Container networking (ss, netstat commands)
+- Service discovery flow
+
+---
+---
+
+# 🟡 Q25 — NodePort Works on One Node Only
+
+## 1️⃣ Issue Summary
+| Field | Detail |
+|-------|--------|
+| **What** | NodePort service accessible on some nodes but not others |
+| **Where** | Node-level — firewall rules / kube-proxy |
+| **Symptom** | `curl nodeIP:30080` works on node2 and node3, fails on node1 |
+
+> 🟢 **Beginner Explanation:** NodePort opens the same door (port) on every node's house. If one house (node1) has a security lock (firewall rule) blocking that door while others don't — visitors can't enter that specific house.
+
+---
+
+## 2️⃣ Root Cause Explanation
+- NodePort is supposed to open the same port on **all nodes** automatically
+- kube-proxy sets up iptables rules on each node to forward NodePort traffic to pods
+- If a firewall rule on one node **explicitly blocks** that port, traffic never reaches kube-proxy
+- **Components involved:** kube-proxy, node-level firewall (iptables/cloud security groups), NodePort range
+
+---
+
+## 3️⃣ Step-by-Step Troubleshooting Approach
+
+```bash
+# Step 1: Confirm service is correct
+kubectl get svc <service-name>
+# TYPE: NodePort   PORT: 80:30080/TCP ✅
+
+# Step 2: Check endpoints — pods are healthy
+kubectl get endpoints <service-name>
+# Shows pod IPs ✅
+
+# Step 3: Test from each node
+curl http://<node1-ip>:30080    # Connection refused ❌
+curl http://<node2-ip>:30080    # 200 OK ✅
+curl http://<node3-ip>:30080    # 200 OK ✅
+
+# Node1 is the problem node
+
+# Step 4: Check kube-proxy on node1
+kubectl get pods -n kube-system | grep kube-proxy
+kubectl logs kube-proxy-<node1-pod> -n kube-system
+
+# Step 5: SSH to node1 and check firewall rules
+ssh node1
+sudo iptables -L INPUT -n | grep 30080
+# If you see: DROP or REJECT for port 30080 → root cause found!
+
+# Step 6: Remove the blocking rule
+sudo iptables -D INPUT -p tcp --dport 30080 -j DROP
+
+# OR for cloud environments — check Security Group rules in AWS/GCP console
+
+# Step 7: Test again
+curl http://<node1-ip>:30080    # 200 OK ✅
+```
+
+---
+
+## 4️⃣ Fix / Resolution
+
+```bash
+# Fix 1: Remove iptables deny rule on node1
+sudo iptables -D INPUT -p tcp --dport 30080 -j DROP
+# Verify
+sudo iptables -L INPUT -n | grep 30080
+# No DENY rule ✅
+
+# Fix 2: For cloud (AWS) — update Security Group
+# Allow inbound TCP port 30080 from required sources
+# Via AWS Console or CLI:
+aws ec2 authorize-security-group-ingress \
+  --group-id sg-xxxxxxxx \
+  --protocol tcp \
+  --port 30080 \
+  --cidr 0.0.0.0/0
+
+# Fix 3: Make iptables changes persistent
+sudo apt-get install iptables-persistent
+sudo netfilter-persistent save
+```
+
+---
+
+## 5️⃣ Interview Answer Version
+
+> *"When a NodePort works on some nodes but not others, the Kubernetes configuration is correct — the issue is node-specific. I test each node individually with curl. On the failing node, I check iptables rules with `sudo iptables -L INPUT -n` and look for a DENY rule on that NodePort. In this case, port 30080 was explicitly blocked by a firewall rule on node1. Removing the deny rule restored access. In cloud environments, I'd check security group rules."*
+
+---
+
+## 6️⃣ Real-World Scenario Example
+
+> **Scenario:** Load balancer health checks fail for node1 only. Nodes 2 and 3 pass.
+>
+> **Root cause:** Security hardening script run on node1 blocked all non-standard ports including NodePort range (30000-32767).
+>
+> **Resolution:** Updated the hardening script to allowlist the NodePort range. Applied fix to node1. Added automated port connectivity test in the node validation pipeline.
+
+---
+
+## 7️⃣ kubectl Commands Cheat Sheet
+
+| Command | Purpose |
+|---------|---------|
+| `kubectl get svc <name>` | Confirm NodePort and port number |
+| `kubectl get pods -n kube-system -o wide` | Check kube-proxy pod per node |
+| `kubectl logs kube-proxy-<pod> -n kube-system` | kube-proxy logs on specific node |
+| `curl http://<nodeIP>:<nodePort>` | Test each node directly |
+| `kubectl get nodes -o wide` | Get node IPs |
+
+---
+
+## 8️⃣ Advanced Debugging Tips
+
+- 🔍 kube-proxy runs as a DaemonSet — one pod per node. Its logs show iptables rule configuration
+- �� NodePort range defaults: 30000-32767. Ensure firewall rules allow this entire range or specific ports
+- 🛡️ In cloud environments (EKS, GKE, AKS), check both node-level security groups AND cluster-level network policies
+- 🛡️ Use Calico/Cilium NetworkPolicies for fine-grained control rather than raw iptables rules
+
+---
+
+## 9️⃣ Common Follow-Up Interview Questions
+
+**Q: What is the default NodePort range in Kubernetes?**
+> 30000-32767. This can be customized via `--service-node-port-range` flag on kube-apiserver.
+
+**Q: How does kube-proxy handle NodePort traffic?**
+> kube-proxy watches Service objects and creates iptables (or IPVS) rules on every node that forward traffic arriving on the NodePort to the appropriate pod IPs, regardless of which node the pod runs on.
+
+---
+
+## 🔟 Related Concepts to Revise
+- kube-proxy modes (iptables vs IPVS)
+- NodePort service type
+- Linux iptables basics
+- Cloud security groups / firewall rules
+- DaemonSets (kube-proxy deployment model)
+
+---
+---
+
+# 🟡 Q26 — NodePort Not Accessible Externally
+
+## 1️⃣ Issue Summary
+| Field | Detail |
+|-------|--------|
+| **What** | NodePort service works inside the cluster but external clients can't reach it |
+| **Where** | External network → node — cloud/network firewall |
+| **Symptom** | `curl http://<node-public-ip>:30080` fails from outside, works from inside |
+
+> 🟢 **Beginner Explanation:** The internal office phone system works fine (intra-cluster). But external callers can't get through because the building's main entrance (cloud firewall) blocks them from reaching the office floor (NodePort).
+
+---
+
+## 2️⃣ Root Cause Explanation
+- NodePort is set up correctly in Kubernetes — internal access works
+- Problem is **outside Kubernetes** — cloud firewall (AWS Security Groups, GCP Firewall Rules) or on-premise firewall blocks the NodePort
+- Since internal works and external doesn't, the Kubernetes layer is fine — the network boundary is the issue
+- **Components involved:** Cloud provider firewall/security groups, external network routing, node's public IP
+
+---
+
+## 3️⃣ Step-by-Step Troubleshooting Approach
+
+```bash
+# Step 1: Confirm service is correct type and port
+kubectl get svc <service-name>
+# TYPE: NodePort   PORT: 80:30080/TCP ✅
+
+# Step 2: Check endpoints — pods are healthy
+kubectl get endpoints <service-name>
+# Pod IPs present ✅
+
+# Step 3: Test from INSIDE cluster (works = Kubernetes is fine)
+kubectl exec -it <any-pod> -- curl http://<node-ip>:30080
+# 200 OK ✅ — Kubernetes side is fine
+
+# Step 4: Test from OUTSIDE network (fails)
+# From your laptop or another external machine:
+curl http://<node-public-ip>:30080
+# Connection timed out ❌ — Problem is at network/firewall level
+
+# Step 5: Check cloud firewall (for AWS)
+# Go to EC2 → Security Groups → find node's SG
+# Check inbound rules for port 30080
+
+# OR via CLI:
+aws ec2 describe-security-groups --group-ids <sg-id> \
+  --query 'SecurityGroups[].IpPermissions'
+# Port 30080 NOT in allowed rules → Root cause
+
+# Step 6: Add firewall rule / escalate to network team
+# Step 7: Retest from outside after rule is added
+```
+
+---
+
+## 4️⃣ Fix / Resolution
+
+```bash
+# AWS — Add inbound rule to security group
+aws ec2 authorize-security-group-ingress \
+  --group-id sg-xxxxxxxx \
+  --protocol tcp \
+  --port 30080 \
+  --cidr 0.0.0.0/0    # Or restrict to specific IP range
+
+# GCP — Add firewall rule
+gcloud compute firewall-rules create allow-nodeport-30080 \
+  --allow tcp:30080 \
+  --source-ranges 0.0.0.0/0 \
+  --target-tags kubernetes-node
+
+# Azure — Add NSG inbound rule
+az network nsg rule create \
+  --resource-group myRG \
+  --nsg-name myNSG \
+  --name allow-nodeport \
+  --protocol Tcp \
+  --destination-port-range 30080 \
+  --access Allow \
+  --priority 100
+```
+
+---
+
+## 5️⃣ Interview Answer Version
+
+> *"When NodePort works inside the cluster but fails externally, the Kubernetes configuration is correct — the problem is at the network boundary. I confirm this by testing from inside the cluster (works) vs outside (fails). Then I check cloud security groups or on-premise firewall rules for the NodePort. This is not a Kubernetes issue — I escalate to the network/cloud team to open the port in their firewall rules, or do it myself if I have cloud access."*
+
+---
+
+## 6️⃣ Real-World Scenario Example
+
+> **Scenario:** New customer-facing API deployed. Internal QA passes. External UAT fails.
+>
+> **Root cause:** Kubernetes engineers set up NodePort correctly but didn't update the cloud security group. Org process required a separate change request to the cloud team.
+>
+> **Resolution:** Submitted firewall change request. Approved and applied. Added a post-deployment checklist item: "Verify external firewall rules for new NodePorts."
+
+---
+
+## 7️⃣ kubectl Commands Cheat Sheet
+
+| Command | Purpose |
+|---------|---------|
+| `kubectl get nodes -o wide` | Get node external/internal IPs |
+| `kubectl get svc <name>` | Confirm NodePort number |
+| `kubectl exec -it <pod> -- curl <nodeIP>:<nodePort>` | Test from inside cluster |
+| `curl http://<external-ip>:<nodePort>` | Test from outside (your laptop) |
+| `kubectl describe svc <name>` | Full service details |
+
+---
+
+## 8️⃣ Advanced Debugging Tips
+
+- 🔍 **Isolation technique:** Test inside cluster → test from node itself → test from outside. Narrows down exactly where the block is
+- 🔍 `telnet <node-ip> <nodePort>` or `nc -zv <node-ip> <nodePort>` — quick port reachability test
+- 🛡️ For production, prefer LoadBalancer service type or Ingress over NodePort for external access — more control, TLS, routing
+- 🛡️ If using NodePort long-term, use a specific NodePort number in YAML so firewall rules don't break on service recreation
+
+```yaml
+spec:
+  type: NodePort
+  ports:
+  - port: 80
+    targetPort: 8080
+    nodePort: 30080    # ✅ Fixed nodePort — consistent firewall rules
+```
+
+---
+
+## 9️⃣ Common Follow-Up Interview Questions
+
+**Q: When would you use NodePort vs LoadBalancer?**
+> NodePort — development/testing, on-premise environments without cloud LB, or when you manage your own external LB. LoadBalancer — production cloud environments where automatic external IP provisioning is needed.
+
+**Q: What are the security risks of NodePort?**
+> NodePort exposes a port on ALL cluster nodes. Anyone who can reach any node IP and port can access the service. Use with restrictive security groups. Better to use Ingress with TLS for production external traffic.
+
+---
+
+## 🔟 Related Concepts to Revise
+- NodePort vs LoadBalancer vs Ingress
+- Cloud security groups / firewall rules
+- External traffic flow in Kubernetes
+- externalTrafficPolicy (Local vs Cluster)
+- Ingress controllers (nginx, traefik)
+
+---
+---
+
+# 🔴 Q27 — Traffic Going to Pods on One Node Only
+
+## 1️⃣ Issue Summary
+| Field | Detail |
+|-------|--------|
+| **What** | Service has multiple endpoints across nodes but traffic only reaches pods on one node |
+| **Where** | kube-proxy — node level traffic routing |
+| **Symptom** | Uneven load, pods on node2 get no traffic despite being healthy endpoints |
+
+> 🟢 **Beginner Explanation:** The call center routing system (kube-proxy) on floor 2 (node2) is broken. All calls get transferred to floor 1 (node1) even though floor 2 agents are available and ready.
+
+---
+
+## 2️⃣ Root Cause Explanation
+- kube-proxy runs on every node and programs iptables/IPVS rules to distribute traffic across all pod endpoints
+- If kube-proxy fails/crashes on a node, that node's iptables rules are stale or missing
+- Traffic arriving at the broken node can't be properly routed, so it falls back to only routing to local pods or the first available path
+- **Components involved:** kube-proxy DaemonSet, iptables/IPVS rules, Service endpoints
+
+---
+
+## 3️⃣ Step-by-Step Troubleshooting Approach
+
+```bash
+# Step 1: Check service endpoints — all pods are listed
+kubectl get endpoints <service-name>
+# Shows IPs from both node1 and node2 ✅ (Kubernetes knows about all pods)
+
+# Step 2: Check pod distribution across nodes
+kubectl get pods -o wide
+# pod-A: node1, pod-B: node2, pod-C: node2
+# Pods spread across nodes ✅
+
+# Step 3: Check kube-proxy status on all nodes
+kubectl get pods -n kube-system -o wide | grep kube-proxy
+# kube-proxy-node1: Running ✅
+# kube-proxy-node2: CrashLoopBackOff ❌ ← Root cause!
+
+# Step 4: Check kube-proxy logs on node2
+kubectl logs kube-proxy-<node2-pod> -n kube-system
+# Error: "Failed to sync iptables rules: iptables command failed"
+# OR: "Failed to update iptable rules: permission denied"
+
+# Step 5: Fix — restart kube-proxy pod on node2
+kubectl delete pod kube-proxy-<node2-pod> -n kube-system
+# DaemonSet automatically recreates it
+
+# Step 6: Verify kube-proxy is healthy on all nodes
+kubectl get pods -n kube-system | grep kube-proxy
+# All Running ✅
+
+# Step 7: Verify traffic now distributes across both nodes
+# Test from multiple clients or use load testing tool
+```
+
+---
+
+## 4️⃣ Fix / Resolution
+
+```bash
+# Restart the failing kube-proxy pod
+# (Safe because kube-proxy is a DaemonSet — auto-recreates)
+kubectl delete pod kube-proxy-<node2-pod-name> -n kube-system
+
+# Watch it restart
+kubectl get pods -n kube-system -w | grep kube-proxy
+# kube-proxy-node2: Terminating → Pending → Running ✅
+
+# Verify iptables rules are now set on node2 (SSH to node2)
+ssh node2
+sudo iptables -t nat -L KUBE-SERVICES | grep <service-cluster-ip>
+# Rules present ✅
+
+# Verify traffic balancing by running repeated requests
+for i in {1..10}; do kubectl exec -it <test-pod> -- curl -s http://my-service/hostname; done
+# Should show different pod hostnames from both nodes
+```
+
+---
+
+## 5️⃣ Interview Answer Version
+
+> *"When service endpoints show pods on multiple nodes but traffic only reaches one node, kube-proxy on the other node is likely failing. kube-proxy programs iptables rules on each node — if it crashes, rules become stale. I check `kubectl get pods -n kube-system | grep kube-proxy` to find the failing pod, read its logs to confirm iptables rule sync failure, then delete it. Since kube-proxy is a DaemonSet, Kubernetes recreates it automatically, restoring proper traffic distribution."*
+
+---
+
+## 6️⃣ Real-World Scenario Example
+
+> **Scenario:** Monitoring shows CPU imbalance — node1 pods at 90% CPU, node2 pods at 5%.
+>
+> **Root cause:** kube-proxy on node2 crashed due to an iptables conflict from a manually applied firewall rule. All traffic routed to node1.
+>
+> **Resolution:** Deleted kube-proxy pod on node2. Restarted fresh. Documented that manual iptables changes are prohibited on cluster nodes.
+
+---
+
+## 7️⃣ kubectl Commands Cheat Sheet
+
+| Command | Purpose |
+|---------|---------|
+| `kubectl get pods -n kube-system -o wide` | See kube-proxy status per node |
+| `kubectl logs kube-proxy-<pod> -n kube-system` | kube-proxy error logs |
+| `kubectl delete pod <kube-proxy-pod> -n kube-system` | Restart kube-proxy (DaemonSet recreates) |
+| `kubectl get endpoints <svc>` | Verify endpoints exist |
+| `kubectl get pods -o wide` | Confirm pod-to-node distribution |
+
+---
+
+## 8️⃣ Advanced Debugging Tips
+
+- 🔍 kube-proxy in IPVS mode is more performant than iptables for large clusters. Check mode with `kubectl get configmap kube-proxy -n kube-system -o yaml | grep mode`
+- 🔍 `externalTrafficPolicy: Local` can cause this symptom intentionally — it only routes traffic to pods on the receiving node. Switch to `Cluster` for balanced routing.
+- 🛡️ Never manually modify iptables on Kubernetes nodes — conflicts with kube-proxy rules
+- 🛡️ Monitor kube-proxy pod health as a critical infrastructure alert
+
+---
+
+## 9️⃣ Common Follow-Up Interview Questions
+
+**Q: What is `externalTrafficPolicy: Local` and when is it used?**
+> `Local` routes traffic only to pods on the receiving node (preserves source IP, avoids extra hop). `Cluster` (default) routes to any pod across all nodes (load balanced, source IP is NAT'd). Use `Local` when you need source IP preservation (e.g., for rate limiting by client IP).
+
+**Q: What is the difference between kube-proxy iptables mode and IPVS mode?**
+> iptables mode creates one rule per service/endpoint — doesn't scale well past ~10k rules. IPVS (IP Virtual Server) uses hash tables for O(1) lookups — scales to thousands of services. IPVS is recommended for large clusters.
+
+---
+
+## 🔟 Related Concepts to Revise
+- kube-proxy (iptables vs IPVS modes)
+- DaemonSets
+- externalTrafficPolicy (Local vs Cluster)
+- iptables KUBE-SERVICES chain
+- Service load balancing internals
+
+---
+---
+
+# 🔴 Q28 — Service Works via Pod IP, Not Service Name
+
+## 1️⃣ Issue Summary
+| Field | Detail |
+|-------|--------|
+| **What** | Directly using pod IP works, but using service DNS name fails |
+| **Where** | Cluster DNS — CoreDNS |
+| **Symptom** | `curl http://10.244.1.5:8080` works, `curl http://my-service:8080` fails |
+
+> 🟢 **Beginner Explanation:** You can call someone by their personal phone number (pod IP) but the office directory (DNS/CoreDNS) is broken — looking up their name (service name) returns nothing.
+
+---
+
+## 2️⃣ Root Cause Explanation
+- Pod IP works = pods are running, networking is fine, kube-proxy is fine
+- Service name fails = DNS resolution is broken
+- CoreDNS is the cluster DNS server — if it's down/crashing, service name resolution fails for everyone
+- **Components involved:** CoreDNS pods, kube-dns service, DNS resolution chain
+
+---
+
+## 3️⃣ Step-by-Step Troubleshooting Approach
+
+```bash
+# Step 1: Confirm service exists and has endpoints
+kubectl get svc my-service
+kubectl get endpoints my-service
+# Both exist ✅ — so issue is not selector/endpoint related
+
+# Step 2: Test direct pod IP (works)
+kubectl exec -it <test-pod> -- curl http://10.244.1.5:8080
+# 200 OK ✅ — networking is fine
+
+# Step 3: Test service name DNS resolution (fails)
+kubectl exec -it <test-pod> -- nslookup my-service
+# Server: 10.96.0.10
+# ** server can't find my-service: SERVFAIL  ← DNS failure!
+
+# Step 4: Check CoreDNS pods
+kubectl get pods -n kube-system | grep coredns
+# coredns-xxxxx: CrashLoopBackOff ❌ ← Root cause!
+
+# Step 5: Check CoreDNS logs
+kubectl logs <coredns-pod> -n kube-system
+# Error: plugin/errors: 2 SERVFAIL...
+# OR: segmentation fault
+
+# Step 6: Restart CoreDNS
+kubectl rollout restart deployment/coredns -n kube-system
+
+# Step 7: Wait for CoreDNS to be Running
+kubectl get pods -n kube-system -w | grep coredns
+# Running ✅
+
+# Step 8: Test DNS resolution again
+kubectl exec -it <test-pod> -- nslookup my-service
+# my-service.default.svc.cluster.local: 10.96.x.x ✅
+```
+
+---
+
+## 4️⃣ Fix / Resolution
+
+```bash
+# Restart CoreDNS deployment
+kubectl rollout restart deployment/coredns -n kube-system
+
+# Verify CoreDNS is healthy
+kubectl get pods -n kube-system | grep coredns
+# All Running ✅
+
+# Test DNS from a pod
+kubectl run dns-test --rm -it --image=busybox -- nslookup kubernetes.default
+# Shows: kubernetes.default.svc.cluster.local ✅
+
+# Test application service DNS
+kubectl exec -it <app-pod> -- nslookup my-service
+# my-service.default.svc.cluster.local: 10.96.x.x ✅
+```
+
+```yaml
+# If CoreDNS has config issues, check ConfigMap
+kubectl get configmap coredns -n kube-system -o yaml
+# Verify Corefile syntax is correct
+```
+
+---
+
+## 5️⃣ Interview Answer Version
+
+> *"If pod IP works but service name doesn't, DNS resolution is broken — the networking layer is fine but CoreDNS is failing. I verify with `nslookup my-service` from inside a pod. If it fails, I check `kubectl get pods -n kube-system | grep coredns` for CrashLoopBackOff. Reading CoreDNS logs confirms the issue. Restarting CoreDNS with `kubectl rollout restart deployment/coredns -n kube-system` restores DNS resolution."*
+
+---
+
+## 6️⃣ Real-World Scenario Example
+
+> **Scenario:** All services in the cluster suddenly unreachable by name. Pod IPs still work.
+>
+> **Alert:** Multiple application alerts fire simultaneously — all showing DNS resolution failures.
+>
+> **Root cause:** CoreDNS ConfigMap was accidentally modified (malformed Corefile syntax) during a config change, causing both CoreDNS pods to crash.
+>
+> **Resolution:** Reverted ConfigMap to previous version, restarted CoreDNS. Implemented RBAC to restrict CoreDNS ConfigMap modifications.
+
+---
+
+## 7️⃣ kubectl Commands Cheat Sheet
+
+| Command | Purpose |
+|---------|---------|
+| `kubectl get pods -n kube-system \| grep coredns` | Check CoreDNS health |
+| `kubectl logs <coredns-pod> -n kube-system` | CoreDNS error logs |
+| `kubectl rollout restart deployment/coredns -n kube-system` | Restart CoreDNS |
+| `kubectl exec -it <pod> -- nslookup <service>` | Test DNS from inside cluster |
+| `kubectl get configmap coredns -n kube-system -o yaml` | Inspect CoreDNS config |
+
+---
+
+## 8️⃣ Advanced Debugging Tips
+
+- 🔍 Full DNS name format: `<service>.<namespace>.svc.cluster.local` — always test with full FQDN to isolate namespace issues
+- 🔍 Check `/etc/resolv.conf` inside a pod: `kubectl exec -it <pod> -- cat /etc/resolv.conf` — shows DNS server IP (should be CoreDNS ClusterIP)
+- 🛡️ Run CoreDNS with minimum 2 replicas in production for HA
+- 🛡️ Set resource limits on CoreDNS to prevent OOMKill under high DNS load
+- 🛡️ Use NodeLocal DNSCache to reduce CoreDNS load and improve resilience
+
+---
+
+## 9️⃣ Common Follow-Up Interview Questions
+
+**Q: How does Kubernetes DNS work internally?**
+> Each pod's `/etc/resolv.conf` points to the CoreDNS ClusterIP. When a pod queries `my-service`, it's sent to CoreDNS. CoreDNS looks up the service in its cluster.local zone and returns the ClusterIP. kube-proxy then routes the traffic to a pod.
+
+**Q: What is the full DNS name for a service?**
+> `<service-name>.<namespace>.svc.cluster.local`. Within the same namespace, you can use just `<service-name>`. Cross-namespace requires `<service-name>.<namespace>`.
+
+---
+
+## 🔟 Related Concepts to Revise
+- CoreDNS (Kubernetes DNS)
+- DNS resolution chain in Kubernetes
+- /etc/resolv.conf in pods
+- NodeLocal DNSCache
+- FQDN in Kubernetes (cluster.local domain)
+
+---
+---
+
+# 🟡 Q29 — Headless Service Returns No DNS Records
+
+## 1️⃣ Issue Summary
+| Field | Detail |
+|-------|--------|
+| **What** | Headless service DNS query returns empty — no pod IPs resolved |
+| **Where** | Service selector → DNS → Endpoints |
+| **Symptom** | `nslookup my-headless-service` returns no records despite pods running |
+
+> 🟢 **Beginner Explanation:** A headless service is like a class register that lists all students directly (pod IPs). If the register uses the wrong student name format (label mismatch), no names get listed — the register is blank.
+
+---
+
+## 2️⃣ Root Cause Explanation
+- Headless service (`clusterIP: None`) returns individual pod IPs directly via DNS (instead of a single VIP)
+- DNS records are only created when **Endpoints exist** — endpoints are created when selector matches pods
+- If selector label in service doesn't match pod labels, no endpoints → no DNS records
+- **Components involved:** CoreDNS, Endpoints controller, headless service, pod labels
+
+---
+
+## 3️⃣ Step-by-Step Troubleshooting Approach
+
+```bash
+# Step 1: Confirm headless service configuration
+kubectl get svc my-headless-service -o yaml | grep clusterIP
+# clusterIP: None ✅ — Confirmed headless
+
+# Step 2: Test DNS resolution (returns nothing)
+kubectl exec -it <test-pod> -- nslookup my-headless-service
+# ** server can't find my-headless-service: NXDOMAIN
+# OR: returns empty answer section
+
+# Step 3: Check endpoints
+kubectl get endpoints my-headless-service
+# NAME                    ENDPOINTS   AGE
+# my-headless-service     <none>      5m  ← No endpoints!
+
+# Step 4: Pods ARE running — so why no endpoints?
+kubectl get pods --show-labels
+# Labels: app=back-end  ← Note the hyphen!
+
+# Step 5: Check service selector
+kubectl get svc my-headless-service -o yaml | grep -A5 selector
+# selector:
+#   app: backend   ← No hyphen! MISMATCH!
+
+# Step 6: Fix selector — change "backend" to "back-end"
+# OR change pod label "back-end" to "backend"
+
+# Step 7: Apply fix
+kubectl apply -f service.yaml
+
+# Step 8: Verify endpoints and DNS
+kubectl get endpoints my-headless-service
+# ENDPOINTS: 10.244.1.5,10.244.2.6 ✅
+
+kubectl exec -it <test-pod> -- nslookup my-headless-service
+# Returns: 10.244.1.5, 10.244.2.6 ✅
+```
+
+---
+
+## 4️⃣ Fix / Resolution
+
+```yaml
+# BEFORE — Selector mismatch ❌
+# Service
+spec:
+  clusterIP: None
+  selector:
+    app: backend      # ❌ "backend"
+
+---
+# Pod
+metadata:
+  labels:
+    app: back-end     # ❌ "back-end" — label mismatch!
+```
+
+```yaml
+# AFTER — Selector matches pod labels ✅
+# Service
+spec:
+  clusterIP: None
+  selector:
+    app: back-end     # ✅ Matches pod label exactly
+
+---
+# Pod
+metadata:
+  labels:
+    app: back-end     # ✅ Consistent label
+```
+
+```bash
+kubectl apply -f service.yaml
+kubectl get endpoints my-headless-service
+# Shows pod IPs ✅
+
+# DNS now returns pod IPs directly
+kubectl exec -it <pod> -- nslookup my-headless-service
+# Address: 10.244.x.x (pod IP 1)
+# Address: 10.244.x.x (pod IP 2) ✅
+```
+
+---
+
+## 5️⃣ Interview Answer Version
+
+> *"Headless service returns no DNS records when there are no endpoints — and endpoints are empty when the selector doesn't match pod labels. I verify with `kubectl get endpoints` — if `<none>`, it's a label mismatch. I compare the service selector with actual pod labels using `kubectl get pods --show-labels`. In this case 'backend' vs 'back-end' was the mismatch. Fixing the selector immediately creates endpoints and restores DNS records."*
+
+---
+
+## 6️⃣ Real-World Scenario Example
+
+> **Scenario:** StatefulSet with headless service for a database cluster. Pods can't discover each other — cluster formation fails.
+>
+> **Root cause:** Headless service selector used `app: postgres` but StatefulSet pods had label `app: postgresql` (different spelling).
+>
+> **Resolution:** Updated service selector to match. Endpoints created. Database cluster nodes discovered each other and formed quorum.
+
+---
+
+## 7️⃣ kubectl Commands Cheat Sheet
+
+| Command | Purpose |
+|---------|---------|
+| `kubectl get endpoints <name>` | Check if endpoints exist |
+| `kubectl get svc <name> -o yaml` | See clusterIP: None and selector |
+| `kubectl get pods --show-labels` | See actual pod labels |
+| `kubectl exec -it <pod> -- nslookup <headless-svc>` | Test DNS returns pod IPs |
+| `kubectl exec -it <pod> -- dig <headless-svc>` | Detailed DNS response |
+
+---
+
+## 8️⃣ Advanced Debugging Tips
+
+- 🔍 Headless service DNS format for individual pods: `<pod-name>.<headless-svc>.<namespace>.svc.cluster.local` — used heavily with StatefulSets
+- 🔍 For headless service to return pod IPs, pods must also have `hostname` and `subdomain` matching the service name (for StatefulSets this is automatic)
+- 🛡️ Headless services are essential for StatefulSets (databases like Cassandra, Kafka, etcd) where each pod needs a stable, individually addressable DNS name
+- 🛡️ Use `dig` instead of `nslookup` for more detailed DNS debugging: `kubectl exec -it <pod> -- dig my-headless-service A`
+
+---
+
+## 9️⃣ Common Follow-Up Interview Questions
+
+**Q: What is a headless service and when do you use it?**
+> Headless service (`clusterIP: None`) bypasses the Kubernetes proxy layer — DNS returns individual pod IPs directly. Used with StatefulSets for databases and clustered applications where each pod needs a unique, stable identity and direct addressability.
+
+**Q: What is the difference between headless service and regular ClusterIP service?**
+> ClusterIP returns a single virtual IP — load balanced across pods. Headless returns all pod IPs — client decides which to connect to. Headless enables client-side load balancing and direct pod addressing.
+
+---
+
+## 🔟 Related Concepts to Revise
+- Headless services
+- StatefulSets and pod DNS
+- CoreDNS DNS records for services
+- Endpoints controller
+- Client-side load balancing (headless + client library)
+
+---
+---
+
+# 🟡 Q30 — Pods Stuck in ContainerCreating
+
+## 1️⃣ Issue Summary
+| Field | Detail |
+|-------|--------|
+| **What** | Pods are stuck in `ContainerCreating` state for a long time |
+| **Where** | Pod startup — volume mount phase |
+| **Symptom** | `kubectl get pods` shows `ContainerCreating` for minutes, never progresses to `Running` |
+
+> 🟢 **Beginner Explanation:** The pod is ready to start but it's waiting to set up its workspace (volume). If the workspace directory doesn't exist on the server (node), the pod can't set up and stays stuck.
+
+---
+
+## 2️⃣ Root Cause Explanation
+- `ContainerCreating` = pod is scheduled on a node but container hasn't started yet
+- During this phase: images are pulled, volumes are mounted, secrets/configmaps are attached
+- If a `hostPath` volume references a directory that **doesn't exist on the node** — volume mount fails → pod stuck
+- **Components involved:** `kubelet`, container runtime, volume manager, hostPath
+
+---
+
+## 3️⃣ Step-by-Step Troubleshooting Approach
+
+```bash
+# Step 1: Check pod status
+kubectl get pods
+# STATUS: ContainerCreating (for > 2-3 minutes = problem)
+
+# Step 2: Describe pod — find the exact failure
+kubectl describe pod <pod-name>
+# Events:
+# "MountVolume.SetUp failed for volume: hostPath ... no such file or directory"
+# OR: "Unable to attach or mount volumes"
+
+# Step 3: Check the pod YAML for volume configuration
+kubectl get pod <pod-name> -o yaml | grep -A20 volumes
+# hostPath:
+#   path: /data/app    ← This directory doesn't exist on the node!
+
+# Step 4: Identify which node the pod is on
+kubectl get pod <pod-name> -o wide
+# NODE: node-worker-1
+
+# Step 5: SSH to the node and check/create directory
+ssh node-worker-1
+ls /data/app    # Directory doesn't exist!
+sudo mkdir -p /data/app
+sudo chmod 755 /data/app
+
+# Step 6: Pod should auto-recover
+kubectl get pods -w
+# ContainerCreating → Running ✅
+
+# OR if pod doesn't recover, delete and let it recreate
+kubectl delete pod <pod-name>
+kubectl get pods   # New pod should start Running
+```
+
+---
+
+## 4️⃣ Fix / Resolution
+
+**Fix 1: Create missing hostPath directory on the node**
+```bash
+# SSH to the target node
+ssh <node-name>
+sudo mkdir -p /data/app
+sudo chmod 755 /data/app
+# Pod will auto-recover or recreate into Running state
+```
+
+**Fix 2: Update pod YAML to use correct existing path**
+```yaml
+# BEFORE — Non-existent path ❌
+volumes:
+- name: app-data
+  hostPath:
+    path: /data/app      # ❌ This directory doesn't exist on node!
+    type: Directory
+
+# AFTER — Use DirectoryOrCreate to auto-create ✅
+volumes:
+- name: app-data
+  hostPath:
+    path: /data/app
+    type: DirectoryOrCreate   # ✅ Creates directory if it doesn't exist
+```
+
+**Fix 3: Better alternative — use emptyDir or PVC instead of hostPath**
+```yaml
+# Recommended for most use cases
+volumes:
+- name: app-data
+  emptyDir: {}              # ✅ Kubernetes manages this — no manual node prep needed
+```
+
+---
+
+## 5️⃣ Interview Answer Version
+
+> *"ContainerCreating stuck for more than a few minutes usually indicates a volume mount failure. I describe the pod and look at the Events section — a message like 'MountVolume.SetUp failed: no such file or directory' points to a hostPath volume issue. The fix is either creating the directory on the node manually, using `type: DirectoryOrCreate` in the hostPath spec, or better yet — replacing hostPath with a PVC or emptyDir which Kubernetes manages automatically."*
+
+---
+
+## 6️⃣ Real-World Scenario Example
+
+> **Scenario:** After cluster node replacement, some pods stuck in ContainerCreating. Other pods fine.
+>
+> **Root cause:** New node didn't have `/data/app` directory. Old node had it from a previous manual setup. hostPath volumes don't migrate with nodes.
+>
+> **Resolution:** Added node provisioning script to create required directories. Long-term: migrated from hostPath to PVC (EBS volumes on AWS) — portable, no manual node prep.
+
+---
+
+## 7️⃣ kubectl Commands Cheat Sheet
+
+| Command | Purpose |
+|---------|---------|
+| `kubectl describe pod <name>` | See volume mount failure events |
+| `kubectl get pod <name> -o wide` | Find which node pod is on |
+| `kubectl get pod <name> -o yaml \| grep -A20 volumes` | Inspect volume config |
+| `kubectl get pvc` | Check if PVC is bound (if using PVC) |
+| `kubectl get pv` | Check PersistentVolume status |
+
+---
+
+## 8️⃣ Advanced Debugging Tips
+
+- 🔍 `ContainerCreating` covers multiple failure types — always describe the pod for specifics: image pull, volume mount, secret/configmap not found
+- 🔍 If a Secret or ConfigMap referenced in the pod doesn't exist → also causes ContainerCreating to hang
+- 🛡️ **hostPath type options:** `Directory` (must exist), `DirectoryOrCreate` (creates if missing), `File`, `FileOrCreate`, `Socket`, `CharDevice`, `BlockDevice`
+- 🛡️ Avoid `hostPath` in production — it creates node affinity and operational burden. Use PVCs instead
+- 🛡️ Check PVC status if using persistent storage — `kubectl get pvc` should show `Bound` not `Pending`
+
+---
+
+## 9️⃣ Common Follow-Up Interview Questions
+
+**Q: What other things can cause ContainerCreating to hang?**
+> Missing Secret or ConfigMap referenced in the pod spec, PVC stuck in Pending state (no available PV), image pull in progress (slow registry), CNI plugin failure (no IP assignment).
+
+**Q: What is the difference between hostPath and PVC?**
+> `hostPath` binds to a specific directory on a specific node — data is lost if pod moves to another node, requires manual node preparation. PVC (PersistentVolumeClaim) abstracts storage — Kubernetes provisions and manages it, pod can move between nodes.
+
+---
+
+## 🔟 Related Concepts to Revise
+- Kubernetes volume types (hostPath, emptyDir, PVC, configMap, secret)
+- PersistentVolume and PersistentVolumeClaim lifecycle
+- Storage classes and dynamic provisioning
+- hostPath types (Directory, DirectoryOrCreate, etc.)
+- kubelet volume manager
+
+---
+---
+
+# 🔴 Q31 — Ingress Routing Failure — 404 Error
+
+## 1️⃣ Issue Summary
+| Field | Detail |
+|-------|--------|
+| **What** | Ingress exists, service and pods are running, but all requests return 404 |
+| **Where** | Ingress — path routing rules |
+| **Symptom** | `curl https://example.com/users` returns `404 Not Found` |
+
+> 🟢 **Beginner Explanation:** The building directory (Ingress) only lists Room 101 (path: /api). You're looking for Room 201 (path: /users). The directory correctly says "no such room" — the directory itself is the problem, not the building.
+
+---
+
+## 2️⃣ Root Cause Explanation
+- Ingress rules define **which path to route to which service**
+- If the configured path (`/api`) doesn't match the client's request path (`/users`), Ingress correctly returns 404
+- The application and service are fine — the routing rule is wrong
+- **Components involved:** Ingress controller (nginx, traefik), Ingress path rules, HTTP routing
+
+---
+
+## 3️⃣ Step-by-Step Troubleshooting Approach
+
+```bash
+# Step 1: Confirm 404 is from Ingress (not the application)
+curl -v https://example.com/users
+# Response shows nginx/ingress headers → 404 is from Ingress layer
+
+# Step 2: Inspect Ingress rules
+kubectl get ingress <name> -o yaml
+# OR
+kubectl describe ingress <name>
+# Rules:
+#   Path: /api → service:my-service:80   ← Only /api is configured!
+#   /users is NOT listed → Ingress returns 404
+
+# Step 3: Check what path the client is using
+# Client calls: /users
+# Ingress rule: /api
+# MISMATCH → root cause
+
+# Step 4: Fix Ingress — update path to match client request
+# Change path: /api → path: /users
+# OR add a new rule for /users
+
+# Step 5: Apply fix
+kubectl apply -f ingress.yaml
+
+# Step 6: Verify
+curl https://example.com/users
+# 200 OK ✅
+```
+
+---
+
+## 4️⃣ Fix / Resolution
+
+```yaml
+# BEFORE — Wrong path configured ❌
+spec:
+  rules:
+  - host: example.com
+    http:
+      paths:
+      - path: /api          # ❌ Client requests /users — mismatch!
+        pathType: Prefix
+        backend:
+          service:
+            name: my-service
+            port:
+              number: 80
+```
+
+```yaml
+# AFTER — Correct path ✅
+spec:
+  rules:
+  - host: example.com
+    http:
+      paths:
+      - path: /users        # ✅ Matches client request
+        pathType: Prefix
+        backend:
+          service:
+            name: my-service
+            port:
+              number: 80
+```
+
+```bash
+kubectl apply -f ingress.yaml
+kubectl describe ingress <name>   # Verify new path is listed
+curl https://example.com/users    # 200 OK ✅
+```
+
+---
+
+## 5️⃣ Interview Answer Version
+
+> *"A 404 from Ingress means the request path doesn't match any configured Ingress rule. The application itself is fine. I describe the Ingress to see all configured paths and compare them with the actual client request path. The fix is updating the Ingress path rule to match what clients are requesting, or adding a new path rule if multiple routes are needed."*
+
+---
+
+## 6️⃣ Real-World Scenario Example
+
+> **Scenario:** API gateway migration. After moving to Ingress-based routing, all `/v2/` API calls return 404. `/v1/` calls work.
+>
+> **Root cause:** Ingress was configured only for `/v1/` paths. `/v2/` endpoints were added to the service but Ingress rules weren't updated.
+>
+> **Resolution:** Added `/v2/` path rules to Ingress. Created a process to always update Ingress rules when new API routes are added.
+
+---
+
+## 7️⃣ kubectl Commands Cheat Sheet
+
+| Command | Purpose |
+|---------|---------|
+| `kubectl get ingress` | List all Ingress resources |
+| `kubectl describe ingress <name>` | See rules, paths, backends |
+| `kubectl get ingress <name> -o yaml` | Full Ingress spec |
+| `kubectl logs <ingress-controller-pod> -n ingress-nginx` | Ingress controller logs |
+| `curl -v https://<host>/<path>` | Test with verbose output to see headers |
+
+---
+
+## 8️⃣ Advanced Debugging Tips
+
+- 🔍 **Ingress controller logs** show every request — check them for "no matching rule found" messages
+- 🔍 `pathType` matters: `Exact` matches only that exact path. `Prefix` matches that path and all sub-paths. `ImplementationSpecific` — depends on controller.
+- 🛡️ Add a catch-all path `path: /` at the END of rules to return a proper 404 page instead of raw nginx 404
+- 🛡️ Use `kubectl describe ingress` to see the complete routing table at a glance
+
+---
+
+## 9️⃣ Common Follow-Up Interview Questions
+
+**Q: What is the difference between pathType Exact and Prefix?**
+> `Exact`: Only matches the exact path (e.g., `/api` matches only `/api`, not `/api/users`). `Prefix`: Matches the path and all sub-paths (e.g., `/api` matches `/api`, `/api/users`, `/api/v2/anything`).
+
+**Q: What is an Ingress controller and how does it differ from an Ingress resource?**
+> Ingress resource = Kubernetes object defining routing rules (YAML). Ingress controller = the actual software that reads Ingress rules and implements them (nginx-ingress, traefik, HAProxy). You need both — the resource defines rules, the controller enforces them.
+
+---
+
+## 🔟 Related Concepts to Revise
+- Ingress resource spec (rules, paths, hosts, TLS)
+- pathType (Exact, Prefix, ImplementationSpecific)
+- Ingress controllers (nginx, traefik, AWS ALB)
+- Host-based vs path-based routing
+- Ingress class (`ingressClassName`)
+
+---
+---
+
+# 🟡 Q32 — TLS Not Enforcing HTTPS
+
+## 1️�� Issue Summary
+| Field | Detail |
+|-------|--------|
+| **What** | Ingress has TLS configured but HTTP still works — not redirected to HTTPS |
+| **Where** | Ingress — TLS configuration and redirect annotation |
+| **Symptom** | `curl http://example.com` returns 200 (should redirect to HTTPS) |
+
+> 🟢 **Beginner Explanation:** You installed a secure door (TLS) at the front of the building but left the side entrance (HTTP port) open with no sign pointing to the front door. People can still walk in through the unsecured side.
+
+---
+
+## 2️⃣ Root Cause Explanation
+- Configuring TLS in Ingress only **enables HTTPS** — it does NOT automatically redirect HTTP to HTTPS
+- HTTP→HTTPS redirect must be explicitly configured via an annotation on the Ingress resource
+- Without the redirect annotation, both HTTP and HTTPS work simultaneously
+- **Components involved:** Ingress controller, TLS secret, HTTP redirect annotation
+
+---
+
+## 3️⃣ Step-by-Step Troubleshooting Approach
+
+```bash
+# Step 1: Confirm HTTP is accessible (it shouldn't be)
+curl -v http://example.com
+# 200 OK ← Should be 301/302 redirect to HTTPS
+
+# Step 2: Confirm HTTPS works
+curl -v https://example.com
+# 200 OK ✅ — HTTPS is working
+
+# Step 3: Check Ingress TLS and annotations
+kubectl get ingress <name> -o yaml
+# tls:
+# - hosts: [example.com]
+#   secretName: my-tls-secret    ← TLS configured ✅
+# annotations:   ← Check this section
+#   (no redirect annotation present!) ← Root cause
+
+# Step 4: Add HTTP to HTTPS redirect annotation
+# For nginx ingress controller:
+# nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+# Step 5: Apply fix
+kubectl apply -f ingress.yaml
+
+# Step 6: Verify redirect
+curl -v http://example.com
+# 308 Permanent Redirect → https://example.com ✅
+```
+
+---
+
+## 4️⃣ Fix / Resolution
+
+```yaml
+# BEFORE — TLS enabled but no HTTP redirect ❌
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-ingress
+  annotations:
+    # ❌ Missing redirect annotation!
+spec:
+  tls:
+  - hosts:
+    - example.com
+    secretName: my-tls-secret
+  rules:
+  - host: example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: my-service
+            port:
+              number: 80
+```
+
+```yaml
+# AFTER — TLS + HTTP to HTTPS redirect ✅
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"          # ✅ Force HTTPS
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"    # ✅ Even behind proxies
+spec:
+  tls:
+  - hosts:
+    - example.com
+    secretName: my-tls-secret
+  rules:
+  - host: example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: my-service
+            port:
+              number: 80
+```
+
+---
+
+## 5️⃣ Interview Answer Version
+
+> *"TLS configuration in Ingress only enables HTTPS — it doesn't automatically redirect HTTP traffic. To enforce HTTPS, I add the annotation `nginx.ingress.kubernetes.io/ssl-redirect: 'true'` to the Ingress resource. This tells the nginx Ingress controller to respond to all HTTP requests with a 308 redirect to HTTPS. Without this annotation, both HTTP and HTTPS are accessible simultaneously."*
+
+---
+
+## 6️⃣ Real-World Scenario Example
+
+> **Scenario:** Security audit finds all services accessible over plain HTTP despite TLS being configured. Compliance violation.
+>
+> **Root cause:** Team added TLS secrets and `spec.tls` but didn't know about the redirect annotation.
+>
+> **Resolution:** Added redirect annotation to all Ingress resources. Added to organization's Ingress template/Helm chart as a default. Added security scan to CI/CD to detect HTTP-accessible Ingress.
+
+---
+
+## 7️⃣ kubectl Commands Cheat Sheet
+
+| Command | Purpose |
+|---------|---------|
+| `kubectl describe ingress <name>` | See TLS config and annotations |
+| `curl -v http://<host>` | Test for redirect response |
+| `curl -v https://<host>` | Test HTTPS directly |
+| `kubectl get secret <tls-secret> -o yaml` | Inspect TLS secret |
+| `openssl s_client -connect <host>:443` | Test TLS certificate |
+
+---
+
+## 8️⃣ Advanced Debugging Tips
+
+- 🔍 `ssl-redirect` vs `force-ssl-redirect`: `ssl-redirect` respects X-Forwarded-Proto header. `force-ssl-redirect` always redirects regardless of the header — use this when behind multiple proxies
+- 🔍 TLS secrets must contain `tls.crt` and `tls.key` — check with `kubectl get secret <name> -o yaml`
+- 🛡️ Use **cert-manager** to automate TLS certificate provisioning and renewal (Let's Encrypt)
+- 🛡️ Add HSTS header annotation: `nginx.ingress.kubernetes.io/configuration-snippet: add_header Strict-Transport-Security "max-age=31536000"` for additional HTTP security
+
+---
+
+## 9️⃣ Common Follow-Up Interview Questions
+
+**Q: What is cert-manager and how does it help with TLS in Kubernetes?**
+> cert-manager automates TLS certificate management — it requests, renews, and stores certificates (from Let's Encrypt, Vault, etc.) as Kubernetes Secrets. Annotations on Ingress trigger automatic certificate issuance.
+
+**Q: What type of Kubernetes Secret stores TLS certificates?**
+> `kubernetes.io/tls` type. Contains two keys: `tls.crt` (certificate) and `tls.key` (private key). Created manually or automatically by cert-manager.
+
+---
+
+## 🔟 Related Concepts to Revise
+- Ingress TLS configuration
+- nginx-ingress annotations
+- cert-manager (Let's Encrypt integration)
+- TLS/HTTPS fundamentals
+- HSTS (HTTP Strict Transport Security)
+
+---
+---
+
+# 🟡 Q33 — Path Rewrite Not Working
+
+## 1️⃣ Issue Summary
+| Field | Detail |
+|-------|--------|
+| **What** | Ingress path rewrite annotation is configured but the backend still receives the original path |
+| **Where** | Ingress — path rewrite annotation with regex capture groups |
+| **Symptom** | Backend receives `/api/users` instead of expected `/v1/users` |
+
+> 🟢 **Beginner Explanation:** You set up call forwarding to translate "Extension 100" to "Extension 200". But the translation rule has a typo — it tries to forward Extension 1 (no capture of the rest). The translation never works.
+
+---
+
+## 2️⃣ Root Cause Explanation
+- nginx Ingress path rewrite uses **regex capture groups** in the path definition
+- If the path is defined without a capture group (e.g., `/api` instead of `/api(/|$)(.*)`), the rewrite target `/$1` has nothing to substitute
+- Rewrite silently fails → original path is passed to the backend
+- **Components involved:** nginx Ingress controller, `nginx.ingress.kubernetes.io/rewrite-target` annotation, regex capture groups
+
+---
+
+## 3️⃣ Step-by-Step Troubleshooting Approach
+
+```bash
+# Step 1: Check backend logs — confirm it receives wrong path
+kubectl logs <backend-pod>
+# Request: GET /api/users  ← Should be /v1/users
+
+# Step 2: Confirm client is sending correct path
+curl -v https://example.com/api/users
+# Client sends: /api/users ✅ — client is correct
+
+# Step 3: Inspect Ingress configuration
+kubectl get ingress <name> -o yaml
+# annotations:
+#   nginx.ingress.kubernetes.io/rewrite-target: /v1/$1
+# spec:
+#   rules:
+#   - http:
+#       paths:
+#       - path: /api          ← ❌ No capture group!
+#         pathType: Prefix
+
+# Path "/api" has no capture group → $1 is empty
+# Rewrite target: /v1/ (empty) = doesn't work as intended
+
+# Step 4: Fix path to include capture group
+# path: /api(/|$)(.*)  — captures everything after /api
+
+# Step 5: Update rewrite-target to use captured group
+# rewrite-target: /v1/$2  — $2 = captured path after /api
+
+# Step 6: Apply and verify
+kubectl apply -f ingress.yaml
+curl https://example.com/api/users
+# Backend receives: /v1/users ✅
+```
+
+---
+
+## 4️⃣ Fix / Resolution
+
+```yaml
+# BEFORE — No capture group, rewrite doesn't work ❌
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /v1/$1   # ❌ $1 is never captured!
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /api            # ❌ No capture group in path
+        pathType: Prefix
+```
+
+```yaml
+# AFTER — With capture group, rewrite works ✅
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /v1/$2   # ✅ $2 = captured path after /api
+    nginx.ingress.kubernetes.io/use-regex: "true"         # ✅ Enable regex matching
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /api(/|$)(.*)   # ✅ Captures: $1=slash, $2=rest of path
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: my-service
+            port:
+              number: 80
+```
+
+```
+# How the rewrite works:
+# Client: /api/users
+# Regex captures: $1 = /, $2 = users
+# Rewrite target: /v1/$2 = /v1/users ✅
+# Backend receives: /v1/users
+```
+
+---
+
+## 5️⃣ Interview Answer Version
+
+> *"nginx Ingress path rewrite requires regex capture groups in the path definition. If the path is `/api` without a capture group, the rewrite target `$1` is empty and the rewrite silently fails. The fix is to use a proper regex path like `/api(/|$)(.*)` which captures the path after `/api` in `$2`, then set `rewrite-target: /v1/$2`. This correctly transforms `/api/users` to `/v1/users` at the Ingress layer."*
+
+---
+
+## 6️⃣ Real-World Scenario Example
+
+> **Scenario:** API versioning migration — `/api/*` should route to `/v2/*` internally. Users see broken responses.
+>
+> **Root cause:** Path defined as `/api` with `rewrite-target: /v2/$1`. No capture group means `$1` is empty. Backend receives `/v2/` for every request regardless of path.
+>
+> **Resolution:** Updated path to `/api(/|$)(.*)`, rewrite-target to `/v2/$2`. Added integration tests for path rewriting to CI pipeline.
+
+---
+
+## 7️⃣ kubectl Commands Cheat Sheet
+
+| Command | Purpose |
+|---------|---------|
+| `kubectl describe ingress <name>` | See annotations and rules |
+| `kubectl logs <ingress-controller-pod> -n ingress-nginx` | nginx logs for path rewrite |
+| `kubectl get ingress <name> -o yaml` | Full Ingress spec with annotations |
+| `curl -v https://<host>/<path>` | Test rewritten path |
+| `kubectl logs <backend-pod>` | Confirm what path backend receives |
+
+---
+
+## 8️⃣ Advanced Debugging Tips
+
+- 🔍 Enable `use-regex: "true"` annotation when using regex in paths
+- 🔍 Test regex patterns at [regex101.com](https://regex101.com) before applying to Ingress
+- 🔍 `$1`, `$2` etc. correspond to capture groups in order — `()` in regex path = capture group
+- 🛡️ Prefer named capture groups for clarity: `(?P<version>[^/]+)` but nginx Ingress uses numbered groups
+- 🛡️ For complex routing, consider using Ingress annotations sparingly and moving to a service mesh (Istio VirtualService) for more powerful routing
+
+---
+
+## 9️⃣ Common Follow-Up Interview Questions
+
+**Q: How does nginx path rewriting work in Kubernetes Ingress?**
+> The `rewrite-target` annotation defines the replacement path. The `path` field uses regex with capture groups `()`. When a request matches, the captured groups replace `$1`, `$2` etc. in the rewrite-target.
+
+**Q: What is the difference between path rewrite and path redirect?**
+> Rewrite: server-side — backend receives the rewritten path, client never knows (no URL change in browser). Redirect: client-side — server sends 301/302 response, client makes a new request to the new URL (URL changes in browser).
+
+---
+
+## 🔟 Related Concepts to Revise
+- nginx Ingress annotations
+- Regex capture groups
+- Path rewrite vs redirect
+- Ingress pathType (Prefix, Exact, ImplementationSpecific)
+- Istio VirtualService for advanced routing
+
+---
+---
+
+# 🟡 Q34 — Ingress 404 for /app Path
+
+## 1️⃣ Issue Summary
+| Field | Detail |
+|-------|--------|
+| **What** | Client requests `/app` but gets 404 from Ingress despite service being healthy |
+| **Where** | Ingress — pathType configuration |
+| **Symptom** | `curl https://example.com/app` returns 404 even though Ingress exists |
+
+> 🟢 **Beginner Explanation:** You're looking for "Room App" but the building directory (Ingress) only accepts exact matches and lists "Room Application" — even though they're in the same wing. Since `app ≠ application`, the directory says "not found."
+
+---
+
+## 2️⃣ Root Cause Explanation
+- Ingress path configured as `/application` with `pathType: Exact`
+- Client requests `/app` — doesn't match `/application` exactly
+- `Exact` pathType only matches that specific path string — not prefixes, not substrings
+- **Components involved:** Ingress controller, pathType validation, HTTP request path matching
+
+---
+
+## 3️⃣ Step-by-Step Troubleshooting Approach
+
+```bash
+# Step 1: Observe the 404
+curl -v https://example.com/app
+# 404 Not Found ← From Ingress
+
+# Step 2: Inspect Ingress rules
+kubectl get ingress <name> -o yaml
+# paths:
+# - path: /application        ← Configured path
+#   pathType: Exact           ← Exact match only!
+# Client requests: /app ← Doesn't match /application with Exact type
+
+# Step 3: Identify root cause
+# /app != /application → Exact match fails → 404
+
+# Step 4: Fix: change path to /app AND change pathType to Prefix
+# This allows /app, /app/dashboard, /app/settings etc.
+
+# Step 5: Apply fix
+kubectl apply -f ingress.yaml
+
+# Step 6: Verify
+curl https://example.com/app          # 200 OK ✅
+curl https://example.com/app/login    # 200 OK ✅ (if pathType: Prefix)
+```
+
+---
+
+## 4️⃣ Fix / Resolution
+
+```yaml
+# BEFORE — Wrong path and too restrictive pathType ❌
+spec:
+  rules:
+  - host: example.com
+    http:
+      paths:
+      - path: /application    # ❌ Wrong path (client requests /app)
+        pathType: Exact        # ❌ Exact — won't match /app/anything
+        backend:
+          service:
+            name: app-service
+            port:
+              number: 80
+```
+
+```yaml
+# AFTER — Correct path with Prefix type ✅
+spec:
+  rules:
+  - host: example.com
+    http:
+      paths:
+      - path: /app            # ✅ Matches client request
+        pathType: Prefix       # ✅ Matches /app, /app/login, /app/dashboard
+        backend:
+          service:
+            name: app-service
+            port:
+              number: 80
+```
+
+---
+
+## 5️⃣ Interview Answer Version
+
+> *"A 404 from Ingress for a specific path usually means the path rule doesn't match. I inspect the Ingress with `kubectl describe ingress` to compare configured paths against the client request. In this case, the path was `/application` with `pathType: Exact`, but clients requested `/app` — different strings. The fix is updating the path to `/app` and using `pathType: Prefix` to handle all sub-paths like `/app/login` and `/app/settings`."*
+
+---
+
+## 6️⃣ Real-World Scenario Example
+
+> **Scenario:** Frontend app at `example.com/app`. Works fine at root (`/app`). All deep links (`/app/dashboard`) return 404.
+>
+> **Root cause:** `pathType: Exact` on `/app` — only the exact path `/app` matched. `/app/dashboard` didn't match.
+>
+> **Resolution:** Changed to `pathType: Prefix`. All sub-paths now route correctly.
+
+---
+
+## 7️⃣ kubectl Commands Cheat Sheet
+
+| Command | Purpose |
+|---------|---------|
+| `kubectl describe ingress <name>` | View path rules and pathType |
+| `kubectl get ingress <name> -o yaml` | Full Ingress spec |
+| `curl -v https://<host>/<path>` | Test specific path |
+| `kubectl edit ingress <name>` | Quickly edit Ingress in-place |
+
+---
+
+## 8️⃣ Advanced Debugging Tips
+
+- 🔍 **pathType quick reference:**
+  - `Exact` → `/app` matches ONLY `/app`
+  - `Prefix` → `/app` matches `/app`, `/app/`, `/app/anything`
+  - `ImplementationSpecific` → behavior depends on Ingress controller
+- 🔍 Order of rules matters in Ingress — more specific paths should come before broader ones
+- 🛡️ For SPAs (React, Angular, Vue): use `pathType: Prefix` on the root path and configure the backend to serve `index.html` for all routes
+
+---
+
+## 9️⃣ Common Follow-Up Interview Questions
+
+**Q: When should you use Exact vs Prefix pathType?**
+> `Exact` for precise API endpoints where you don't want sub-paths to match (e.g., `/api/v1/health` exactly). `Prefix` for web applications where the frontend handles its own sub-routing (e.g., React SPA at `/app`).
+
+**Q: How does Ingress handle multiple path rules for the same host?**
+> Rules are evaluated in order. First matching rule wins. More specific paths should be listed before more general ones. A `/api/v2` rule should come before `/api` to prevent the shorter prefix from matching first.
+
+---
+
+## 🔟 Related Concepts to Revise
+- Ingress pathType options
+- Path matching order in Ingress
+- SPA routing with Ingress
+- Ingress host-based vs path-based routing
+
+---
+---
+
+# 🟡 Q35 — Host-Based Routing to Wrong Service
+
+## 1️⃣ Issue Summary
+| Field | Detail |
+|-------|--------|
+| **What** | Requests to `admin.example.com` are served by the main app, not the admin app |
+| **Where** | Ingress — host rule ordering |
+| **Symptom** | Wrong content returned, no errors — silent misrouting |
+
+> 🟢 **Beginner Explanation:** The building directory lists "Example Corp" before "Example Corp Admin" and uses a "starts with" match. When you ask for "Example Corp Admin," it matches "Example Corp" first and sends you to the wrong floor.
+
+---
+
+## 2️⃣ Root Cause Explanation
+- When both `example.com` and `admin.example.com` rules use a catch-all path (`/`), the order matters
+- If `example.com` rule appears first AND the Ingress controller uses prefix/partial host matching, `admin.example.com` can match the `example.com` rule
+- **More specific (subdomain) rules must come BEFORE broader domain rules**
+- **Components involved:** Ingress controller host matching logic, rule evaluation order
+
+---
+
+## 3️⃣ Step-by-Step Troubleshooting Approach
+
+```bash
+# Step 1: Observe incorrect routing
+curl https://admin.example.com
+# Response from main app — "Welcome to Main App" ← Wrong!
+
+# Step 2: Inspect Ingress rules
+kubectl get ingress <name> -o yaml
+# rules:
+# - host: example.com         ← Listed FIRST
+#   http:
+#     paths:
+#     - path: /
+#       backend: main-service
+# - host: admin.example.com   ← Listed SECOND
+#   http:
+#     paths:
+#     - path: /
+#       backend: admin-service
+# First rule matches broader pattern first → admin traffic goes to main-service
+
+# Step 3: Reorder rules — more specific FIRST
+# admin.example.com must be BEFORE example.com
+
+# Step 4: Apply fix
+kubectl apply -f ingress.yaml
+
+# Step 5: Verify
+curl https://admin.example.com
+# Response from admin app ✅
+curl https://example.com
+# Response from main app ✅
+```
+
+---
+
+## 4️⃣ Fix / Resolution
+
+```yaml
+# BEFORE — Broader rule first ❌
+spec:
+  rules:
+  - host: example.com           # ❌ Broad rule first
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: main-service
+            port:
+              number: 80
+  - host: admin.example.com     # ❌ Specific rule second — may never match
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: admin-service
+            port:
+              number: 80
+```
+
+```yaml
+# AFTER — Specific rule first ✅
+spec:
+  rules:
+  - host: admin.example.com     # ✅ More specific (subdomain) rule FIRST
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: admin-service
+            port:
+              number: 80
+  - host: example.com           # ✅ Broader rule second
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: main-service
+            port:
+              number: 80
+```
+
+---
+
+## 5️⃣ Interview Answer Version
+
+> *"In a single Ingress with multiple host rules, more specific rules must come before broader ones. If `example.com` is listed before `admin.example.com` and both use the same catch-all path, requests to `admin.example.com` may match `example.com` first. The fix is reordering the Ingress rules — `admin.example.com` must appear before `example.com` in the rules list."*
+
+---
+
+## 6️⃣ Real-World Scenario Example
+
+> **Scenario:** Multi-tenant platform. `tenant1.app.com` routes to wrong tenant's service. Tenant2 data visible to tenant1 users — potential data leak.
+>
+> **Root cause:** Wildcard or broad host rules before specific tenant rules.
+>
+> **Resolution:** Reordered Ingress rules — all specific tenant subdomain rules listed before any wildcard or catch-all rules. Added a CI check to validate Ingress rule ordering.
+
+---
+
+## 7️⃣ kubectl Commands Cheat Sheet
+
+| Command | Purpose |
+|---------|---------|
+| `kubectl describe ingress <name>` | See all host rules and their order |
+| `curl -H "Host: admin.example.com" http://<ingress-ip>` | Test with explicit Host header |
+| `kubectl get ingress <name> -o yaml` | Full Ingress spec |
+| `kubectl edit ingress <name>` | Edit rules order in-place |
+
+---
+
+## 8️⃣ Advanced Debugging Tips
+
+- 🔍 Test with `curl -H "Host: admin.example.com" http://<ingress-ip>` to bypass DNS and test routing directly
+- 🔍 Use separate Ingress resources for separate domains/subdomains — avoids ordering issues and is easier to manage
+- 🛡️ For large multi-tenant systems, use **IngressClass** or separate Ingress controllers per tenant
+- 🛡️ Never share a single Ingress for security-sensitive services (admin vs user) in production — separate them
+
+---
+
+## 9️⃣ Common Follow-Up Interview Questions
+
+**Q: Can you have multiple Ingress resources for the same host?**
+> Yes — Ingress resources are merged by the Ingress controller. Rules from multiple Ingress resources for the same host are combined. This can cause conflicts — use `IngressClass` and proper naming conventions to manage this.
+
+**Q: How do you test Ingress routing without DNS?**
+> Use `curl -H "Host: admin.example.com" http://<ingress-controller-ip>` — this sets the Host header manually, simulating a DNS-resolved request without actual DNS changes.
+
+---
+
+## 🔟 Related Concepts to Revise
+- Ingress host-based routing
+- IngressClass
+- Wildcard hostnames in Ingress
+- Multi-tenant Kubernetes patterns
+- Separate Ingress resources vs combined rules
+
+---
+---
+
+# 🟡 Q36 — ConfigMap Created but App Can't Read Values
+
+## 1️⃣ Issue Summary
+| Field | Detail |
+|-------|--------|
+| **What** | ConfigMap exists with correct data but application crashes saying config is missing |
+| **Where** | Deployment spec — missing ConfigMap reference |
+| **Symptom** | App crashes on startup: "required configuration value is missing" |
+
+> 🟢 **Beginner Explanation:** You wrote the office manual (ConfigMap) and stored it in the filing cabinet. But the new employee (pod) wasn't told where the cabinet is (no reference in deployment). They start work without any instructions and fail.
+
+---
+
+## 2️⃣ Root Cause Explanation
+- Creating a ConfigMap does NOT automatically make it available to pods
+- The deployment/pod spec must **explicitly reference** the ConfigMap via `envFrom`, `env.valueFrom`, or `volumeMount`
+- Without the reference, the pod starts with no environment variables from that ConfigMap
+- **Components involved:** ConfigMap object, Deployment spec, `envFrom`/`env.valueFrom`
+
+---
+
+## 3️⃣ Step-by-Step Troubleshooting Approach
+
+```bash
+# Step 1: Observe app failure
+kubectl get pods
+# STATUS: CrashLoopBackOff
+
+kubectl logs <pod-name>
+# "Error: required config value DATABASE_URL is missing"
+
+# Step 2: Verify ConfigMap exists and has the key
+kubectl get configmap app-config
+# EXISTS ✅
+kubectl get configmap app-config -o yaml
+# data:
+#   DATABASE_URL: "postgres://..."   ← Key exists ✅
+
+# Step 3: Check deployment — is ConfigMap referenced?
+kubectl get deployment <name> -o yaml | grep -A10 envFrom
+# (Nothing returned!) ← ConfigMap not referenced at all!
+
+kubectl get deployment <name> -o yaml | grep configMap
+# (Nothing) ← Root cause confirmed
+
+# Step 4: Update deployment to reference ConfigMap
+# Add envFrom section pointing to the ConfigMap
+
+# Step 5: Apply fix
+kubectl apply -f deployment.yaml
+
+# Step 6: Verify
+kubectl exec -it <new-pod> -- env | grep DATABASE_URL
+# DATABASE_URL=postgres://...  ✅
+```
+
+---
+
+## 4️⃣ Fix / Resolution
+
+```yaml
+# BEFORE — ConfigMap not referenced ❌
+spec:
+  containers:
+  - name: app
+    image: myapp:v1
+    # ❌ No envFrom or env.valueFrom referencing the ConfigMap!
+```
+
+```yaml
+# AFTER — ConfigMap properly referenced ✅
+spec:
+  containers:
+  - name: app
+    image: myapp:v1
+    envFrom:
+    - configMapRef:
+        name: app-config    # ✅ Inject ALL keys from ConfigMap as env vars
+```
+
+```yaml
+# Alternative — Reference specific keys
+spec:
+  containers:
+  - name: app
+    image: myapp:v1
+    env:
+    - name: DATABASE_URL           # ✅ Specific env var name
+      valueFrom:
+        configMapKeyRef:
+          name: app-config         # ConfigMap name
+          key: DATABASE_URL        # Specific key from ConfigMap
+```
+
+```bash
+kubectl apply -f deployment.yaml
+kubectl rollout status deployment/<name>
+kubectl exec -it <pod> -- env | grep DATABASE_URL
+# DATABASE_URL=postgres://... ✅
+```
+
+---
+
+## 5️⃣ Interview Answer Version
+
+> *"Creating a ConfigMap is only half the work — the deployment must also reference it. When an app crashes saying config is missing, I verify the ConfigMap exists and has the correct keys, then check the deployment YAML for `envFrom` or `env.valueFrom` referencing the ConfigMap. If it's missing, I add the `envFrom: configMapRef:` section and redeploy. Kubernetes then injects all ConfigMap keys as environment variables into the container."*
+
+---
+
+## 6️⃣ Real-World Scenario Example
+
+> **Scenario:** Config management was separated — one team owns ConfigMaps, another owns deployments. New ConfigMap created but deployment never updated to reference it.
+>
+> **Root cause:** Process gap — no coordination between teams.
+>
+> **Resolution:** Updated deployment to reference ConfigMap. Implemented GitOps — all related resources (ConfigMap + Deployment) must be in the same PR/commit.
+
+---
+
+## 7️⃣ kubectl Commands Cheat Sheet
+
+| Command | Purpose |
+|---------|---------|
+| `kubectl get configmap <name> -o yaml` | Inspect ConfigMap keys and values |
+| `kubectl get deployment <name> -o yaml` | Check for envFrom references |
+| `kubectl exec -it <pod> -- env` | List all env vars inside container |
+| `kubectl exec -it <pod> -- env \| grep <KEY>` | Check specific env var |
+| `kubectl describe pod <name>` | See environment section for each container |
+
+---
+
+## 8️⃣ Advanced Debugging Tips
+
+- 🔍 `kubectl describe pod <name>` shows the Environment section — you can see which env vars are set and from where
+- 🔍 `envFrom` injects ALL keys from a ConfigMap. `env.valueFrom.configMapKeyRef` injects specific keys — use specific keys for clarity in large ConfigMaps
+- 🛡️ Use Helm or Kustomize to bundle ConfigMap + Deployment together — reduces risk of forgetting to reference ConfigMap
+- 🛡️ Consider using External Secrets Operator or Vault Agent for production secrets management
+
+---
+
+## 9️⃣ Common Follow-Up Interview Questions
+
+**Q: What is the difference between envFrom and env.valueFrom?**
+> `envFrom` injects ALL keys from a ConfigMap or Secret as environment variables. `env.valueFrom.configMapKeyRef` injects a specific single key, allowing you to rename it as a different environment variable name in the container.
+
+**Q: How would you inject ConfigMap data as a file instead of env vars?**
+> Mount the ConfigMap as a volume. Each key becomes a file, the value becomes the file content. Useful for config files like `nginx.conf`, `application.properties`.
+
+---
+
+## 🔟 Related Concepts to Revise
+- ConfigMap creation and usage patterns
+- envFrom vs env.valueFrom
+- Volume mounts for ConfigMaps
+- Deployment spec: env, envFrom sections
+- kubectl describe pod environment section
+
+---
+---
+
+# 🟡 Q37 — Env Vars from ConfigMap Not Appearing
+
+## 1️⃣ Issue Summary
+| Field | Detail |
+|-------|--------|
+| **What** | Pod starts successfully but expected env vars from ConfigMap are empty/missing |
+| **Where** | Namespace mismatch between ConfigMap and Deployment |
+| **Symptom** | `kubectl exec -it <pod> -- env` shows missing variables. No pod errors. |
+
+> 🟢 **Beginner Explanation:** The filing cabinet (ConfigMap) is on Floor 1 (default namespace). The employee (pod) works on Floor 2 (prod namespace). Floor 2 employees can't access Floor 1 cabinets — different floors, different access.
+
+---
+
+## 2️⃣ Root Cause Explanation
+- ConfigMaps are **namespace-scoped** resources — a ConfigMap in namespace A cannot be referenced by a pod in namespace B
+- Pod starts without error (Kubernetes doesn't fail loudly for cross-namespace references — it just doesn't find the ConfigMap)
+- env vars are simply absent
+- **Components involved:** Kubernetes namespace scoping, ConfigMap, Deployment/Pod spec
+
+---
+
+## 3️⃣ Step-by-Step Troubleshooting Approach
+
+```bash
+# Step 1: Confirm pod is running but env vars are missing
+kubectl exec -it <pod-name> -n prod -- env | grep MY_CONFIG_KEY
+# (Nothing returned) ← env var missing
+
+# Step 2: Verify ConfigMap exists (but which namespace?)
+kubectl get configmap app-config
+# (Not found in current namespace context)
+
+kubectl get configmap app-config -n default
+# Found! ← ConfigMap is in 'default' namespace
+
+# Step 3: Check which namespace the pod/deployment is in
+kubectl get pod <name> -n prod
+# Pod is in 'prod' namespace
+
+# Step 4: Root cause confirmed
+# ConfigMap in 'default', Deployment in 'prod' — cross-namespace reference → fails silently
+
+# Step 5: Create ConfigMap in the SAME namespace as deployment
+kubectl get configmap app-config -n default -o yaml > app-config.yaml
+# Edit the namespace field to 'prod'
+kubectl apply -f app-config.yaml -n prod
+
+# Step 6: Restart pods to pick up new ConfigMap
+kubectl rollout restart deployment/<name> -n prod
+
+# Step 7: Verify
+kubectl exec -it <new-pod> -n prod -- env | grep MY_CONFIG_KEY
+# MY_CONFIG_KEY=my-value ✅
+```
+
+---
+
+## 4️⃣ Fix / Resolution
+
+```bash
+# Export ConfigMap from default namespace
+kubectl get configmap app-config -n default -o yaml | \
+  sed 's/namespace: default/namespace: prod/' | \
+  kubectl apply -f -
+
+# Verify ConfigMap now in prod namespace
+kubectl get configmap app-config -n prod
+# EXISTS ✅
+
+# Restart deployment to reload env vars
+kubectl rollout restart deployment/<name> -n prod
+```
+
+```yaml
+# Create ConfigMap directly in correct namespace
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: prod    # ✅ Must match the deployment's namespace
+data:
+  DATABASE_URL: "postgres://prod-db:5432/mydb"
+  APP_ENV: "production"
+```
+
+---
+
+## 5️⃣ Interview Answer Version
+
+> *"When env vars from a ConfigMap are missing with no errors, my first suspect is namespace mismatch — ConfigMaps are namespace-scoped. I check which namespace the ConfigMap is in vs where the pod runs. If they're different, I create a copy of the ConfigMap in the pod's namespace and restart the deployment. ConfigMaps in namespace A are invisible to pods in namespace B — Kubernetes doesn't throw an error, the env vars just don't appear."*
+
+---
+
+## 6️⃣ Real-World Scenario Example
+
+> **Scenario:** App promoted from staging to production namespace. All other services migrated but ConfigMap wasn't copied to prod namespace.
+>
+> **Symptoms:** Pod started (no crash), but app behaved incorrectly — using default fallback values instead of real config.
+>
+> **Resolution:** Created ConfigMap in prod namespace. Updated CI/CD pipeline to create ConfigMaps in all target namespaces during namespace setup.
+
+---
+
+## 7️⃣ kubectl Commands Cheat Sheet
+
+| Command | Purpose |
+|---------|---------|
+| `kubectl get configmap -n <namespace>` | List ConfigMaps in specific namespace |
+| `kubectl get configmap <name> -n <ns> -o yaml` | Export ConfigMap |
+| `kubectl exec -it <pod> -- env` | Check env vars inside container |
+| `kubectl describe pod <name>` | Check environment section and any warnings |
+| `kubectl config set-context --current --namespace=<ns>` | Change default namespace |
+
+---
+
+## 8️⃣ Advanced Debugging Tips
+
+- 🔍 Kubernetes does NOT error if a referenced ConfigMap doesn't exist in the pod's namespace — env vars are just silently absent. This is a common hidden bug.
+- 🔍 Check `kubectl describe pod` — under "Environment" section, if it shows `<set to the key 'key' of configmap 'name'>  Optional: false` and the pod is running but var is empty — it's a namespace issue
+- 🛡️ Use **Kustomize** with namespace overlays to ensure all resources (ConfigMaps, Secrets, Deployments) are created in the correct namespace consistently
+- 🛡️ Use **External Secrets Operator** for centralized secret/config management across namespaces
+
+---
+
+## 9️⃣ Common Follow-Up Interview Questions
+
+**Q: Which Kubernetes resources are namespace-scoped vs cluster-scoped?**
+> Namespace-scoped: Pods, Deployments, ConfigMaps, Secrets, Services, PVCs, ServiceAccounts. Cluster-scoped: Nodes, PersistentVolumes, ClusterRoles, ClusterRoleBindings, Namespaces, StorageClasses.
+
+**Q: How can you share a ConfigMap across namespaces?**
+> You can't — directly. Options: (1) Create copies in each namespace (2) Use External Secrets Operator or Vault to sync (3) Mount a shared NFS/PVC volume with config files (4) Use a dedicated config service API.
+
+---
+
+## 🔟 Related Concepts to Revise
+- Kubernetes namespace scoping
+- ConfigMap and Secret namespace awareness
+- Kustomize namespace overlays
+- External Secrets Operator
+- Multi-namespace application patterns
+
+---
+---
+
+# 🟡 Q38 — ConfigMap Volume Mount — File Missing
+
+## 1️⃣ Issue Summary
+| Field | Detail |
+|-------|--------|
+| **What** | ConfigMap mounted as volume but application can't find the config file |
+| **Where** | Volume mount — subPath configuration |
+| **Symptom** | App error: "config file /etc/config/app.yaml not found" |
+
+> 🟢 **Beginner Explanation:** You asked for the document "report.pdf" to be placed on your desk. Instead, a folder named "report.pdf" was placed there, with the actual file inside it. You reach for the file but grab the folder instead.
+
+---
+
+## 2️⃣ Root Cause Explanation
+- When mounting a ConfigMap as a volume **without `subPath`**, Kubernetes creates a **directory** at the mountPath
+- Each ConfigMap key becomes a file inside that directory
+- So if you mount to `/etc/config/app.yaml`, Kubernetes creates a directory named `app.yaml` — not a file
+- The actual file is at `/etc/config/app.yaml/app.yaml` — one level deeper than expected
+- **Components involved:** ConfigMap volume mount, `subPath`, kubelet volume manager
+
+---
+
+## 3️⃣ Step-by-Step Troubleshooting Approach
+
+```bash
+# Step 1: Confirm app failure
+kubectl logs <pod-name>
+# "config file /etc/config/app.yaml not found"
+
+# Step 2: Verify ConfigMap has the key
+kubectl get configmap app-config -o yaml
+# data:
+#   app.yaml: |
+#     database:
+#       host: postgres    ← Key exists ✅
+
+# Step 3: Check what was actually mounted inside the container
+kubectl exec -it <pod-name> -- ls -la /etc/config/
+# drwxr-xr-x  app.yaml/   ← It's a DIRECTORY, not a file!
+
+kubectl exec -it <pod-name> -- ls -la /etc/config/app.yaml/
+# -rw-r--r--  app.yaml    ← Actual file is one level deeper!
+
+# Step 4: Root cause — no subPath used, Kubernetes created directory
+
+# Step 5: Fix — add subPath to mount a specific key as a file
+kubectl apply -f deployment.yaml  (with subPath added)
+
+# Step 6: Verify
+kubectl exec -it <pod-name> -- ls -la /etc/config/
+# -rw-r--r--  app.yaml    ← Now it's a FILE ✅
+```
+
+---
+
+## 4️⃣ Fix / Resolution
+
+```yaml
+# BEFORE — Without subPath (creates directory, not file) ❌
+spec:
+  volumes:
+  - name: config-volume
+    configMap:
+      name: app-config
+
+  containers:
+  - name: app
+    volumeMounts:
+    - name: config-volume
+      mountPath: /etc/config/app.yaml    # ❌ Creates DIRECTORY named app.yaml
+```
+
+```yaml
+# AFTER — With subPath (mounts specific key as a single file) ✅
+spec:
+  volumes:
+  - name: config-volume
+    configMap:
+      name: app-config
+
+  containers:
+  - name: app
+    volumeMounts:
+    - name: config-volume
+      mountPath: /etc/config/app.yaml    # ✅ This path will be a FILE
+      subPath: app.yaml                  # ✅ Key name from ConfigMap to mount as file
+```
+
+```bash
+kubectl apply -f deployment.yaml
+kubectl exec -it <pod> -- file /etc/config/app.yaml
+# /etc/config/app.yaml: ASCII text ✅ — it's a file now!
+```
+
+---
+
+## 5️⃣ Interview Answer Version
+
+> *"Without `subPath`, mounting a ConfigMap creates a directory at the mountPath — not a file. Each ConfigMap key becomes a file inside that directory. So `/etc/config/app.yaml` becomes a directory containing `app.yaml`. The fix is adding `subPath: app.yaml` to the volumeMount — this tells Kubernetes to mount just that specific key directly as the file at the specified path."*
+
+---
+
+## 6️⃣ Real-World Scenario Example
+
+> **Scenario:** nginx container configured with custom nginx.conf from ConfigMap. nginx fails to start — "nginx.conf is a directory, not a file."
+>
+> **Root cause:** `mountPath: /etc/nginx/nginx.conf` without `subPath` created a directory named `nginx.conf`.
+>
+> **Resolution:** Added `subPath: nginx.conf` to the volumeMount. nginx now reads the file correctly.
+
+---
+
+## 7️⃣ kubectl Commands Cheat Sheet
+
+| Command | Purpose |
+|---------|---------|
+| `kubectl exec -it <pod> -- ls -la <mountPath>` | Check if mounted path is file or directory |
+| `kubectl exec -it <pod> -- cat <mountPath>` | Read mounted file content |
+| `kubectl get configmap <name> -o yaml` | Inspect ConfigMap keys |
+| `kubectl describe pod <name>` | See volume mount configuration |
+
+---
+
+## 8️⃣ Advanced Debugging Tips
+
+- 🔍 **Key rule:** Mounting ConfigMap to a directory path (no `subPath`) → creates directory with key-named files. Using `subPath` → mounts single key as a file at exact path.
+- 🔍 **`subPath` limitation:** When using `subPath`, ConfigMap updates do NOT automatically reflect in the mounted file — you must restart the pod.
+- 🔍 Without `subPath` (directory mount) — ConfigMap updates DO reflect automatically after a short delay (~60s)
+- 🛡️ For config files that change frequently, use directory mount (no subPath) + configure app to watch/reload the file
+
+---
+
+## 9️⃣ Common Follow-Up Interview Questions
+
+**Q: What is the difference between mounting a ConfigMap as envFrom vs as a volume?**
+> `envFrom` injects keys as env variables — only available at pod start, doesn't update dynamically. Volume mount makes keys available as files — directory mounts update automatically when ConfigMap changes (but subPath mounts don't).
+
+**Q: When does a ConfigMap change reflect in a running pod?**
+> For volume-mounted ConfigMaps (without subPath): changes reflect within ~60 seconds (kubelet sync period). For env vars (envFrom): changes NEVER reflect — pod must be restarted. For subPath mounts: changes NEVER reflect — pod must be restarted.
+
+---
+
+## 🔟 Related Concepts to Revise
+- ConfigMap volume mounts
+- subPath in volume mounts
+- Dynamic config updates in Kubernetes
+- kubelet configmap sync period
+- nginx/app config file patterns in Kubernetes
+
+---
+---
+
+# 🔴 Q39 — Secret Injected but DB Auth Fails
+
+## 1️⃣ Issue Summary
+| Field | Detail |
+|-------|--------|
+| **What** | Pod starts, env vars are set, but database authentication fails |
+| **Where** | Kubernetes Secret — stale/outdated credential value |
+| **Symptom** | App error: "authentication failed for user: wrong password" |
+
+> 🟢 **Beginner Explanation:** The employee's access badge (Secret) is in the system, but the building's lock (database) was re-keyed last week. The badge has the old code — it doesn't work anymore.
+
+---
+
+## 2️⃣ Root Cause Explanation
+- Kubernetes Secret stores the value it was given when created — it does NOT automatically sync with external systems
+- If the database password was changed (by DBA, rotation policy, cloud provider), the Kubernetes Secret still holds the **old password**
+- Pod uses the old password → DB rejects authentication
+- **Components involved:** Kubernetes Secrets, database, external secret management
+
+---
+
+## 3️⃣ Step-by-Step Troubleshooting Approach
+
+```bash
+# Step 1: Confirm app is running but DB auth fails
+kubectl get pods   # Running ✅
+kubectl logs <pod-name>
+# "authentication failed for user: myapp_user"
+
+# Step 2: Check env var value inside container
+kubectl exec -it <pod-name> -- env | grep DB_PASSWORD
+# DB_PASSWORD=OldPassword123   ← Container has a value
+
+# Step 3: Decode and inspect the Kubernetes Secret
+kubectl get secret db-credentials -o yaml
+# data:
+#   password: T2xkUGFzc3dvcmQxMjM=   ← base64 encoded
+
+echo "T2xkUGFzc3dvcmQxMjM=" | base64 -d
+# OldPassword123   ← Secret stores OLD password!
+
+# Step 4: Confirm DB password was changed externally
+# Ask DBA / Check cloud console / Check password rotation logs
+
+# Step 5: Update Secret with new password
+kubectl create secret generic db-credentials \
+  --from-literal=password=NewSecurePassword456 \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Step 6: Restart pod to pick up new Secret value
+kubectl rollout restart deployment/<name>
+
+# Step 7: Verify
+kubectl exec -it <new-pod> -- env | grep DB_PASSWORD
+# DB_PASSWORD=NewSecurePassword456 ✅
+kubectl logs <new-pod>
+# "Database connected successfully" ✅
+```
+
+---
+
+## 4️⃣ Fix / Resolution
+
+```bash
+# Update Kubernetes Secret with new DB password
+kubectl create secret generic db-credentials \
+  --from-literal=username=myapp_user \
+  --from-literal=password=NewSecurePassword456 \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Restart deployment to inject new secret values
+kubectl rollout restart deployment/my-app
+
+# Verify new password is in container
+kubectl exec -it $(kubectl get pod -l app=my-app -o jsonpath='{.items[0].metadata.name}') \
+  -- env | grep DB_PASSWORD
+# DB_PASSWORD=NewSecurePassword456 ✅
+```
+
+```yaml
+# Long-term: Use External Secrets Operator to sync from Vault/AWS Secrets Manager
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: db-credentials
+spec:
+  refreshInterval: 1h              # ✅ Auto-sync every hour
+  secretStoreRef:
+    name: vault-backend
+    kind: SecretStore
+  target:
+    name: db-credentials
+  data:
+  - secretKey: password
+    remoteRef:
+      key: secret/myapp/db
+      property: password
+```
+
+---
+
+## 5️⃣ Interview Answer Version
+
+> *"DB auth failure with valid env vars means the value injected is wrong — not missing. I decode the Kubernetes Secret with `kubectl get secret -o yaml` and base64 decode the password. If it's the old password, the DB was rotated externally without updating the Secret. Fix: update the Secret with the new credentials and restart the pods. Long-term: implement External Secrets Operator to auto-sync from Vault or AWS Secrets Manager so Kubernetes Secrets stay current."*
+
+---
+
+## 6️⃣ Real-World Scenario Example
+
+> **Scenario:** Production outage at 2 AM. DB password was rotated by security team as part of 90-day rotation policy. App team wasn't notified.
+>
+> **Alert:** DB connection errors spike. Pod logs: "FATAL: password authentication failed."
+>
+> **Resolution:** Updated Kubernetes Secret immediately. Implemented External Secrets Operator with AWS Secrets Manager. Added notification workflow when secrets are rotated.
+
+---
+
+## 7️⃣ kubectl Commands Cheat Sheet
+
+| Command | Purpose |
+|---------|---------|
+| `kubectl get secret <name> -o yaml` | View base64-encoded secret data |
+| `echo <base64> \| base64 -d` | Decode secret value |
+| `kubectl exec -it <pod> -- env \| grep <VAR>` | Check env var value in container |
+| `kubectl create secret generic ... --dry-run=client -o yaml \| kubectl apply -f -` | Update secret safely |
+| `kubectl rollout restart deployment/<name>` | Force pods to pick up new secret |
+
+---
+
+## 8️⃣ Advanced Debugging Tips
+
+- 🔍 Secrets injected as env vars are only loaded at pod start — updating the Secret requires pod restart
+- 🔍 Secrets mounted as volumes DO auto-update (after ~60s kubelet sync) — but env var-based injection doesn't
+- 🛡️ **Production best practice:** Use External Secrets Operator (ESO) with Vault or AWS Secrets Manager — automatic rotation sync
+- 🛡️ Never store actual passwords in Git — use Sealed Secrets or SOPS for GitOps-compatible secret management
+- 🛡️ Implement secret rotation testing as part of your disaster recovery drills
+
+---
+
+## 9️⃣ Common Follow-Up Interview Questions
+
+**Q: How are Kubernetes Secrets stored and are they secure?**
+> Secrets are stored in etcd as base64-encoded values (NOT encrypted by default — base64 is encoding, not encryption). For production, enable etcd encryption at rest and use RBAC to restrict Secret access.
+
+**Q: What is External Secrets Operator?**
+> A Kubernetes operator that syncs secrets from external secret management systems (AWS Secrets Manager, HashiCorp Vault, GCP Secret Manager) into Kubernetes Secrets. Supports automatic refresh intervals for rotation.
+
+**Q: How would you handle automatic secret rotation in Kubernetes?**
+> Use ESO with a short refresh interval. Configure the application to detect connection failures and reconnect (connection pooling with retry). Alternatively, mount secrets as volumes (auto-update) and configure app to reload credentials periodically.
+
+---
+
+## 🔟 Related Concepts to Revise
+- Kubernetes Secrets (types, encoding)
+- External Secrets Operator
+- HashiCorp Vault integration
+- AWS Secrets Manager / GCP Secret Manager
+- Secret rotation patterns
+- Sealed Secrets for GitOps
+
+---
+---
+
+# 🟡 Q40 — ConfigMap Update Not Reflected in All Pods
+
+## 1️⃣ Issue Summary
+| Field | Detail |
+|-------|--------|
+| **What** | ConfigMap updated, some pods use new values, others still use old values |
+| **Where** | Pod lifecycle — env vars are loaded at startup only |
+| **Symptom** | Inconsistent application behavior — different pods show different feature states |
+
+> 🟢 **Beginner Explanation:** You updated the company policy manual (ConfigMap). New employees hired today got the new manual. Existing employees still follow the old manual they received when they joined — nobody re-distributed the updated version to them.
+
+---
+
+## 2️⃣ Root Cause Explanation
+- Environment variables from ConfigMaps are loaded **once at pod startup**
+- Running pods **never see ConfigMap updates** — their env vars are frozen at the time they started
+- New pods (recently created/restarted) get the updated ConfigMap values
+- This creates a **split-brain** situation in a deployment with mixed-age pods
+- **Components involved:** kubelet, ConfigMap, container environment variable lifecycle
+
+---
+
+## 3️⃣ Step-by-Step Troubleshooting Approach
+
+```bash
+# Step 1: Observe inconsistent behavior
+# Some pods show new feature ON, others show OFF
+
+# Step 2: Check pod ages
+kubectl get pods
+# NAME              READY   AGE
+# app-pod-aaaa     1/1     2d      ← Old pod (2 days)
+# app-pod-bbbb     1/1     2d      ← Old pod
+# app-pod-cccc     1/1     5m      ← New pod (5 minutes)
+
+# Step 3: Compare env var values between pods
+kubectl exec -it app-pod-aaaa -- env | grep FEATURE_FLAG
+# FEATURE_FLAG=false   ← Old value!
+
+kubectl exec -it app-pod-cccc -- env | grep FEATURE_FLAG
+# FEATURE_FLAG=true    ← New value ✅
+
+# Step 4: Confirm ConfigMap has the new value
+kubectl get configmap app-config -o yaml | grep FEATURE_FLAG
+# FEATURE_FLAG: "true"   ← ConfigMap is updated ✅
+
+# Step 5: Root cause
+
