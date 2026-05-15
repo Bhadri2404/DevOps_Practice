@@ -1400,30 +1400,50 @@ ansible-playbook deploy.yml --tags "service"
 - Use `ansible-galaxy` to download community roles.
 
 ### 📁 Role Directory Structure
+````md
+# Ansible Role Directory Structure
+
+```text
 roles/
 └── nginx/
     ├── tasks/
-    │   └── main.yml          # Main tasks file for the role
+    │   └── main.yml
     │
     ├── handlers/
-    │   └── main.yml          # Handlers (restart/reload services)
+    │   └── main.yml
     │
     ├── templates/
-    │   └── nginx.conf.j2     # Jinja2 template files
+    │   └── nginx.conf.j2
     │
     ├── files/
-    │   └── index.html        # Static files to copy to target servers
+    │   └── index.html
     │
     ├── vars/
-    │   └── main.yml          # Role variables (higher precedence)
+    │   └── main.yml
     │
     ├── defaults/
-    │   └── main.yml          # Default variables (lowest precedence, overridable)
+    │   └── main.yml
     │
     ├── meta/
-    │   └── main.yml          # Role metadata and dependencies
+    │   └── main.yml
     │
-    └── README.md             # Documentation for the role
+    └── README.md
+```
+
+## Explanation
+
+| Directory/File | Purpose |
+|---|---|
+| `tasks/main.yml` | Contains the main tasks executed by the role |
+| `handlers/main.yml` | Contains handlers such as service restart/reload |
+| `templates/` | Stores Jinja2 template files (`.j2`) |
+| `files/` | Stores static files to copy directly to target servers |
+| `vars/main.yml` | Role variables with higher precedence |
+| `defaults/main.yml` | Default variables with lowest precedence (can be overridden) |
+| `meta/main.yml` | Contains role metadata and dependencies |
+| `README.md` | Documentation about the role |
+````
+
 
 ### 📟 Role tasks/main.yml
 
