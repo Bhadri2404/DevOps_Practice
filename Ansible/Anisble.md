@@ -1751,22 +1751,46 @@ ansible-playbook deploy.yml --vault-password-file /var/jenkins/vault_pass
 ## 25. Best Practices — Production Level
 
 ### 🌿 Directory Structure
+# Ansible Project Structure with Ansible Vault
+
+```text
 project/
 ├── ansible.cfg
 ├── site.yml
+│
 ├── inventory/
-│ ├── prod
-│ └── staging
+│   ├── prod
+│   └── staging
+│
 ├── group_vars/
-│ ├── all/
-│ │ ├── vars.yml # Plain variables
-│ │ └── vault.yml # Encrypted secrets
-│ └── webservers.yml
+│   ├── all/
+│   │   ├── vars.yml
+│   │   └── vault.yml
+│   │
+│   └── webservers.yml
+│
 ├── host_vars/
+│
 └── roles/
-└── nginx/
+    └── nginx/
+```
 
-text
+## Explanation
+
+| File/Directory | Purpose |
+|---|---|
+| `ansible.cfg` | Main Ansible configuration settings |
+| `site.yml` | Main playbook used to run all roles |
+| `inventory/` | Stores inventory files for environments |
+| `inventory/prod` | Production inventory file |
+| `inventory/staging` | Staging inventory file |
+| `group_vars/` | Group-level variables |
+| `group_vars/all/vars.yml` | Common variables shared across all hosts |
+| `group_vars/all/vault.yml` | Encrypted secrets using Ansible Vault |
+| `group_vars/webservers.yml` | Variables specific to web servers |
+| `host_vars/` | Host-specific variables |
+| `roles/` | Contains reusable Ansible roles |
+| `roles/nginx/` | Nginx role configuration and tasks |
 
 ### ✅ Production Rules
 - **Always use roles** for reusable, modular code.
