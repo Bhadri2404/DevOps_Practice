@@ -1518,25 +1518,55 @@ ansible-galaxy init nginx
 ```
 
 ### 🏭 Production Project Structure
+````md
+# Ansible Infrastructure Project Structure
+
+```text
 my-infra/
 ├── ansible.cfg
-├── site.yml # Master playbook
+├── site.yml
+│
 ├── inventory/
-│ ├── prod
-│ └── staging
+│   ├── prod
+│   └── staging
+│
 ├── group_vars/
-│ ├── all.yml
-│ └── webservers.yml
+│   ├── all.yml
+│   └── webservers.yml
+│
 ├── host_vars/
-│ └── web1.yml
+│   └── web1.yml
+│
 └── roles/
-├── common/ # Base setup for all servers
-├── nginx/
-├── nodejs/
-├── mysql/
-└── monitoring/
+    ├── common/
+    ├── nginx/
+    ├── nodejs/
+    ├── mysql/
+    └── monitoring/
+```
 
-text
+## Explanation
+
+| File/Directory | Purpose |
+|---|---|
+| `ansible.cfg` | Main Ansible configuration file |
+| `site.yml` | Master playbook that calls all required roles |
+| `inventory/` | Contains inventory files for different environments |
+| `inventory/prod` | Production server inventory |
+| `inventory/staging` | Staging server inventory |
+| `group_vars/` | Variables applied to groups of servers |
+| `group_vars/all.yml` | Variables applied to all hosts |
+| `group_vars/webservers.yml` | Variables specific to web server group |
+| `host_vars/` | Variables applied to specific hosts |
+| `host_vars/web1.yml` | Variables for the `web1` server |
+| `roles/` | Contains reusable Ansible roles |
+| `roles/common/` | Common base configuration for all servers |
+| `roles/nginx/` | Nginx setup and configuration |
+| `roles/nodejs/` | Node.js installation and configuration |
+| `roles/mysql/` | MySQL installation and database configuration |
+| `roles/monitoring/` | Monitoring and observability setup |
+````
+
 
 ---
 
