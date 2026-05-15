@@ -1402,23 +1402,28 @@ ansible-playbook deploy.yml --tags "service"
 ### 📁 Role Directory Structure
 roles/
 └── nginx/
-├── tasks/
-│ └── main.yml # Main tasks file
-├── handlers/
-│ └── main.yml # Handlers for this role
-├── templates/
-│ └── nginx.conf.j2 # Jinja2 templates
-├── files/
-│ └── index.html # Static files to copy
-├── vars/
-│ └── main.yml # Role variables (high precedence)
-├── defaults/
-│ └── main.yml # Default variables (low precedence — overridable)
-├── meta/
-│ └── main.yml # Role metadata, dependencies
-└── README.md
-
-text
+    ├── tasks/
+    │   └── main.yml          # Main tasks file for the role
+    │
+    ├── handlers/
+    │   └── main.yml          # Handlers (restart/reload services)
+    │
+    ├── templates/
+    │   └── nginx.conf.j2     # Jinja2 template files
+    │
+    ├── files/
+    │   └── index.html        # Static files to copy to target servers
+    │
+    ├── vars/
+    │   └── main.yml          # Role variables (higher precedence)
+    │
+    ├── defaults/
+    │   └── main.yml          # Default variables (lowest precedence, overridable)
+    │
+    ├── meta/
+    │   └── main.yml          # Role metadata and dependencies
+    │
+    └── README.md             # Documentation for the role
 
 ### 📟 Role tasks/main.yml
 
