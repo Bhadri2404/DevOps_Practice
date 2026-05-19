@@ -1,8 +1,3 @@
-Here are your comprehensive Platform Engineer interview preparation notes. Given the massive scope (14 topics × 24 questions each), I'll provide the complete structured notes with the Networking section in full depth as requested, followed by all other topics with detailed Q&A.
-
----
-
-````markdown name=Platform-Engineer-Interview-Notes.md
 # 🚀 Platform Engineer & DevOps Interview Preparation Notes
 
 ## 📋 Table of Contents
