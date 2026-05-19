@@ -3642,5 +3642,3968 @@ for i in {1..5}; do
         log "✅ Health check passed!"
         break
     fi
-    if [ "$i" -eq 5 ]; then
+    if [ "$i" -eq 5 ]; then# 6. Shell Scripting (Continued)
+
+## 📝 Shell Scripting - 24 Interview Questions with Production Scripts
+
+### Q1: Write a production deployment script with logging and error handling. (Continued)
+
+```bash
+        error "Health check failed after 5 attempts!"
+    fi
+    log "Health check attempt $i failed, retrying..."
+    sleep 5
+done
+
+log "🎉 Deployment successful! ${APP_NAME} v${VERSION} is live in ${ENVIRONMENT}"
+```
+
+**Line-by-line key concepts:**
+| Line | Explanation |
+|------|-------------|
+| `set -euo pipefail` | Safety net - script stops on any error |
+| `${1:?message}` | Require argument or show error |
+| `tee -a` | Write to both screen AND file (-a = append) |
+| `trap '...' EXIT` | Run cleanup code if script fails anywhere |
+| `> /dev/null 2>&1` | Silence all output (stdout and stderr) |
+| `$?` | Exit code of last command (0=success, non-zero=failure) |
+
+---
+
+### Q2: Write a log rotation and cleanup script.
+
+```bash
+#!/bin/bash
+# log-cleanup.sh - Clean old logs to prevent disk full
+# Run via cron: 0 2 * * * /scripts/log-cleanup.sh
+
+set -euo pipefail
+
+LOG_DIR="/var/log/myapp"
+MAX_AGE_DAYS=7
+MAX_SIZE_MB=100
+
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
+
+log "Starting log cleanup..."
+
+# 1. Delete log files older than 7 days
+DELETED=$(find "$LOG_DIR" -name "*.log" -type f -mtime +${MAX_AGE_DAYS} -print -delete | wc -l)
+# find → search for files
+# -name "*.log" → only .log files
+# -type f → only files (not directories)
+# -mtime +7 → modified more than 7 days ago
+# -print → show what's being deleted
+# -delete → delete the file
+# | wc -l → count how many lines (files deleted)
+log "Deleted $DELETED files older than ${MAX_AGE_DAYS} days"
+
+# 2. Compress logs older than 1 day (save space)
+find "$LOG_DIR" -name "*.log" -type f -mtime +1 ! -name "*.gz" -exec gzip {} \;
+# ! -name "*.gz" → skip already compressed files
+# -exec gzip {} \; → compress each found file
+log "Compressed logs older than 1 day"
+
+# 3. Truncate active log files that are too large
+find "$LOG_DIR" -name "*.log" -type f -size +${MAX_SIZE_MB}M | while read -r file; do
+    SIZE=$(du -sh "$file" | cut -f1)
+    log "Truncating oversized file: $file ($SIZE)"
+    # Keep last 1000 lines, discard the rest
+    tail -1000 "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+done
+
+# 4. Report disk usage
+USAGE=$(df -h "$LOG_DIR" | tail -1 | awk '{print $5}')
+log "Disk usage for $LOG_DIR partition: $USAGE"
+log "Cleanup complete ✅"
+```
+
+---
+
+### Q3: Write a server health monitoring script.
+
+```bash
+#!/bin/bash
+# server-health.sh - Quick server health check
+# Usage: ./server-health.sh
+
+set -uo pipefail
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m'  # No Color
+
+# Thresholds
+CPU_THRESHOLD=80
+MEM_THRESHOLD=80
+DISK_THRESHOLD=85
+
+print_status() {
+    local label="$1"
+    local value="$2"
+    local threshold="$3"
+    
+    if (( $(echo "$value > $threshold" | bc -l) )); then
+        echo -e "  ${RED}🚨 $label: ${value}% (threshold: ${threshold}%)${NC}"
+    elif (( $(echo "$value > $threshold * 0.8" | bc -l) )); then
+        echo -e "  ${YELLOW}⚠️  $label: ${value}%${NC}"
+    else
+        echo -e "  ${GREEN}✅ $label: ${value}%${NC}"
+    fi
+}
+
+echo "=================================="
+echo "  Server Health Report"
+echo "  $(date)"
+echo "  Host: $(hostname)"
+echo "=================================="
+
+# CPU Usage
+CPU=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d. -f1)
+# top -bn1 → run top once in batch mode
+# grep "Cpu(s)" → find the CPU summary line
+# awk '{print $2}' → extract the user CPU percentage
+print_status "CPU" "$CPU" "$CPU_THRESHOLD"
+
+# Memory Usage
+MEM=$(free | awk '/Mem:/ {printf "%.0f", ($3/$2)*100}')
+# free → show memory info
+# /Mem:/ → find the memory line
+# ($3/$2)*100 → (used/total)*100 = percentage
+print_status "Memory" "$MEM" "$MEM_THRESHOLD"
+
+# Disk Usage (for each mounted filesystem)
+echo ""
+echo "  Disk Usage:"
+df -h --output=target,pcent,size,used | grep -vE "^Mounted|tmpfs|udev" | while read -r mount percent total used; do
+    PERCENT_NUM=${percent%\%}  # Remove % sign
+    print_status "  $mount" "$PERCENT_NUM" "$DISK_THRESHOLD"
+done
+
+# Load Average
+echo ""
+LOAD=$(uptime | awk -F'average:' '{print $2}' | awk -F, '{print $1}' | tr -d ' ')
+CPUS=$(nproc)
+echo "  Load Average: $LOAD (CPUs: $CPUS)"
+if (( $(echo "$LOAD > $CPUS" | bc -l) )); then
+    echo -e "  ${RED}🚨 System is OVERLOADED${NC}"
+fi
+
+# Top 5 Memory Consumers
+echo ""
+echo "  Top 5 Processes (by memory):"
+ps aux --sort=-%mem | head -6 | tail -5 | awk '{printf "    %-8s %-6s %-6s %s\n", $1, $4"%", $3"%", $11}'
+
+# Open Connections
+CONNECTIONS=$(ss -tan state established | wc -l)
+echo ""
+echo "  Active network connections: $CONNECTIONS"
+
+# Check critical services
+echo ""
+echo "  Service Status:"
+for svc in nginx docker kubelet sshd; do
+    if systemctl is-active --quiet "$svc" 2>/dev/null; then
+        echo -e "    ${GREEN}✅ $svc: running${NC}"
+    else
+        echo -e "    ${RED}❌ $svc: not running${NC}"
+    fi
+done
+```
+
+---
+
+### Q4: Explain variables, conditionals, and loops in shell scripting.
+
+```bash
+# ===== VARIABLES =====
+NAME="deploy-app"          # No spaces around =
+VERSION=1                  # Numbers are still strings
+FULL="${NAME}-v${VERSION}" # Variable interpolation
+RESULT=$(date +%Y%m%d)    # Command substitution - runs command, stores output
+readonly API_KEY="abc123"  # Cannot be changed later
+
+# ===== CONDITIONALS =====
+# String comparison
+if [ "$ENV" = "production" ]; then
+    echo "Production deploy"
+elif [ "$ENV" = "staging" ]; then
+    echo "Staging deploy"
+else
+    echo "Dev deploy"
+fi
+
+# Numeric comparison
+if [ "$CPU" -gt 80 ]; then       # -gt = greater than
+    echo "CPU high!"
+fi
+# -eq (equal), -ne (not equal), -lt (less than), -ge (greater or equal)
+
+# File tests
+if [ -f "/etc/config.yml" ]; then  # -f = file exists
+    echo "Config found"
+fi
+if [ -d "/var/log" ]; then         # -d = directory exists
+    echo "Dir exists"
+fi
+if [ -z "$VAR" ]; then             # -z = string is empty
+    echo "Variable is empty"
+fi
+
+# ===== LOOPS =====
+# For loop
+for server in web1 web2 web3; do
+    echo "Deploying to $server"
+    ssh "$server" "systemctl restart app"
+done
+
+# For loop with range
+for i in {1..5}; do
+    echo "Attempt $i"
+done
+
+# While loop
+COUNT=0
+while [ $COUNT -lt 10 ]; do
+    echo "Count: $COUNT"
+    COUNT=$((COUNT + 1))    # Arithmetic
+done
+
+# Read file line by line
+while IFS= read -r line; do
+    echo "Processing: $line"
+done < /etc/hosts
+# IFS= → don't trim whitespace
+# -r → don't interpret backslashes
+```
+
+---
+
+### Q5: Write a backup script with retention policy.
+
+```bash
+#!/bin/bash
+# backup.sh - Backup databases with 7-day retention
+# Cron: 0 1 * * * /scripts/backup.sh
+
+set -euo pipefail
+
+BACKUP_DIR="/backup/db"
+RETENTION_DAYS=7
+DB_HOST="db.internal"
+DB_NAME="production_db"
+DB_USER="backup_user"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+S3_BUCKET="s3://company-backups/database"
+
+log() { echo "[$(date '+%H:%M:%S')] $*"; }
+
+# Create backup directory
+mkdir -p "$BACKUP_DIR"
+
+# Take database dump
+BACKUP_FILE="${BACKUP_DIR}/${DB_NAME}_${TIMESTAMP}.sql.gz"
+log "Starting backup of $DB_NAME..."
+
+pg_dump -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" | gzip > "$BACKUP_FILE"
+# pg_dump → export database
+# | gzip → compress immediately (saves disk space)
+# > file → write to file
+
+BACKUP_SIZE=$(du -sh "$BACKUP_FILE" | cut -f1)
+log "Backup created: $BACKUP_FILE ($BACKUP_SIZE)"
+
+# Upload to S3
+log "Uploading to S3..."
+aws s3 cp "$BACKUP_FILE" "${S3_BUCKET}/$(date +%Y/%m/)$(basename $BACKUP_FILE)"
+log "Upload complete"
+
+# Clean old local backups
+DELETED=$(find "$BACKUP_DIR" -name "*.sql.gz" -mtime +${RETENTION_DAYS} -delete -print | wc -l)
+log "Deleted $DELETED old backup(s) (older than ${RETENTION_DAYS} days)"
+
+# Verify backup is valid (can be read)
+if gzip -t "$BACKUP_FILE"; then
+    log "✅ Backup verified successfully"
+else
+    log "❌ Backup file is corrupted!"
+    exit 1
+fi
+
+log "🎉 Backup complete"
+```
+
+---
+
+### Q6: How do you handle errors and exit codes in shell scripts?
+
+```bash
+#!/bin/bash
+
+# Method 1: set -e (exit on error)
+set -e  # Script stops if ANY command fails
+
+# Method 2: Check exit codes manually
+if ! kubectl apply -f deployment.yaml; then
+    echo "Deployment failed!"
+    exit 1
+fi
+
+# Method 3: OR operator for error handling
+mkdir -p /data || { echo "Cannot create /data"; exit 1; }
+# If mkdir fails → run the code in { }
+
+# Method 4: trap for cleanup
+cleanup() {
+    echo "Cleaning up temporary files..."
+    rm -f /tmp/myapp_*
+}
+trap cleanup EXIT        # Run cleanup when script exits
+trap cleanup ERR         # Run cleanup on error
+trap cleanup SIGINT      # Run cleanup on Ctrl+C
+
+# Method 5: Custom error handler
+die() {
+    echo "FATAL: $*" >&2    # Print to stderr
+    exit 1
+}
+
+[ -f config.yml ] || die "config.yml not found!"
+
+# Method 6: Retry pattern
+retry() {
+    local max_attempts=$1
+    shift
+    local attempt=1
+    
+    while [ $attempt -le $max_attempts ]; do
+        if "$@"; then
+            return 0
+        fi
+        echo "Attempt $attempt/$max_attempts failed, retrying..."
+        attempt=$((attempt + 1))
+        sleep 5
+    done
+    return 1
+}
+
+retry 3 curl -f http://myapp:8080/health
+```
+
+---
+
+### Q7: Write a script to check if services are running and restart them.
+
+```bash
+#!/bin/bash
+# service-watchdog.sh - Monitor and auto-restart critical services
+# Cron: */2 * * * * /scripts/service-watchdog.sh
+
+set -uo pipefail
+
+SERVICES=("nginx" "docker" "node-exporter" "filebeat")
+ALERT_WEBHOOK="https://hooks.slack.com/services/XXX/YYY/ZZZ"
+
+send_alert() {
+    local message="$1"
+    curl -s -X POST "$ALERT_WEBHOOK" \
+        -H 'Content-type: application/json' \
+        -d "{\"text\": \"🚨 $(hostname): $message\"}" > /dev/null
+}
+
+for service in "${SERVICES[@]}"; do
+    if ! systemctl is-active --quiet "$service"; then
+        echo "$(date): $service is DOWN, attempting restart..."
+        
+        # Try to restart
+        if systemctl restart "$service"; then
+            echo "$service restarted successfully"
+            send_alert "$service was down and has been restarted"
+        else
+            echo "FAILED to restart $service!"
+            send_alert "CRITICAL: $service is DOWN and cannot be restarted!"
+        fi
+    fi
+done
+```
+
+---
+
+### Q8: Explain input/output redirection and pipes.
+
+```bash
+# STDOUT (file descriptor 1) = Normal output
+# STDERR (file descriptor 2) = Error output
+
+# Redirect stdout to file
+echo "hello" > file.txt        # Overwrite
+echo "hello" >> file.txt       # Append
+
+# Redirect stderr to file
+command 2> errors.log          # Errors go to file
+
+# Redirect both stdout and stderr
+command > output.log 2>&1      # Both to same file
+command &> output.log          # Shorter syntax (bash 4+)
+
+# Discard output completely
+command > /dev/null 2>&1       # Silence everything
+
+# Pipe: Send output of one command as input to another
+cat access.log | grep "500" | awk '{print $1}' | sort | uniq -c | sort -rn
+# cat → read file
+# grep "500" → find lines with 500 errors
+# awk '{print $1}' → extract first field (IP address)
+# sort → sort IPs alphabetically
+# uniq -c → count consecutive duplicates
+# sort -rn → sort by count, highest first
+# Result: Top IPs causing 500 errors
+
+# Here document (multi-line input)
+cat <<EOF > /etc/nginx/conf.d/app.conf
+server {
+    listen 80;
+    server_name myapp.com;
+    location / {
+        proxy_pass http://localhost:8080;
+    }
+}
+EOF
+```
+
+---
+
+### Q9: Write a script to parse Nginx access logs and find top IPs.
+
+```bash
+#!/bin/bash
+# access-log-analyzer.sh - Analyze Nginx access logs
+
+LOG_FILE="${1:-/var/log/nginx/access.log}"
+
+if [ ! -f "$LOG_FILE" ]; then
+    echo "Log file not found: $LOG_FILE"
+    exit 1
+fi
+
+TOTAL_REQUESTS=$(wc -l < "$LOG_FILE")
+echo "📊 Nginx Access Log Analysis"
+echo "File: $LOG_FILE"
+echo "Total Requests: $TOTAL_REQUESTS"
+echo ""
+
+# Top 10 IPs
+echo "🔝 Top 10 Client IPs:"
+awk '{print $1}' "$LOG_FILE" | sort | uniq -c | sort -rn | head -10 | \
+    awk '{printf "  %6d requests from %s\n", $1, $2}'
+
+echo ""
+
+# HTTP Status Code Distribution
+echo "📈 Status Code Distribution:"
+awk '{print $9}' "$LOG_FILE" | sort | uniq -c | sort -rn | head -10 | \
+    awk '{printf "  %s: %d requests\n", $2, $1}'
+
+echo ""
+
+# Top 10 Requested URLs
+echo "🌐 Top 10 Requested URLs:"
+awk '{print $7}' "$LOG_FILE" | sort | uniq -c | sort -rn | head -10 | \
+    awk '{printf "  %6d  %s\n", $1, $2}'
+
+echo ""
+
+# Requests per hour (last 24 hours)
+echo "⏰ Requests per Hour (recent):"
+awk -F'[' '{print $2}' "$LOG_FILE" | awk -F: '{print $1":"$2}' | \
+    sort | uniq -c | tail -24 | \
+    awk '{printf "  %s → %d requests\n", $2, $1}'
+
+echo ""
+
+# 5xx Errors
+ERROR_COUNT=$(awk '$9 ~ /^5/ {count++} END {print count+0}' "$LOG_FILE")
+echo "🚨 5xx Errors: $ERROR_COUNT ($(echo "scale=2; $ERROR_COUNT * 100 / $TOTAL_REQUESTS" | bc)%)"
+
+if [ "$ERROR_COUNT" -gt 0 ]; then
+    echo "  Recent 5xx errors:"
+    awk '$9 ~ /^5/' "$LOG_FILE" | tail -5 | awk '{print "    "$1, $7, $9}'
+fi
+```
+
+---
+
+### Q10: Write a script for automated SSH key deployment.
+
+```bash
+#!/bin/bash
+# deploy-ssh-keys.sh - Deploy SSH public keys to multiple servers
+
+set -euo pipefail
+
+SERVERS=("10.0.1.10" "10.0.1.11" "10.0.1.12" "10.0.1.13")
+SSH_USER="deploy"
+PUB_KEY_FILE="$HOME/.ssh/id_rsa.pub"
+
+if [ ! -f "$PUB_KEY_FILE" ]; then
+    echo "Public key not found. Generating..."
+    ssh-keygen -t rsa -b 4096 -f "$HOME/.ssh/id_rsa" -N ""
+    # -t rsa → key type
+    # -b 4096 → key size (bits)
+    # -N "" → empty passphrase (for automation)
+fi
+
+PUB_KEY=$(cat "$PUB_KEY_FILE")
+
+for server in "${SERVERS[@]}"; do
+    echo -n "Deploying key to $server... "
+    
+    if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
+        "${SSH_USER}@${server}" "
+            mkdir -p ~/.ssh && chmod 700 ~/.ssh
+            echo '$PUB_KEY' >> ~/.ssh/authorized_keys
+            chmod 600 ~/.ssh/authorized_keys
+            sort -u -o ~/.ssh/authorized_keys ~/.ssh/authorized_keys
+        " 2>/dev/null; then
+        echo "✅"
+    else
+        echo "❌ (unreachable or permission denied)"
+    fi
+done
+```
+
+---
+
+### Q11: How do you work with arrays in bash?
+
+```bash
+# Declare array
+SERVERS=("web1" "web2" "web3" "db1")
+
+# Access elements
+echo "${SERVERS[0]}"           # First element: web1
+echo "${SERVERS[@]}"           # All elements
+echo "${#SERVERS[@]}"          # Length: 4
+
+# Loop through array
+for server in "${SERVERS[@]}"; do
+    echo "Processing $server"
+done
+
+# Add element
+SERVERS+=("db2")
+
+# Remove element (by index)
+unset 'SERVERS[2]'
+
+# Slice
+echo "${SERVERS[@]:1:2}"      # Elements 1 and 2
+
+# Build array from command output
+PODS=($(kubectl get pods -o name))
+for pod in "${PODS[@]}"; do
+    echo "$pod"
+done
+
+# Associative array (dictionary/map)
+declare -A CONFIG
+CONFIG[host]="db.internal"
+CONFIG[port]="5432"
+CONFIG[name]="mydb"
+echo "Connecting to ${CONFIG[host]}:${CONFIG[port]}/${CONFIG[name]}"
+```
+
+---
+
+### Q12: Write a script to monitor disk I/O and alert on high usage.
+
+```bash
+#!/bin/bash
+# disk-io-monitor.sh - Alert when disk I/O is saturated
+
+THRESHOLD_UTIL=90   # Alert if disk utilization > 90%
+CHECK_INTERVAL=5    # Check every 5 seconds
+ALERT_SENT=false
+
+while true; do
+    # iostat shows disk I/O statistics
+    # -x = extended stats, -d = device stats only, 1 1 = 1 second interval, 1 report
+    UTIL=$(iostat -xd 1 1 | awk '/^[sv]d/ {print $NF}' | sort -rn | head -1)
+    # $NF = last field = %util column
+    
+    if [ -n "$UTIL" ]; then
+        UTIL_INT=${UTIL%.*}  # Remove decimal
+        
+        if [ "$UTIL_INT" -gt "$THRESHOLD_UTIL" ] && [ "$ALERT_SENT" = "false" ]; then
+            echo "🚨 HIGH DISK I/O: ${UTIL}% utilization!"
+            # Find process doing most I/O
+            echo "Top I/O processes:"
+            iotop -b -n 1 -o 2>/dev/null | head -5
+            ALERT_SENT=true
+        elif [ "$UTIL_INT" -lt "$THRESHOLD_UTIL" ]; then
+            ALERT_SENT=false
+        fi
+    fi
+    
+    sleep "$CHECK_INTERVAL"
+done
+```
+
+---
+
+### Q13: Explain string manipulation in bash.
+
+```bash
+STR="hello-world-production-v1.2.3"
+
+# Length
+echo "${#STR}"                    # 30
+
+# Substring
+echo "${STR:0:5}"                 # hello (from position 0, 5 chars)
+echo "${STR:6}"                   # world-production-v1.2.3 (from position 6)
+
+# Replace
+echo "${STR/world/earth}"         # hello-earth-production-v1.2.3 (first match)
+echo "${STR//-/_}"                # hello_world_production_v1.2.3 (all matches)
+
+# Remove prefix/suffix
+FILENAME="backup-2024-01-15.tar.gz"
+echo "${FILENAME%.tar.gz}"        # backup-2024-01-15 (remove shortest suffix)
+echo "${FILENAME%%.*}"            # backup-2024-01-15 (remove longest suffix)
+echo "${FILENAME#backup-}"        # 2024-01-15.tar.gz (remove prefix)
+
+# Extract version from string
+VERSION="myapp-v1.2.3-linux-amd64.tar.gz"
+VER=$(echo "$VERSION" | grep -oP 'v\d+\.\d+\.\d+')
+echo "$VER"  # v1.2.3
+
+# Default value
+echo "${UNDEFINED_VAR:-default_value}"    # Use default if unset
+echo "${UNDEFINED_VAR:=default_value}"    # Set AND use default if unset
+
+# Upper/Lower case (bash 4+)
+echo "${STR^^}"                   # HELLO-WORLD-PRODUCTION-V1.2.3
+echo "${STR,,}"                   # hello-world-production-v1.2.3
+```
+
+---
+
+### Q14: Write a script for automated certificate renewal check.
+
+```bash
+#!/bin/bash
+# cert-check.sh - Check SSL certificate expiry for domains
+
+set -uo pipefail
+
+DOMAINS=("api.company.com" "app.company.com" "admin.company.com")
+WARNING_DAYS=30
+CRITICAL_DAYS=7
+
+echo "🔐 SSL Certificate Expiry Check"
+echo "================================"
+
+for domain in "${DOMAINS[@]}"; do
+    # Get certificate expiry date using openssl
+    EXPIRY=$(echo | openssl s_client -servername "$domain" -connect "${domain}:443" 2>/dev/null | \
+             openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
+    # openssl s_client → connect to server and get cert
+    # -servername → for SNI (multiple certs on same IP)
+    # openssl x509 -enddate → extract expiry date
+    
+    if [ -z "$EXPIRY" ]; then
+        echo "  ❌ $domain: Cannot retrieve certificate"
+        continue
+    fi
+    
+    # Calculate days remaining
+    EXPIRY_EPOCH=$(date -d "$EXPIRY" +%s)
+    NOW_EPOCH=$(date +%s)
+    DAYS_LEFT=$(( (EXPIRY_EPOCH - NOW_EPOCH) / 86400 ))
+    
+    if [ "$DAYS_LEFT" -lt "$CRITICAL_DAYS" ]; then
+        echo "  🚨 $domain: CRITICAL - ${DAYS_LEFT} days left (expires: $EXPIRY)"
+    elif [ "$DAYS_LEFT" -lt "$WARNING_DAYS" ]; then
+        echo "  ⚠️  $domain: WARNING - ${DAYS_LEFT} days left (expires: $EXPIRY)"
+    else
+        echo "  ✅ $domain: OK - ${DAYS_LEFT} days left"
+    fi
+done
+```
+
+---
+
+### Q15: How do you process command-line arguments in scripts?
+
+```bash
+#!/bin/bash
+# Proper argument parsing with getopts
+
+usage() {
+    cat <<EOF
+Usage: $0 [OPTIONS]
+Options:
+    -e, --env        Environment (dev/staging/prod) [required]
+    -v, --version    Version to deploy [required]
+    -d, --dry-run    Show what would be done without doing it
+    -f, --force      Skip confirmation prompt
+    -h, --help       Show this help message
+EOF
+    exit 1
+}
+
+# Defaults
+DRY_RUN=false
+FORCE=false
+ENV=""
+VERSION=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -e|--env)
+            ENV="$2"
+            shift 2
+            ;;
+        -v|--version)
+            VERSION="$2"
+            shift 2
+            ;;
+        -d|--dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        -f|--force)
+            FORCE=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            ;;
+        *)
+            echo "Unknown option: $1"
+            usage
+            ;;
+    esac
+done
+
+# Validate required arguments
+[ -z "$ENV" ] && { echo "Error: --env is required"; usage; }
+[ -z "$VERSION" ] && { echo "Error: --version is required"; usage; }
+
+echo "Deploying v${VERSION} to ${ENV} (dry-run: ${DRY_RUN})"
+```
+
+---
+
+### Q16: Write a script to find and clean up zombie/orphan processes.
+
+```bash
+#!/bin/bash
+# zombie-cleaner.sh - Find and handle zombie processes
+
+echo "🧟 Zombie Process Report"
+echo "========================"
+
+# Find zombie processes
+ZOMBIES=$(ps aux | awk '$8 == "Z" {print $0}')
+
+if [ -z "$ZOMBIES" ]; then
+    echo "✅ No zombie processes found"
+    exit 0
+fi
+
+ZOMBIE_COUNT=$(echo "$ZOMBIES" | wc -l)
+echo "Found $ZOMBIE_COUNT zombie process(es):"
+echo ""
+echo "$ZOMBIES" | awk '{printf "  PID: %-8s PPID: %-8s CMD: %s\n", $2, $3, $11}'
+
+echo ""
+echo "Parent processes:"
+echo "$ZOMBIES" | awk '{print $3}' | sort -u | while read -r ppid; do
+    PARENT_CMD=$(ps -p "$ppid" -o comm= 2>/dev/null || echo "already dead")
+    echo "  PPID $ppid: $PARENT_CMD"
+    echo "  → To fix: kill -SIGCHLD $ppid (ask parent to reap)"
+    echo "  → Nuclear: kill -9 $ppid (kill parent - zombies disappear)"
+done
+```
+
+---
+
+### Q17: Write a script for port scanning (simple connectivity test).
+
+```bash
+#!/bin/bash
+# port-check.sh - Check connectivity to required services
+
+set -uo pipefail
+
+# Define services to check: host:port:description
+SERVICES=(
+    "db.internal:5432:PostgreSQL"
+    "redis.internal:6379:Redis Cache"
+    "kafka.internal:9092:Kafka Broker"
+    "elasticsearch.internal:9200:Elasticsearch"
+    "vault.internal:8200:HashiCorp Vault"
+)
+
+TIMEOUT=3
+FAILED=0
+
+echo "🔌 Service Connectivity Check"
+echo "=============================="
+
+for entry in "${SERVICES[@]}"; do
+    IFS=':' read -r host port desc <<< "$entry"
+    # IFS=':' → split on colon
+    # read -r → read into variables
+    
+    if nc -z -w "$TIMEOUT" "$host" "$port" 2>/dev/null; then
+        echo "  ✅ $desc ($host:$port) - reachable"
+    else
+        echo "  ❌ $desc ($host:$port) - UNREACHABLE"
+        FAILED=$((FAILED + 1))
+    fi
+done
+
+echo ""
+if [ "$FAILED" -gt 0 ]; then
+    echo "🚨 $FAILED service(s) unreachable!"
+    exit 1
+else
+    echo "✅ All services reachable"
+    exit 0
+fi
+```
+
+---
+
+### Q18: How do you use `awk` for log analysis?
+
+```bash
+# AWK is a pattern scanning and processing language
+# Format: awk 'PATTERN {ACTION}' file
+
+# Print specific columns
+awk '{print $1, $4, $9}' access.log
+# $1=IP, $4=timestamp, $9=status code
+
+# Filter by condition
+awk '$9 >= 500' access.log           # Only 5xx errors
+awk '$9 == 200 && $10 > 1000' access.log  # 200 OK but response > 1000 bytes
+
+# Count occurrences
+awk '{count[$9]++} END {for (c in count) print c, count[c]}' access.log
+# Creates array counting each status code, prints at END
+
+# Calculate average response time (assuming $11 is response time)
+awk '{sum+=$11; count++} END {print "Average:", sum/count, "ms"}' access.log
+
+# Custom field separator
+awk -F',' '{print $2}' data.csv      # Comma-separated
+awk -F'|' '{print $3}' data.txt      # Pipe-separated
+
+# Complex example: Find IPs with >100 requests in last hour
+awk -v hour=$(date +%H) '$4 ~ ":" hour ":" {ips[$1]++} 
+    END {for (ip in ips) if (ips[ip]>100) print ips[ip], ip}' access.log | sort -rn
+```
+
+---
+
+### Q19: Write a Docker container monitoring script.
+
+```bash
+#!/bin/bash
+# docker-monitor.sh - Monitor Docker containers health
+
+set -uo pipefail
+
+echo "🐳 Docker Container Status Report"
+echo "==================================="
+
+# Check Docker daemon is running
+if ! docker info > /dev/null 2>&1; then
+    echo "❌ Docker daemon is not running!"
+    exit 1
+fi
+
+# List all containers with status
+echo ""
+echo "Container Status:"
+docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | head -20
+
+# Check for unhealthy containers
+UNHEALTHY=$(docker ps --filter health=unhealthy --format "{{.Names}}" 2>/dev/null)
+if [ -n "$UNHEALTHY" ]; then
+    echo ""
+    echo "🚨 UNHEALTHY Containers:"
+    echo "$UNHEALTHY" | while read -r container; do
+        echo "  ❌ $container"
+        echo "     Last health check: $(docker inspect --format='{{.State.Health.Log}}' "$container" | tail -1)"
+    done
+fi
+
+# Check for containers restarting too often
+echo ""
+echo "⚠️  High Restart Counts:"
+docker ps --format "{{.Names}} {{.Status}}" | while read -r name status; do
+    RESTARTS=$(docker inspect --format='{{.RestartCount}}' "$name" 2>/dev/null)
+    if [ "${RESTARTS:-0}" -gt 5 ]; then
+        echo "  $name: $RESTARTS restarts"
+    fi
+done
+
+# Disk usage
+echo ""
+echo "💾 Docker Disk Usage:"
+docker system df
+
+# Resource usage
+echo ""
+echo "📊 Resource Usage (top 5 by memory):"
+docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" | head -6
+```
+
+---
+
+### Q20: Write a Kubernetes pod troubleshooting script.
+
+```bash
+#!/bin/bash
+# k8s-debug.sh - Quick Kubernetes troubleshooting script
+# Usage: ./k8s-debug.sh <namespace>
+
+NAMESPACE="${1:-default}"
+
+echo "🔍 Kubernetes Debug Report - Namespace: $NAMESPACE"
+echo "=================================================="
+
+# Pods not Running
+echo ""
+echo "❌ Non-Running Pods:"
+kubectl get pods -n "$NAMESPACE" --field-selector=status.phase!=Running --no-headers 2>/dev/null | \
+    awk '{printf "  %-50s Status: %s  Restarts: %s\n", $1, $3, $4}'
+
+# Pods with high restart count
+echo ""
+echo "⚠️  Pods with High Restarts (>3):"
+kubectl get pods -n "$NAMESPACE" --no-headers | awk '$4 > 3 {print "  "$1": "$4" restarts"}'
+
+# Recent events (warnings only)
+echo ""
+echo "🚨 Recent Warning Events:"
+kubectl get events -n "$NAMESPACE" --field-selector type=Warning --sort-by='.lastTimestamp' | tail -10
+
+# Resource usage
+echo ""
+echo "📊 Resource Usage:"
+kubectl top pods -n "$NAMESPACE" 2>/dev/null | sort -k3 -rn | head -10
+
+# Pending pods (scheduling issues)
+PENDING=$(kubectl get pods -n "$NAMESPACE" --field-selector=status.phase=Pending --no-headers 2>/dev/null)
+if [ -n "$PENDING" ]; then
+    echo ""
+    echo "⏳ Pending Pods (scheduling issues):"
+    echo "$PENDING" | while read -r line; do
+        POD=$(echo "$line" | awk '{print $1}')
+        echo "  $POD:"
+        kubectl describe pod "$POD" -n "$NAMESPACE" | grep -A 3 "Events:" | tail -3 | sed 's/^/    /'
+    done
+fi
+```
+
+---
+
+### Q21: How do you use `sed` for text processing?
+
+```bash
+# SED = Stream Editor - modifies text in files or streams
+
+# Replace text (first occurrence per line)
+sed 's/old/new/' file.txt
+
+# Replace ALL occurrences per line
+sed 's/old/new/g' file.txt
+
+# Edit file in-place
+sed -i 's/old/new/g' file.txt
+
+# Delete lines matching pattern
+sed -i '/^#/d' config.yml          # Delete comment lines
+sed -i '/^$/d' config.yml          # Delete empty lines
+
+# Insert line before/after match
+sed -i '/server {/a\    include /etc/nginx/security.conf;' nginx.conf
+# /server {/ → find this pattern
+# a\ → append after
+
+# Replace between line numbers
+sed -i '10,20s/debug/info/g' app.conf    # Replace only in lines 10-20
+
+# Multiple operations
+sed -i -e 's/foo/bar/g' -e 's/baz/qux/g' file.txt
+
+# Production example: Update Kubernetes image tag
+sed -i "s|image: myapp:.*|image: myapp:v${VERSION}|" deployment.yaml
+# Using | as delimiter (because : is in the text)
+```
+
+---
+
+### Q22: Write a script to generate SSH config from AWS EC2.
+
+```bash
+#!/bin/bash
+# gen-ssh-config.sh - Generate SSH config from running EC2 instances
+
+OUTPUT="$HOME/.ssh/config.d/aws-instances"
+KEY_PATH="$HOME/.ssh/aws-key.pem"
+
+echo "# Auto-generated $(date)" > "$OUTPUT"
+echo "" >> "$OUTPUT"
+
+aws ec2 describe-instances \
+    --filters "Name=instance-state-name,Values=running" \
+    --query 'Reservations[].Instances[].[Tags[?Key==`Name`].Value|[0],PrivateIpAddress]' \
+    --output text | while read -r name ip; do
+    
+    # Skip instances without names
+    [ "$name" = "None" ] && continue
+    
+    # Convert name to SSH-friendly hostname
+    HOSTNAME=$(echo "$name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+    
+    cat >> "$OUTPUT" <<EOF
+
+Host $HOSTNAME
+    HostName $ip
+    User ec2-user
+    IdentityFile $KEY_PATH
+    StrictHostKeyChecking no
+
+EOF
+    echo "  Added: $HOSTNAME → $ip"
+done
+
+echo ""
+echo "✅ SSH config written to $OUTPUT"
+echo "Usage: ssh $HOSTNAME"
+```
+
+---
+
+### Q23: Write a script for automated security patching.
+
+```bash
+#!/bin/bash
+# security-patch.sh - Apply security patches with safety checks
+
+set -euo pipefail
+
+LOG="/var/log/patching-$(date +%Y%m%d).log"
+REBOOT_REQUIRED=false
+
+log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
+
+log "🔒 Starting security patching"
+
+# Pre-patch checks
+log "Running pre-patch checks..."
+DISK_FREE=$(df / | tail -1 | awk '{print $4}')
+if [ "$DISK_FREE" -lt 1048576 ]; then  # Less than 1GB
+    log "❌ Insufficient disk space for patching!"
+    exit 1
+fi
+
+# List available security updates
+log "Available security updates:"
+apt-get update -qq 2>&1 | tee -a "$LOG"
+UPDATES=$(apt-get -s upgrade 2>/dev/null | grep "^Inst" | grep -i securi | wc -l)
+log "Found $UPDATES security update(s)"
+
+if [ "$UPDATES" -eq 0 ]; then
+    log "✅ System is up to date"
+    exit 0
+fi
+
+# Apply security patches only
+log "Applying security patches..."
+DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
+    -o Dpkg::Options::="--force-confold" \
+    2>&1 | tee -a "$LOG"
+# --force-confold → keep existing config files (don't overwrite)
+
+# Check if reboot needed
+if [ -f /var/run/reboot-required ]; then
+    REBOOT_REQUIRED=true
+    log "⚠️  Reboot required for patches to take effect"
+fi
+
+log "✅ Patching complete. Reboot required: $REBOOT_REQUIRED"
+```
+
+---
+
+### Q24: Write a comprehensive environment setup validation script.
+
+```bash
+#!/bin/bash
+# validate-env.sh - Validate all prerequisites before deployment
+# Run this before deploying to ensure environment is ready
+
+set -uo pipefail
+
+ERRORS=0
+WARNINGS=0
+
+check() {
+    local desc="$1"
+    local cmd="$2"
+    
+    if eval "$cmd" > /dev/null 2>&1; then
+        echo "  ✅ $desc"
+    else
+        echo "  ❌ $desc"
+        ERRORS=$((ERRORS + 1))
+    fi
+}
+
+warn() {
+    local desc="$1"
+    local cmd="$2"
+    
+    if eval "$cmd" > /dev/null 2>&1; then
+        echo "  ✅ $desc"
+    else
+        echo "  ⚠️  $desc"
+        WARNINGS=$((WARNINGS + 1))
+    fi
+}
+
+echo "🔍 Environment Validation"
+echo "========================="
+
+echo ""
+echo "📦 Required Tools:"
+check "docker installed" "command -v docker"
+check "kubectl installed" "command -v kubectl"
+check "aws cli installed" "command -v aws"
+check "helm installed" "command -v helm"
+check "jq installed" "command -v jq"
+
+echo ""
+echo "🔌 Connectivity:"
+check "Internet access" "ping -c 1 -W 3 8.8.8.8"
+check "DNS resolution" "nslookup google.com"
+check "Docker registry" "nc -z -w 3 registry.company.com 443"
+check "Kubernetes API" "kubectl cluster-info"
+
+echo ""
+echo "🔑 Credentials:"
+check "AWS credentials valid" "aws sts get-caller-identity"
+check "Docker logged in" "docker info 2>&1 | grep -q Username"
+check "Kubeconfig valid" "kubectl auth can-i get pods"
+
+echo ""
+echo "💾 Resources:"
+check "Disk > 5GB free" "[ $(df / | tail -1 | awk '{print $4}') -gt 5242880 ]"
+check "Memory > 2GB free" "[ $(free -m | awk '/Mem:/ {print $7}') -gt 2048 ]"
+warn "Docker disk < 80%" "[ $(docker system df --format '{{.Size}}' 2>/dev/null | head -1 | grep -v '0B') ]"
+
+echo ""
+echo "========================="
+echo "Results: $ERRORS error(s), $WARNINGS warning(s)"
+
+if [ "$ERRORS" -gt 0 ]; then
+    echo "❌ VALIDATION FAILED - Fix errors before deploying"
+    exit 1
+else
+    echo "✅ Environment is ready for deployment"
+    exit 0
+fi
+```
+
+---
+
+# 7. Ansible
+
+## 📝 Ansible - 24 Interview Questions with Detailed Answers
+
+### Q1: What is Ansible and why is it used?
+
+**Simple explanation:** Ansible is an automation tool that configures servers, deploys applications, and orchestrates tasks - all without installing any agent on the target servers.
+
+**Key features:**
+- **Agentless** → Uses SSH (no software to install on targets)
+- **Idempotent** → Run it 100 times, same result (safe to repeat)
+- **Declarative** → You describe WHAT you want, not HOW to do it
+- **YAML-based** → Easy to read and write
+
+**Use cases:** Server configuration, application deployment, patch management, user management, cloud provisioning.
+
+---
+
+### Q2: Explain Ansible architecture and key components.
+
+| Component | Purpose | Example |
+|-----------|---------|---------|
+| **Inventory** | List of servers to manage | `hosts.ini` or dynamic from AWS |
+| **Playbook** | Set of tasks to execute | `deploy.yml` |
+| **Task** | Single action to perform | Install package, copy file |
+| **Module** | Code that performs the task | `apt`, `copy`, `service`, `docker_container` |
+| **Role** | Reusable set of tasks | `nginx-role`, `docker-role` |
+| **Handler** | Action triggered by change | Restart nginx when config changes |
+| **Variable** | Configurable values | Port numbers, file paths |
+| **Template** | Dynamic file with variables | Jinja2 `.j2` files |
+
+---
+
+### Q3: Write a production playbook to configure a web server.
+
+```yaml
+---
+# webserver.yml - Configure Nginx web server
+- name: Configure Web Servers
+  hosts: webservers              # Group from inventory
+  become: yes                    # Run as root (sudo)
+  vars:
+    app_port: 8080
+    domain: "myapp.company.com"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600    # Don't update if updated within 1 hour
+
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present            # Ensure installed (idempotent)
+      notify: Restart Nginx       # Trigger handler if changed
+
+    - name: Deploy Nginx config
+      template:
+        src: templates/nginx.conf.j2    # Jinja2 template
+        dest: /etc/nginx/sites-available/myapp.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart Nginx
+
+    - name: Enable site
+      file:
+        src: /etc/nginx/sites-available/myapp.conf
+        dest: /etc/nginx/sites-enabled/myapp.conf
+        state: link               # Create symlink
+
+    - name: Ensure Nginx is running and enabled
+      service:
+        name: nginx
+        state: started
+        enabled: yes              # Start on boot
+
+    - name: Open firewall for HTTP/HTTPS
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - "80"
+        - "443"
+
+  handlers:
+    - name: Restart Nginx
+      service:
+        name: nginx
+        state: restarted
+```
+
+**Nginx template (`templates/nginx.conf.j2`):**
+```nginx
+server {
+    listen 80;
+    server_name {{ domain }};
+
+    location / {
+        proxy_pass http://127.0.0.1:{{ app_port }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+---
+
+### Q4: Explain Ansible inventory (static and dynamic).
+
+```ini
+# Static inventory (hosts.ini)
+[webservers]
+web1.company.com ansible_host=10.0.1.10
+web2.company.com ansible_host=10.0.1.11
+
+[dbservers]
+db1.company.com ansible_host=10.0.2.10 ansible_user=dbadmin
+
+[production:children]
+webservers
+dbservers
+
+[production:vars]
+ansible_ssh_private_key_file=~/.ssh/prod-key.pem
+env=production
+```
+
+**Dynamic inventory** (from AWS):
+```bash
+# ansible.cfg
+[defaults]
+inventory = aws_ec2.yml
+
+# aws_ec2.yml
+plugin: amazon.aws.aws_ec2
+regions:
+  - us-east-1
+filters:
+  instance-state-name: running
+keyed_groups:
+  - key: tags.Environment
+    prefix: env
+  - key: tags.Role
+    prefix: role
+```
+
+---
+
+### Q5: What are Ansible Roles and how do you structure them?
+
+```
+roles/
+└── nginx/
+    ├── tasks/
+    │   └── main.yml         # Main task list
+    ├── handlers/
+    │   └── main.yml         # Handlers (restart, reload)
+    ├── templates/
+    │   └── nginx.conf.j2    # Jinja2 templates
+    ├── files/
+    │   └── ssl-cert.pem     # Static files
+    ├── vars/
+    │   └── main.yml         # Role variables
+    ├── defaults/
+    │   └── main.yml         # Default values (overridable)
+    └── meta/
+        └── main.yml         # Dependencies on other roles
+```
+
+**Using roles in playbook:**
+```yaml
+- hosts: webservers
+  become: yes
+  roles:
+    - common          # Basic server setup
+    - nginx           # Web server
+    - monitoring      # Node exporter, etc.
+```
+
+---
+
+### Q6: How do you handle secrets in Ansible?
+
+```bash
+# Ansible Vault - encrypts sensitive data
+
+# Encrypt a file
+ansible-vault encrypt secrets.yml
+
+# Edit encrypted file
+ansible-vault edit secrets.yml
+
+# Run playbook with vault password
+ansible-playbook deploy.yml --ask-vault-pass
+# OR
+ansible-playbook deploy.yml --vault-password-file ~/.vault_pass
+
+# Encrypt single variable
+ansible-vault encrypt_string 'SuperSecret123' --name 'db_password'
+```
+
+```yaml
+# secrets.yml (encrypted)
+db_password: !vault |
+  $ANSIBLE_VAULT;1.1;AES256
+  62313365396662643134...
+
+# Usage in playbook
+- name: Configure database
+  template:
+    src: db.conf.j2
+    dest: /etc/myapp/db.conf
+  vars_files:
+    - secrets.yml
+```
+
+---
+
+### Q7: How do you make Ansible idempotent?
+
+```yaml
+# ✅ IDEMPOTENT (safe to run multiple times)
+- name: Ensure file exists with correct content
+  copy:
+    content: "config_value=true"
+    dest: /etc/myapp.conf
+
+# ❌ NOT IDEMPOTENT (appends every time)
+- name: Add config
+  shell: echo "config_value=true" >> /etc/myapp.conf
+
+# ✅ Fix with lineinfile (idempotent)
+- name: Ensure config line exists
+  lineinfile:
+    path: /etc/myapp.conf
+    line: "config_value=true"
+    state: present
+```
+
+**Rules for idempotency:**
+- Use modules (`copy`, `template`, `service`) instead of `shell`/`command`
+- Use `creates:` parameter with `command` module
+- Use `state: present/absent` parameters
+- Use `lineinfile` instead of `echo >>` for file modifications
+
+---
+
+### Q8: Write a playbook for Docker deployment.
+
+```yaml
+---
+- name: Deploy Docker Application
+  hosts: app_servers
+  become: yes
+  vars:
+    app_name: payment-service
+    image: "registry.company.com/{{ app_name }}"
+    version: "{{ deploy_version | default('latest') }}"
+    app_port: 8080
+
+  tasks:
+    - name: Ensure Docker is installed
+      apt:
+        name: docker.io
+        state: present
+
+    - name: Log in to Docker registry
+      docker_login:
+        registry: registry.company.com
+        username: "{{ docker_user }}"
+        password: "{{ docker_pass }}"
+
+    - name: Pull new image
+      docker_image:
+        name: "{{ image }}"
+        tag: "{{ version }}"
+        source: pull
+        force_source: yes
+
+    - name: Stop old container
+      docker_container:
+        name: "{{ app_name }}"
+        state: absent
+
+    - name: Start new container
+      docker_container:
+        name: "{{ app_name }}"
+        image: "{{ image }}:{{ version }}"
+        state: started
+        restart_policy: unless-stopped
+        ports:
+          - "{{ app_port }}:{{ app_port }}"
+        env:
+          DATABASE_URL: "{{ db_url }}"
+          LOG_LEVEL: "info"
+        healthcheck:
+          test: ["CMD", "curl", "-f", "http://localhost:{{ app_port }}/health"]
+          interval: 30s
+          timeout: 10s
+          retries: 3
+
+    - name: Wait for application to be healthy
+      uri:
+        url: "http://localhost:{{ app_port }}/health"
+        status_code: 200
+      register: health_check
+      until: health_check.status == 200
+      retries: 10
+      delay: 5
+```
+
+---
+
+### Q9: How do you use Ansible conditionals and loops?
+
+```yaml
+# Conditionals (when)
+- name: Install on Ubuntu only
+  apt:
+    name: nginx
+  when: ansible_os_family == "Debian"
+
+- name: Install on CentOS only
+  yum:
+    name: nginx
+  when: ansible_os_family == "RedHat"
+
+# Loops
+- name: Create multiple users
+  user:
+    name: "{{ item.name }}"
+    groups: "{{ item.groups }}"
+    state: present
+  loop:
+    - { name: 'deploy', groups: 'docker' }
+    - { name: 'monitor', groups: 'prometheus' }
+    - { name: 'backup', groups: 'admin' }
+
+# Loop with conditional
+- name: Start services only if installed
+  service:
+    name: "{{ item }}"
+    state: started
+  loop:
+    - nginx
+    - docker
+    - prometheus-node-exporter
+  when: item in ansible_facts.packages
+```
+
+---
+
+### Q10: How do you handle errors in Ansible?
+
+```yaml
+# Ignore errors on specific task
+- name: Check if service exists
+  command: systemctl status myapp
+  register: service_status
+  ignore_errors: yes
+
+- name: Install if not exists
+  apt:
+    name: myapp
+  when: service_status.rc != 0
+
+# Block with rescue (try-catch)
+- block:
+    - name: Deploy new version
+      docker_container:
+        name: myapp
+        image: "myapp:{{ version }}"
+        state: started
+
+    - name: Verify deployment
+      uri:
+        url: http://localhost:8080/health
+        status_code: 200
+      register: health
+      until: health.status == 200
+      retries: 5
+      delay: 10
+
+  rescue:
+    - name: Rollback on failure
+      docker_container:
+        name: myapp
+        image: "myapp:{{ previous_version }}"
+        state: started
+
+    - name: Notify team
+      slack:
+        token: "{{ slack_token }}"
+        msg: "Deployment failed! Rolled back to {{ previous_version }}"
+
+  always:
+    - name: Clean up temp files
+      file:
+        path: /tmp/deploy-artifacts
+        state: absent
+```
+
+---
+
+### Q11: What is the difference between `copy`, `template`, and `file` modules?
+
+| Module | Purpose | Use When |
+|--------|---------|----------|
+| `copy` | Copy static file to remote | File content is fixed |
+| `template` | Copy file with variable substitution (Jinja2) | File needs dynamic values |
+| `file` | Manage file/directory properties | Create dirs, symlinks, set permissions |
+
+---
+
+### Q12: How do you run Ansible against specific hosts?
+
+```bash
+# Run against all hosts in inventory
+ansible-playbook deploy.yml
+
+# Run against specific group
+ansible-playbook deploy.yml --limit webservers
+
+# Run against specific host
+ansible-playbook deploy.yml --limit web1.company.com
+
+# Run against multiple groups
+ansible-playbook deploy.yml --limit 'webservers:&production'
+
+# Dry run (check mode)
+ansible-playbook deploy.yml --check --diff
+
+# Run specific tags only
+ansible-playbook deploy.yml --tags "deploy,config"
+
+# Skip certain tags
+ansible-playbook deploy.yml --skip-tags "monitoring"
+```
+
+---
+
+### Q13: How do you use Ansible with Kubernetes?
+
+```yaml
+- name: Deploy to Kubernetes
+  hosts: localhost
+  connection: local
+  tasks:
+    - name: Apply deployment manifest
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: myapp
+            namespace: production
+          spec:
+            replicas: 3
+            selector:
+              matchLabels:
+                app: myapp
+            template:
+              metadata:
+                labels:
+                  app: myapp
+              spec:
+                containers:
+                - name: myapp
+                  image: "registry/myapp:{{ version }}"
+                  ports:
+                  - containerPort: 8080
+
+    - name: Wait for rollout
+      kubernetes.core.k8s_info:
+        kind: Deployment
+        name: myapp
+        namespace: production
+      register: deploy_status
+      until: deploy_status.resources[0].status.readyReplicas == 3
+      retries: 30
+      delay: 10
+```
+
+---
+
+### Q14: What are Ansible facts and how do you use them?
+
+```yaml
+# Facts are auto-collected information about target systems
+- name: Show facts
+  debug:
+    msg: |
+      OS: {{ ansible_os_family }}
+      IP: {{ ansible_default_ipv4.address }}
+      RAM: {{ ansible_memtotal_mb }} MB
+      CPUs: {{ ansible_processor_vcpus }}
+      Hostname: {{ ansible_hostname }}
+      Disk: {{ ansible_mounts[0].size_total }}
+
+# Custom facts
+- name: Set custom fact
+  set_fact:
+    app_version: "1.2.3"
+    deploy_time: "{{ ansible_date_time.iso8601 }}"
+
+# Gather subset of facts (faster)
+- hosts: all
+  gather_facts: yes
+  gather_subset:
+    - network
+    - hardware
+```
+
+---
+
+### Q15: How do you optimize Ansible performance?
+
+```ini
+# ansible.cfg optimizations
+[defaults]
+forks = 20                      # Parallel hosts (default is 5)
+pipelining = True               # Reduce SSH operations
+gathering = smart               # Cache facts
+fact_caching = jsonfile
+fact_caching_connection = /tmp/ansible_facts
+fact_caching_timeout = 3600
+
+[ssh_connection]
+ssh_args = -o ControlMaster=auto -o ControlPersist=60s
+# Reuses SSH connections (much faster for multiple tasks)
+```
+
+```yaml
+# Async tasks (don't wait for completion)
+- name: Long-running task
+  command: /scripts/rebuild-index.sh
+  async: 3600        # Max runtime: 1 hour
+  poll: 0            # Don't wait (fire and forget)
+```
+
+---
+
+### Q16: Write a playbook for user management.
+
+```yaml
+---
+- name: Manage Users
+  hosts: all
+  become: yes
+  vars:
+    users:
+      - name: deploy
+        groups: docker,sudo
+        ssh_key: "ssh-rsa AAAA... deploy@company"
+      - name: monitoring
+        groups: prometheus
+        ssh_key: "ssh-rsa AAAA... monitor@company"
+    removed_users:
+      - olduser1
+      - contractor_expired
+
+  tasks:
+    - name: Create users
+      user:
+        name: "{{ item.name }}"
+        groups: "{{ item.groups }}"
+        shell: /bin/bash
+        create_home: yes
+        state: present
+      loop: "{{ users }}"
+
+    - name: Set SSH keys
+      authorized_key:
+        user: "{{ item.name }}"
+        key: "{{ item.ssh_key }}"
+        exclusive: yes     # Remove any other keys
+      loop: "{{ users }}"
+
+    - name: Remove old users
+      user:
+        name: "{{ item }}"
+        state: absent
+        remove: yes        # Remove home directory too
+      loop: "{{ removed_users }}"
+```
+
+---
+
+### Q17: What is Ansible Galaxy and how do you use it?
+
+```bash
+# Install community roles
+ansible-galaxy install geerlingguy.docker
+ansible-galaxy install geerlingguy.nginx
+
+# Install from requirements file
+# requirements.yml:
+# - src: geerlingguy.docker
+#   version: 6.0.0
+# - src: git+https://github.com/company/ansible-role-app.git
+#   version: main
+ansible-galaxy install -r requirements.yml
+
+# Use installed role
+# playbook.yml:
+# - hosts: all
+#   roles:
+#     - geerlingguy.docker
+```
+
+---
+
+### Q18: How do you test Ansible playbooks?
+
+```bash
+# 1. Syntax check
+ansible-playbook deploy.yml --syntax-check
+
+# 2. Dry run (check mode)
+ansible-playbook deploy.yml --check --diff
+
+# 3. Molecule (testing framework)
+# molecule/default/molecule.yml
+molecule init role my_role
+molecule test
+```
+
+---
+
+### Q19: How do you handle different environments in Ansible?
+
+```
+inventory/
+├── production/
+│   ├── hosts.ini
+│   └── group_vars/
+│       ├── all.yml        # Variables for all production hosts
+│       └── webservers.yml
+├── staging/
+│   ├── hosts.ini
+│   └── group_vars/
+│       ├── all.yml
+│       └── webservers.yml
+```
+
+```bash
+# Deploy to staging
+ansible-playbook deploy.yml -i inventory/staging/
+
+# Deploy to production
+ansible-playbook deploy.yml -i inventory/production/
+```
+
+---
+
+### Q20: Write a playbook for security hardening.
+
+```yaml
+---
+- name: Security Hardening
+  hosts: all
+  become: yes
+  tasks:
+    - name: Disable root SSH
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PermitRootLogin'
+        line: 'PermitRootLogin no'
+      notify: Restart SSH
+
+    - name: Disable password authentication
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PasswordAuthentication'
+        line: 'PasswordAuthentication no'
+      notify: Restart SSH
+
+    - name: Set SSH timeout
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^ClientAliveInterval'
+        line: 'ClientAliveInterval 300'
+      notify: Restart SSH
+
+    - name: Install fail2ban
+      apt:
+        name: fail2ban
+        state: present
+
+    - name: Configure firewall
+      ufw:
+        rule: "{{ item.rule }}"
+        port: "{{ item.port }}"
+        proto: tcp
+      loop:
+        - { rule: 'allow', port: '22' }
+        - { rule: 'allow', port: '443' }
+        - { rule: 'deny', port: '23' }    # Block telnet
+
+    - name: Enable firewall
+      ufw:
+        state: enabled
+        policy: deny    # Deny all by default
+
+  handlers:
+    - name: Restart SSH
+      service:
+        name: sshd
+        state: restarted
+```
+
+---
+
+### Q21: How do you use Ansible callback plugins and logging?
+
+```ini
+# ansible.cfg
+[defaults]
+callback_whitelist = timer, profile_tasks
+log_path = /var/log/ansible.log
+
+# profile_tasks → shows time taken per task (find slow tasks)
+# timer → shows total playbook time
+```
+
+---
+
+### Q22: How do you delegate tasks in Ansible?
+
+```yaml
+# Run task on a different host
+- name: Remove host from load balancer
+  uri:
+    url: "http://lb.internal/api/remove"
+    method: POST
+    body_format: json
+    body: '{"host": "{{ inventory_hostname }}"}'
+  delegate_to: localhost      # Run this on control machine, not target
+
+- name: Deploy application
+  apt:
+    name: myapp
+    state: latest
+
+- name: Add host back to load balancer
+  uri:
+    url: "http://lb.internal/api/add"
+    method: POST
+    body_format: json
+    body: '{"host": "{{ inventory_hostname }}"}'
+  delegate_to: localhost
+```
+
+---
+
+### Q23: What is `register` and how do you use task output?
+
+```yaml
+- name: Check if app is running
+  command: pgrep -f myapp
+  register: app_status
+  ignore_errors: yes
+
+# Use registered variable
+- name: Start app if not running
+  command: /opt/myapp/start.sh
+  when: app_status.rc != 0
+  # .rc = return code (0=found, 1=not found)
+
+- name: Show output
+  debug:
+    msg: "App PIDs: {{ app_status.stdout_lines }}"
+  when: app_status.rc == 0
+```
+
+---
+
+### Q24: How do you do rolling deployments with Ansible?
+
+```yaml
+---
+- name: Rolling Deployment
+  hosts: webservers
+  serial: 2              # Deploy to 2 servers at a time
+  max_fail_percentage: 25  # Stop if >25% of hosts fail
+  become: yes
+
+  pre_tasks:
+    - name: Remove from load balancer
+      uri:
+        url: "http://lb/api/drain/{{ inventory_hostname }}"
+        method: POST
+      delegate_to: localhost
+
+    - name: Wait for connections to drain
+      pause:
+        seconds: 30
+
+  tasks:
+    - name: Deploy new version
+      apt:
+        name: myapp
+        state: latest
+      notify: Restart app
+
+  post_tasks:
+    - name: Verify health
+      uri:
+        url: "http://{{ inventory_hostname }}:8080/health"
+        status_code: 200
+      retries: 5
+      delay: 10
+
+    - name: Add back to load balancer
+      uri:
+        url: "http://lb/api/enable/{{ inventory_hostname }}"
+        method: POST
+      delegate_to: localhost
+
+  handlers:
+    - name: Restart app
+      service:
+        name: myapp
+        state: restarted
+```
+
+---
+
+# 8. Docker
+
+## 📝 Docker - 24 Interview Questions with Detailed Answers
+
+### Q1: What is Docker and why do we use it?
+
+**Simple explanation:** Docker packages your application AND everything it needs (libraries, runtime, config) into a single portable unit called a **container**.
+
+**Real-world analogy:** Shipping containers - doesn't matter what's inside, they all fit on the same ship. Docker containers work the same on any server.
+
+**Problems it solves:**
+- "Works on my machine" → Same container runs identically everywhere
+- Dependency conflicts → Each app has its own isolated environment
+- Slow deployments → Start containers in seconds
+- Resource waste → Multiple containers share one OS (lighter than VMs)
+
+---
+
+### Q2: Write a production-ready Dockerfile.
+
+```dockerfile
+# Multi-stage build - keeps final image small and secure
+# Stage 1: Build
+FROM node:18-alpine AS builder
+# node:18-alpine = small base image (5MB alpine vs 900MB ubuntu)
+# AS builder = name this stage for reference later
+
+WORKDIR /app
+# Set working directory (like cd /app, creates if not exists)
+
+COPY package*.json ./
+# Copy only package files first (Docker caching optimization)
+# If dependencies don't change, this layer is cached = faster builds
+
+RUN npm ci --only=production
+# npm ci = clean install (reproducible, uses package-lock.json)
+# --only=production = skip dev dependencies (smaller image)
+
+COPY . .
+# Copy rest of application source code
+
+RUN npm run build
+# Build the application
+
+# Stage 2: Production image
+FROM node:18-alpine AS production
+# Fresh image - only copy what we need from builder
+
+# Security: Don't run as root
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+# -S = system user/group (no password, no home)
+
+WORKDIR /app
+
+# Copy only built artifacts from builder stage
+COPY --from=builder --chown=appuser:appgroup /app/dist ./dist
+COPY --from=builder --chown=appuser:appgroup /app/node_modules ./node_modules
+COPY --from=builder --chown=appuser:appgroup /app/package.json ./
+
+# Switch to non-root user
+USER appuser
+
+# Document which port the app uses
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+
+# Start the application
+CMD ["node", "dist/server.js"]
+# Use exec form (array) not shell form - proper signal handling
+```
+
+---
+
+### Q3: What is the difference between CMD, ENTRYPOINT, and RUN?
+
+| Instruction | When it runs | Purpose | Overridable? |
+|------------|-------------|---------|--------------|
+| `RUN` | During image BUILD | Install packages, build code | N/A (baked into image) |
+| `CMD` | When container STARTS | Default command to run | Yes (docker run ... <new_cmd>) |
+| `ENTRYPOINT` | When container STARTS | Fixed command (always runs) | Only with --entrypoint |
+
+```dockerfile
+# Example showing the difference:
+RUN apt-get update && apt-get install -y curl    # Runs during build
+ENTRYPOINT ["python", "app.py"]                   # Always runs python app.py
+CMD ["--port", "8080"]                            # Default args (overridable)
+
+# docker run myapp               → python app.py --port 8080
+# docker run myapp --port 9090   → python app.py --port 9090
+```
+
+---
+
+### Q4: How does Docker networking work?
+
+```bash
+# Default networks
+docker network ls
+# bridge  → Default for standalone containers (isolation per container)
+# host    → Container shares host's network (no isolation)
+# none    → No networking
+
+# Create custom network (RECOMMENDED)
+docker network create myapp-network
+
+# Containers on same custom network can reach each other BY NAME
+docker run -d --name api --network myapp-network api-image
+docker run -d --name db --network myapp-network postgres
+# api can reach db at hostname "db" (Docker DNS)
+
+# Expose ports to host
+docker run -d -p 8080:3000 myapp
+# 8080 = host port (what external clients use)
+# 3000 = container port (what app listens on inside)
+```
+
+---
+
+### Q5: How do you debug a container that keeps crashing?
+
+```bash
+# Step 1: Check container logs
+docker logs <container-id> --tail 50
+docker logs <container-id> -f    # Follow in real-time
+
+# Step 2: Check container events
+docker inspect <container-id> | jq '.[0].State'
+# Look at: ExitCode, OOMKilled, Error
+
+# Step 3: If OOMKilled=true → Container ran out of memory
+# Fix: Increase memory limit
+docker run -m 512m myapp
+
+# Step 4: Start container with shell (bypass CMD)
+docker run -it --entrypoint /bin/sh myapp
+# Now you're inside → debug manually
+
+# Step 5: Check what's different from working state
+docker diff <container-id>      # Shows changed files
+docker top <container-id>       # Shows running processes
+docker stats <container-id>     # Shows resource usage
+```
+
+---
+
+### Q6: What are Docker volumes and when to use them?
+
+```bash
+# Volumes persist data beyond container lifecycle
+
+# Named volume (Docker manages storage)
+docker volume create db-data
+docker run -v db-data:/var/lib/postgresql/data postgres
+
+# Bind mount (map host directory into container)
+docker run -v /host/path:/container/path myapp
+# Useful for: development (code changes reflect immediately)
+
+# tmpfs mount (in memory, fast but not persistent)
+docker run --tmpfs /tmp myapp
+```
+
+| Type | Use Case | Persistence |
+|------|----------|-------------|
+| Named Volume | Database data, persistent storage | Survives container removal |
+| Bind Mount | Dev environment, config files | Host filesystem |
+| tmpfs | Secrets, temp data | Gone when container stops |
+
+---
+
+### Q7: How do you optimize Docker image size?
+
+```dockerfile
+# ❌ BAD: 1.2GB image
+FROM ubuntu:22.04
+RUN apt-get update
+RUN apt-get install -y python3 python3-pip
+RUN pip install -r requirements.txt
+COPY . .
+
+# ✅ GOOD: 85MB image
+FROM python:3.11-slim AS builder
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --user -r requirements.txt
+
+FROM python:3.11-slim
+COPY --from=builder /root/.local /root/.local
+COPY . /app
+WORKDIR /app
+ENV PATH=/root/.local/bin:$PATH
+CMD ["python", "app.py"]
+```
+
+**Optimization tips:**
+1. Use `alpine` or `slim` base images
+2. Multi-stage builds (build in one, run in another)
+3. Combine RUN commands (fewer layers)
+4. Use `.dockerignore` (exclude node_modules, .git, etc.)
+5. Order Dockerfile for cache efficiency (static → dynamic)
+
+---
+
+### Q8: Explain Docker Compose with a production example.
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=postgresql://user:pass@db:5432/mydb
+      - REDIS_URL=redis://cache:6379
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+
+  db:
+    image: postgres:15-alpine
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: mydb
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  cache:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+
+volumes:
+  db-data:
+  redis-data:
+```
+
+---
+
+### Q9: What is the difference between Docker image and container?
+
+| Concept | Image | Container |
+|---------|-------|-----------|
+| What is it | Blueprint/template | Running instance of image |
+| State | Read-only (immutable) | Read-write (has runtime state) |
+| Analogy | Class (in programming) | Object (instance of class) |
+| Storage | Stored in registry | Runs on Docker host |
+| Create from | Dockerfile | docker run <image> |
+
+---
+
+### Q10: How do you scan Docker images for vulnerabilities?
+
+```bash
+# Using Trivy (most popular)
+trivy image myapp:latest
+
+# In CI/CD pipeline:
+trivy image --severity HIGH,CRITICAL --exit-code 1 myapp:latest
+# --exit-code 1 → Fail the pipeline if vulnerabilities found
+
+# Docker Scout (built into Docker)
+docker scout cves myapp:latest
+
+# Best practices:
+# 1. Scan in CI/CD before pushing to registry
+# 2. Use minimal base images (less attack surface)
+# 3. Update base images regularly
+# 4. Don't run as root in containers
+```
+
+---
+
+### Q11: How does Docker layer caching work?
+
+Each line in Dockerfile creates a layer. Docker caches layers and reuses them if nothing changed.
+
+```dockerfile
+# ✅ Good order (cache-friendly)
+COPY package.json .          # Layer 1: Changes rarely
+RUN npm install              # Layer 2: Cached if package.json didn't change
+COPY . .                     # Layer 3: Changes often (source code)
+
+# ❌ Bad order (breaks cache)
+COPY . .                     # Layer 1: Changes every time
+RUN npm install              # Layer 2: NEVER cached (because Layer 1 always changes)
+```
+
+---
+
+### Q12: How do you implement container health checks?
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+```
+
+```bash
+# Check health status
+docker inspect --format='{{.State.Health.Status}}' mycontainer
+# Output: healthy / unhealthy / starting
+
+# Docker Compose health check
+healthcheck:
+  test: ["CMD", "pg_isready"]
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 30s
+```
+
+---
+
+### Q13: What are Docker security best practices?
+
+1. **Don't run as root** → Use `USER` instruction
+2. **Use minimal base images** → `alpine`, `distroless`
+3. **Scan for vulnerabilities** → Trivy, Snyk
+4. **Don't store secrets in images** → Use env vars or secret mounts
+5. **Read-only filesystem** → `docker run --read-only`
+6. **Limit resources** → `--memory`, `--cpus`
+7. **Use `.dockerignore`** → Don't copy secrets/keys into image
+8. **Pin versions** → `FROM node:18.17.0-alpine` not `FROM node:latest`
+
+---
+
+### Q14: How do you clean up Docker resources?
+
+```bash
+# Remove all stopped containers
+docker container prune -f
+
+# Remove unused images
+docker image prune -a -f
+
+# Remove unused volumes
+docker volume prune -f
+
+# Remove everything unused (nuclear option)
+docker system prune -a --volumes -f
+
+# Check disk usage
+docker system df
+```
+
+---
+
+### Q15: How do you pass secrets to Docker containers securely?
+
+```bash
+# ❌ BAD: Secrets in Dockerfile or docker-compose env
+ENV API_KEY=supersecret    # Visible in image layers!
+
+# ✅ Option 1: Runtime environment variables
+docker run -e API_KEY="$(vault read -field=key secret/myapp)" myapp
+
+# ✅ Option 2: Docker secrets (Swarm mode)
+echo "supersecret" | docker secret create api_key -
+
+# ✅ Option 3: Mount secret file
+docker run -v /run/secrets/api_key:/run/secrets/api_key:ro myapp
+
+# ✅ Option 4: BuildKit secrets (for build-time)
+docker build --secret id=npmrc,src=.npmrc .
+# In Dockerfile:
+RUN --mount=type=secret,id=npmrc cp /run/secrets/npmrc ~/.npmrc && npm ci
+```
+
+---
+
+### Q16: How do you do container-to-container communication?
+
+```bash
+# Same Docker network → use container name as hostname
+docker network create backend
+docker run -d --name api --network backend api-image
+docker run -d --name db --network backend postgres
+
+# From api container: connect to "db:5432" (Docker DNS resolves it)
+
+# Cross-network communication
+docker network connect frontend api
+# Now api is on both "backend" and "frontend" networks
+```
+
+---
+
+### Q17: What is Docker BuildKit and why use it?
+
+```bash
+# Enable BuildKit
+DOCKER_BUILDKIT=1 docker build .
+
+# Benefits:
+# - Parallel stage execution (faster builds)
+# - Better caching (cache mounts)
+# - Secret mounts (don't leak secrets in layers)
+# - SSH forwarding for private repos
+
+# Cache mount example (speeds up package installs)
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
+```
+
+---
+
+### Q18: How do you monitor Docker containers in production?
+
+```bash
+# Real-time stats
+docker stats
+
+# cAdvisor (Container Advisor by Google)
+docker run -d --name cadvisor \
+    -v /:/rootfs:ro \
+    -v /var/run:/var/run:ro \
+    -v /sys:/sys:ro \
+    -v /var/lib/docker/:/var/lib/docker:ro \
+    -p 9090:8080 \
+    gcr.io/cadvisor/cadvisor
+
+# Prometheus + Grafana stack for production monitoring
+# cadvisor exposes metrics → Prometheus scrapes → Grafana displays
+```
+
+---
+
+### Q19: How do you handle logging in Docker?
+
+```bash
+# View logs
+docker logs <container> --tail 100 -f
+
+# Logging drivers
+docker run --log-driver=json-file --log-opt max-size=10m --log-opt max-file=3 myapp
+# max-size=10m → Each log file max 10MB
+# max-file=3 → Keep max 3 rotated files
+
+# Send to centralized logging
+docker run --log-driver=fluentd --log-opt fluentd-address=localhost:24224 myapp
+```
+
+---
+
+### Q20: What is the difference between `docker stop` and `docker kill`?
+
+| Command | Signal | Behavior |
+|---------|--------|----------|
+| `docker stop` | SIGTERM → wait 10s → SIGKILL | Graceful (app can cleanup) |
+| `docker kill` | SIGKILL immediately | Forced (no cleanup, data loss risk) |
+
+---
+
+### Q21: How do you manage Docker images in CI/CD?
+
+```bash
+# Build with meaningful tags
+docker build -t myapp:${GIT_SHA} -t myapp:latest .
+
+# Push to registry
+docker push myapp:${GIT_SHA}
+
+# Best practice: Tag with commit SHA (immutable, traceable)
+# Never rely solely on :latest in production
+```
+
+---
+
+### Q22: How do you limit container resources?
+
+```bash
+docker run \
+    --memory=512m \           # Max 512MB RAM
+    --memory-swap=1g \        # Max 1GB RAM + swap
+    --cpus=1.5 \              # Max 1.5 CPU cores
+    --pids-limit=100 \        # Max 100 processes
+    --ulimit nofile=1024:1024 \  # File descriptor limit
+    myapp
+```
+
+---
+
+### Q23: What is Docker overlay network?
+
+Used in Docker Swarm/multi-host deployments to allow containers on different physical hosts to communicate as if on the same network.
+
+```bash
+docker network create --driver overlay --attachable my-overlay
+# --driver overlay → Multi-host networking
+# --attachable → Standalone containers can join too
+```
+
+---
+
+### Q24: How do you troubleshoot Docker networking issues?
+
+```bash
+# 1. Check container's network settings
+docker inspect <container> | jq '.[0].NetworkSettings'
+
+# 2. Check DNS resolution inside container
+docker exec <container> nslookup other-service
+
+# 3. Check connectivity
+docker exec <container> nc -zv other-service 8080
+
+# 4. Check if port is published correctly
+docker port <container>
+
+# 5. Check iptables rules (Docker adds its own)
+iptables -t nat -L -n | grep DOCKER
+
+# 6. Test from inside container
+docker exec -it <container> sh
+# Then use curl, ping, nc, etc.
+```
+
+---
+
+# 9. Kubernetes
+
+## 📝 Kubernetes - 24 Interview Questions with Detailed Answers
+
+### Q1: What is Kubernetes and why do we need it?
+
+**Simple explanation:** Kubernetes (K8s) is a container orchestration platform - it manages running, scaling, healing, and networking of containers across multiple servers.
+
+**What it solves:**
+- **Self-healing** → Container crashes? K8s restarts it automatically
+- **Scaling** → Traffic spike? K8s creates more containers
+- **Load balancing** → Distributes traffic across containers
+- **Rolling updates** → Deploy new versions without downtime
+- **Service discovery** → Containers find each other by name
+
+---
+
+### Q2: Explain Kubernetes architecture.
+
+```
+┌─────────────── Control Plane (Master) ───────────────┐
+│  API Server  │  Scheduler  │  Controller  │  etcd    │
+│  (frontend)  │  (placement)│  (desired    │  (state  │
+│              │             │   state)     │  store)  │
+└──────────────────────────────────────────────────────┘
+         │
+         ├──── Worker Node 1
+         │     ├── kubelet (agent)
+         │     ├── kube-proxy (networking)
+         │     └── Pods (containers)
+         │
+         └──── Worker Node 2
+               ├── kubelet
+               ├── kube-proxy
+               └── Pods
+```
+
+| Component | Role |
+|-----------|------|
+| API Server | Front door - all requests go through here |
+| etcd | Database storing entire cluster state |
+| Scheduler | Decides which node runs new pods |
+| Controller Manager | Ensures desired state matches actual state |
+| kubelet | Agent on each node, manages pods |
+| kube-proxy | Handles networking rules on each node |
+
+---
+
+### Q3: What is a Pod, Deployment, Service, and Ingress?
+
+| Resource | Purpose | Analogy |
+|----------|---------|---------|
+| **Pod** | Smallest unit, runs 1+ containers | A single apartment |
+| **Deployment** | Manages pod replicas and updates | Building manager |
+| **Service** | Stable network endpoint for pods | Reception desk |
+| **Ingress** | External HTTP routing to services | Main entrance gate |
+
+```yaml
+# Complete example: Deploy a web app
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp
+  namespace: production
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+      - name: myapp
+        image: registry/myapp:v1.2.3
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: 100m          # Minimum guaranteed
+            memory: 128Mi
+          limits:
+            cpu: 500m          # Maximum allowed
+            memory: 512Mi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: myapp
+spec:
+  selector:
+    app: myapp       # Routes to pods with this label
+  ports:
+  - port: 80         # Service port (what clients use)
+    targetPort: 8080  # Container port
+  type: ClusterIP     # Internal only
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: myapp
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - host: myapp.company.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: myapp
+            port:
+              number: 80
+```
+
+---
+
+### Q4: How do you troubleshoot a pod that won't start?
+
+```bash
+# Step 1: Check pod status
+kubectl get pods -n <namespace>
+# STATUS column: Pending, CrashLoopBackOff, ImagePullBackOff, Error
+
+# Step 2: Describe pod (shows events)
+kubectl describe pod <pod-name> -n <namespace>
+# Look at "Events" section at the bottom
+
+# Step 3: Based on status:
+
+# ImagePullBackOff → Can't download the image
+# Fix: Check image name/tag, registry credentials
+kubectl get events --field-selector reason=Failed
+
+# CrashLoopBackOff → Container starts and crashes repeatedly
+# Fix: Check logs
+kubectl logs <pod-name> -n <namespace>
+kubectl logs <pod-name> -n <namespace> --previous  # Previous crash logs
+
+# Pending → Can't be scheduled
+# Fix: Check resources, node conditions
+kubectl describe pod <pod> | grep -A 5 "Events"
+# Common: "Insufficient cpu" or "Insufficient memory"
+
+# OOMKilled → Ran out of memory
+kubectl describe pod <pod> | grep -i "oom"
+# Fix: Increase memory limits
+```
+
+---
+
+### Q5: What are liveness and readiness probes?
+
+| Probe | Purpose | On Failure |
+|-------|---------|------------|
+| **Liveness** | "Is the app alive?" | K8s restarts the container |
+| **Readiness** | "Is the app ready for traffic?" | K8s removes from Service (no traffic) |
+| **Startup** | "Has the app finished starting?" | Delays other probes |
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8080
+  initialDelaySeconds: 30    # Wait 30s before first check
+  periodSeconds: 10          # Check every 10s
+  failureThreshold: 3        # 3 failures = restart
+
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  failureThreshold: 2        # 2 failures = remove from service
+```
+
+---
+
+### Q6: How does Horizontal Pod Autoscaler (HPA) work?
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: myapp-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: myapp
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70    # Scale up when CPU > 70%
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+```
+
+```bash
+# Check HPA status
+kubectl get hpa
+# NAME        REFERENCE       TARGETS   MINPODS   MAXPODS   REPLICAS
+# myapp-hpa   Deployment/myapp   45%/70%   2         20        3
+```
+
+---
+
+### Q7: What are ConfigMaps and Secrets?
+
+```yaml
+# ConfigMap - Non-sensitive configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  DATABASE_HOST: "db.internal"
+  LOG_LEVEL: "info"
+  config.yml: |
+    server:
+      port: 8080
+      timeout: 30s
+
+---
+# Secret - Sensitive data (base64 encoded)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secrets
+type: Opaque
+data:
+  DB_PASSWORD: cGFzc3dvcmQxMjM=    # echo -n 'password123' | base64
+
+---
+# Using in Pod
+spec:
+  containers:
+  - name: myapp
+    envFrom:
+    - configMapRef:
+        name: app-config
+    - secretRef:
+        name: app-secrets
+    volumeMounts:
+    - name: config-volume
+      mountPath: /etc/myapp
+  volumes:
+  - name: config-volume
+    configMap:
+      name: app-config
+```
+
+---
+
+### Q8: How do you do rolling updates and rollbacks?
+
+```bash
+# Update image (triggers rolling update)
+kubectl set image deployment/myapp myapp=registry/myapp:v2.0.0
+
+# Watch rollout progress
+kubectl rollout status deployment/myapp
+
+# Check rollout history
+kubectl rollout history deployment/myapp
+
+# Rollback to previous version
+kubectl rollout undo deployment/myapp
+
+# Rollback to specific revision
+kubectl rollout undo deployment/myapp --to-revision=3
+
+# Pause/Resume rollout (canary-style)
+kubectl rollout pause deployment/myapp
+# ... verify ...
+kubectl rollout resume deployment/myapp
+```
+
+---
+
+### Q9: What are Namespaces and when to use them?
+
+```bash
+# Namespaces = Virtual clusters within a physical cluster
+
+# Common namespace strategy:
+kubectl create namespace development
+kubectl create namespace staging
+kubectl create namespace production
+kubectl create namespace monitoring
+
+# Set default namespace
+kubectl config set-context --current --namespace=production
+
+# Resource quotas per namespace
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: prod-quota
+  namespace: production
+spec:
+  hard:
+    requests.cpu: "10"
+    requests.memory: 20Gi
+    limits.cpu: "20"
+    limits.memory: 40Gi
+    pods: "50"
+```
+
+---
+
+### Q10: How do you debug Kubernetes networking issues?
+
+```bash
+# 1. Check Service endpoints
+kubectl get endpoints <service-name>
+# If empty → selector doesn't match pod labels
+
+# 2. Check DNS resolution
+kubectl run tmp-debug --image=busybox --rm -it -- nslookup myservice.mynamespace.svc.cluster.local
+
+# 3. Check CoreDNS
+kubectl get pods -n kube-system -l k8s-app=kube-dns
+kubectl logs -n kube-system -l k8s-app=kube-dns
+
+# 4. Check Network Policies
+kubectl get networkpolicies -A
+
+# 5. Test pod-to-pod connectivity
+kubectl exec <pod-a> -- nc -zv <pod-b-ip> 8080
+
+# 6. Check kube-proxy
+kubectl get pods -n kube-system -l k8s-app=kube-proxy
+kubectl logs -n kube-system -l k8s-app=kube-proxy
+```
+
+---
+
+### Q11: What are DaemonSet, StatefulSet, and Job?
+
+| Resource | Purpose | Use Case |
+|----------|---------|----------|
+| **DaemonSet** | Run one pod per node | Log collectors, monitoring agents |
+| **StatefulSet** | Pods with stable identity + storage | Databases, Kafka, Elasticsearch |
+| **Job** | Run to completion | Database migrations, batch processing |
+| **CronJob** | Scheduled Jobs | Nightly backups, report generation |
+
+---
+
+### Q12: How do you manage storage in Kubernetes?
+
+```yaml
+# PersistentVolumeClaim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: db-storage
+spec:
+  accessModes:
+    - ReadWriteOnce       # Only one node can mount
+  storageClassName: gp3   # AWS EBS gp3
+  resources:
+    requests:
+      storage: 50Gi
+
+# Use in Pod
+spec:
+  containers:
+  - name: postgres
+    volumeMounts:
+    - name: data
+      mountPath: /var/lib/postgresql/data
+  volumes:
+  - name: data
+    persistentVolumeClaim:
+      claimName: db-storage
+```
+
+---
+
+### Q13: What is RBAC in Kubernetes?
+
+```yaml
+# Role (namespace-scoped permissions)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: developer-role
+  namespace: development
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "configmaps"]
+  verbs: ["get", "list", "watch", "create", "update"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch"]
+
+---
+# RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: developer-binding
+  namespace: development
+subjects:
+- kind: User
+  name: john@company.com
+roleRef:
+  kind: Role
+  name: developer-role
+  apiGroup: rbac.authorization.k8s.io
+```
+
+---
+
+### Q14: How do you handle secrets securely in Kubernetes?
+
+1. **External Secrets Operator** → Syncs from AWS Secrets Manager/Vault
+2. **Sealed Secrets** → Encrypted secrets safe to commit to Git
+3. **CSI Secret Store Driver** → Mounts secrets as volumes from external provider
+
+```yaml
+# External Secrets Operator example
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: app-secret
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-secrets-manager
+    kind: ClusterSecretStore
+  target:
+    name: app-secret
+  data:
+  - secretKey: DB_PASSWORD
+    remoteRef:
+      key: /production/myapp/db-password
+```
+
+---
+
+### Q15: What are Network Policies?
+
+```yaml
+# Allow traffic only from specific pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: db-policy
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres          # Apply to postgres pods
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: api           # Only allow from api pods
+    ports:
+    - protocol: TCP
+      port: 5432
+```
+
+---
+
+### Q16: How do you monitor Kubernetes?
+
+```bash
+# Built-in commands
+kubectl top nodes            # Node resource usage
+kubectl top pods -n prod     # Pod resource usage
+
+# Prometheus Stack (industry standard)
+# Components: Prometheus + Grafana + AlertManager + node-exporter
+helm install prometheus prometheus-community/kube-prometheus-stack
+
+# Key metrics to monitor:
+# - Pod restarts
+# - CPU/Memory usage vs limits
+# - Node conditions
+# - Pending pods (scheduling issues)
+# - API server latency
+```
+
+---
+
+### Q17: What is a Service Mesh (Istio/Linkerd)?
+
+A service mesh adds observability, security, and traffic management between services without changing application code.
+
+**Features:** mTLS between services, traffic splitting (canary), retries, circuit breaking, observability (tracing).
+
+---
+
+### Q18: How do you handle pod scheduling (affinity, taints, tolerations)?
+
+```yaml
+# Node affinity - Schedule on specific nodes
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: instance-type
+            operator: In
+            values: ["gpu", "compute-optimized"]
+
+# Pod anti-affinity - Don't put 2 pods on same node
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app: myapp
+          topologyKey: kubernetes.io/hostname
+
+# Taints and Tolerations
+# Taint a node:  kubectl taint nodes node1 gpu=true:NoSchedule
+# Pod must tolerate:
+spec:
+  tolerations:
+  - key: "gpu"
+    operator: "Equal"
+    value: "true"
+    effect: "NoSchedule"
+```
+
+---
+
+### Q19: How do you do blue-green deployment in Kubernetes?
+
+```bash
+# Deploy green version alongside blue
+kubectl apply -f deployment-green.yaml  # app: myapp, version: green
+
+# Switch Service selector from blue to green
+kubectl patch service myapp -p '{"spec":{"selector":{"version":"green"}}}'
+
+# If something goes wrong, switch back
+kubectl patch service myapp -p '{"spec":{"selector":{"version":"blue"}}}'
+```
+
+---
+
+### Q20: What are Init Containers?
+
+Containers that run BEFORE the main container starts. Used for setup tasks.
+
+```yaml
+spec:
+  initContainers:
+  - name: wait-for-db
+    image: busybox
+    command: ['sh', '-c', 'until nc -z db-service 5432; do sleep 2; done']
+  - name: run-migrations
+    image: myapp:latest
+    command: ['python', 'manage.py', 'migrate']
+  containers:
+  - name: myapp
+    image: myapp:latest
+```
+
+---
+
+### Q21: How do you manage Kubernetes configuration with Helm?
+
+```bash
+# Install an application
+helm install myapp ./my-chart --values prod-values.yaml
+
+# Upgrade
+helm upgrade myapp ./my-chart --values prod-values.yaml
+
+# Rollback
+helm rollback myapp 1
+
+# List releases
+helm list
+```
+
+---
+
+### Q22: What is Pod Disruption Budget (PDB)?
+
+```yaml
+# Ensure minimum availability during maintenance
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: myapp-pdb
+spec:
+  minAvailable: 2    # Always keep at least 2 pods running
+  selector:
+    matchLabels:
+      app: myapp
+```
+
+---
+
+### Q23: How do you troubleshoot OOMKilled pods?
+
+```bash
+# Check if pod was OOMKilled
+kubectl describe pod <pod> | grep -i "oom\|killed\|memory"
+
+# Check actual memory usage
+kubectl top pod <pod>
+
+# Fix: Increase memory limit
+# OR fix memory leak in application
+# OR add JVM flags: -Xmx512m (for Java apps)
+```
+
+---
+
+### Q24: What are Kubernetes best practices for production?
+
+1. **Always set resource requests AND limits**
+2. **Use namespaces** for isolation
+3. **Implement RBAC** (least privilege)
+4. **Use Network Policies** (deny by default)
+5. **Health probes on every container** (liveness + readiness)
+6. **Pod Disruption Budgets** for high availability
+7. **Horizontal Pod Autoscaler** for traffic spikes
+8. **Don't use `latest` tag** (use specific versions)
+9. **Store configs in ConfigMaps/Secrets** (not in images)
+10. **Monitor everything** (Prometheus + Grafana)
+
+---
+
+# 10. Monitoring
+
+## 📝 Monitoring - 24 Interview Questions with Detailed Answers
+
+### Q1: What is monitoring and why is it critical?
+
+**Monitoring** = Continuously collecting, analyzing, and alerting on system metrics to detect issues before users do.
+
+**Three Pillars of Observability:**
+- **Metrics** → Numbers over time (CPU, memory, request count)
+- **Logs** → Event records (errors, access logs)
+- **Traces** → Request path through multiple services
+
+---
+
+### Q2: Explain Prometheus architecture and how it works.
+
+```
+┌─────────────────────────────────────────────┐
+│              Prometheus Server                │
+│  ┌─────────┐  ┌──────────┐  ┌───────────┐  │
+│  │Retrieval │  │  TSDB    │  │ HTTP API  │  │
+│  │(scraping)│  │(storage) │  │(PromQL)   │  │
+│  └─────────┘  └──────────┘  └───────────┘  │
+└─────────────────────────────────────────────┘
+      ↑ scrapes                    ↓ queries
+      │                            │
+┌──────────┐                 ┌──────────┐
+│ Targets  │                 │ Grafana  │
+│(exporters)│                │(dashboards)│
+└──────────┘                 └──────────┘
+```
+
+**How it works:**
+1. Applications expose metrics at `/metrics` endpoint
+2. Prometheus **pulls** (scrapes) these metrics on a schedule
+3. Stores in time-series database (TSDB)
+4. AlertManager sends alerts based on rules
+5. Grafana visualizes with dashboards
+
+---
+
+### Q3: What are the 4 Golden Signals of monitoring?
+
+| Signal | What It Measures | Example Metric |
+|--------|-----------------|----------------|
+| **Latency** | Response time | `http_request_duration_seconds` |
+| **Traffic** | Request volume | `http_requests_total` |
+| **Errors** | Failure rate | `http_requests_total{status="500"}` |
+| **Saturation** | Resource fullness | CPU usage, queue depth |
+
+---
+
+### Q4: Write a PromQL query for common monitoring scenarios.
+
+```promql
+# Request rate (requests per second over 5 minutes)
+rate(http_requests_total[5m])
+
+# Error rate percentage
+sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) * 100
+
+# 95th percentile response time
+histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+
+# CPU usage percentage per pod
+sum(rate(container_cpu_usage_seconds_total[5m])) by (pod) * 100
+
+# Memory usage
+container_memory_usage_bytes / container_spec_memory_limit_bytes * 100
+
+# Disk usage prediction (when will disk be full?)
+predict_linear(node_filesystem_free_bytes[6h], 24*3600) < 0
+# If this is true → disk will be full within 24 hours
+```
+
+---
+
+### Q5: How do you set up alerting rules?
+
+```yaml
+# prometheus-rules.yaml
+groups:
+- name: application-alerts
+  rules:
+  - alert: HighErrorRate
+    expr: sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > 0.05
+    for: 5m              # Must be true for 5 minutes
+    labels:
+      severity: critical
+    annotations:
+      summary: "High error rate: {{ $value | humanizePercentage }}"
+      description: "Error rate is above 5% for the last 5 minutes"
+
+  - alert: PodCrashLooping
+    expr: rate(kube_pod_container_status_restarts_total[15m]) > 0
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Pod {{ $labels.pod }} is crash-looping"
+
+  - alert: DiskSpaceLow
+    expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) < 0.15
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Disk space below 15% on {{ $labels.instance }}"
+```
+
+---
+
+### Q6: What is Grafana and how do you create dashboards?
+
+Grafana is a visualization tool that connects to data sources (Prometheus, CloudWatch, Elasticsearch) and creates dashboards.
+
+**Key dashboard panels for DevOps:**
+- Request rate and error rate
+- Response time (p50, p95, p99)
+- CPU/Memory usage per pod
+- Pod restarts
+- Node health
+- Disk I/O and usage
+
+---
+
+### Q7: How do you monitor Kubernetes clusters?
+
+```bash
+# Deploy kube-prometheus-stack (all-in-one)
+helm install monitoring prometheus-community/kube-prometheus-stack \
+    --namespace monitoring --create-namespace
+
+# This installs:
+# - Prometheus (metrics collection)
+# - Grafana (dashboards - pre-built K8s dashboards included)
+# - AlertManager (alerts)
+# - Node Exporter (host metrics)
+# - kube-state-metrics (K8s object metrics)
+```
+
+**Key metrics to monitor:**
+- `kube_pod_container_status_restarts_total` → Pod restarts
+- `kube_node_status_condition` → Node health
+- `kube_pod_status_phase` → Pod phases
+- `container_memory_usage_bytes` → Memory per container
+
+---
+
+### Q8: What is the difference between USE and RED methods?
+
+| Method | For | Metrics |
+|--------|-----|---------|
+| **USE** | Infrastructure (servers, DBs) | Utilization, Saturation, Errors |
+| **RED** | Services (APIs, microservices) | Rate, Errors, Duration |
+
+---
+
+### Q9: How do you implement application-level metrics?
+
+```python
+# Python with prometheus_client library
+from prometheus_client import Counter, Histogram, start_http_server
+
+# Define metrics
+REQUEST_COUNT = Counter('http_requests_total', 'Total requests', ['method', 'endpoint', 'status'])
+REQUEST_DURATION = Histogram('http_request_duration_seconds', 'Request duration', ['endpoint'])
+
+# Record metrics in your app
+@app.route('/api/users')
+def get_users():
+    with REQUEST_DURATION.labels(endpoint='/api/users').time():
+        result = fetch_users()
+        REQUEST_COUNT.labels(method='GET', endpoint='/api/users', status='200').inc()
+        return result
+
+# Expose metrics endpoint
+start_http_server(9090)  # /metrics on port 9090
+```
+
+---
+
+### Q10: How do you set up on-call alerts without alert fatigue?
+
+**Best practices:**
+1. **Page only for actionable alerts** → If no action needed, it's not an alert
+2. **Set appropriate thresholds** → Alert at 80% disk, not 50%
+3. **Use `for` duration** → Don't alert on brief spikes
+4. **Severity levels** → Critical (page) vs Warning (ticket) vs Info (dashboard)
+5. **Group related alerts** → One notification, not 50
+6. **Runbooks for every alert** → Link to fix instructions
+
+---
+
+### Q11: What is distributed tracing?
+
+Traces follow a request across multiple services to identify where time is spent.
+
+**Tools:** Jaeger, Zipkin, OpenTelemetry
+
+```
+User → API Gateway (2ms) → Auth Service (50ms) → Database (200ms) → Response
+                                                    ↑ BOTTLENECK
+```
+
+---
+
+### Q12: How do you monitor Docker containers?
+
+```yaml
+# docker-compose monitoring stack
+services:
+  prometheus:
+    image: prom/prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    ports:
+      - "8080:8080"
+
+  node-exporter:
+    image: prom/node-exporter
+    ports:
+      - "9100:9100"
+```
+
+---
+
+### Q13: What are SLI, SLO, and SLA?
+
+| Term | Meaning | Example |
+|------|---------|---------|
+| **SLI** (Indicator) | Actual measured metric | 99.8% of requests succeed |
+| **SLO** (Objective) | Target we aim for | 99.9% success rate |
+| **SLA** (Agreement) | Contract with customers | 99.5% or credits issued |
+
+---
+
+### Q14: How do you create effective alert notifications?
+
+```yaml
+# AlertManager config
+route:
+  group_by: ['alertname', 'cluster']
+  group_wait: 30s          # Wait to batch alerts
+  group_interval: 5m
+  repeat_interval: 4h      # Don't spam same alert
+  receiver: 'slack-critical'
+  routes:
+  - match:
+      severity: critical
+    receiver: 'pagerduty'
+  - match:
+      severity: warning
+    receiver: 'slack-warnings'
+
+receivers:
+- name: 'pagerduty'
+  pagerduty_configs:
+  - service_key: '<key>'
+- name: 'slack-critical'
+  slack_configs:
+  - api_url: '<webhook>'
+    channel: '#alerts-critical'
+```
+
+---
+
+### Q15: How do you monitor network performance?
+
+```bash
+# Blackbox exporter - probe endpoints
+# Measures: latency, SSL expiry, HTTP status
+
+# prometheus.yml
+scrape_configs:
+- job_name: 'blackbox'
+  metrics_path: /probe
+  params:
+    module: [http_2xx]
+  static_configs:
+  - targets:
+    - https://api.company.com/health
+    - https://app.company.com
+  relabel_configs:
+  - source_labels: [__address__]
+    target_label: __param_target
+```
+
+---
+
+### Q16: What is CloudWatch and how does it compare to Prometheus?
+
+| Feature | Prometheus | CloudWatch |
+|---------|-----------|------------|
+| Type | Self-hosted, pull-based | AWS managed, push-based |
+| Cost | Free (infra cost only) | Pay per metric/alarm |
+| Flexibility | Full control, PromQL | Limited, built-in metrics |
+| Retention | Configurable | 15 months |
+| Best for | K8s, custom metrics | AWS services (EC2, RDS, Lambda) |
+
+---
+
+### Q17: How do you implement synthetic monitoring?
+
+Synthetic monitoring = Automated tests that simulate user actions continuously.
+
+```bash
+# Simple example: Check website every minute
+*/1 * * * * curl -s -o /dev/null -w "%{http_code},%{time_total}" https://myapp.com/health >> /var/log/synthetic.log
+```
+
+---
+
+### Q18: How do you monitor database performance?
+
+Key metrics: Query latency, connection count, slow queries, replication lag, disk I/O.
+
+```bash
+# PostgreSQL exporter for Prometheus
+docker run -d --name postgres-exporter \
+    -e DATA_SOURCE_NAME="postgresql://user:pass@db:5432/mydb?sslmode=disable" \
+    -p 9187:9187 \
+    quay.io/prometheuscommunity/postgres-exporter
+```
+
+---
+
+### Q19: What is anomaly detection in monitoring?
+
+Detecting unusual patterns without manually setting thresholds.
+
+```promql
+# Simple anomaly: Current value vs 1-week average
+http_requests_total - avg_over_time(http_requests_total[7d]) > 3 * stddev_over_time(http_requests_total[7d])
+```
+
+---
+
+### Q20: How do you size and retain Prometheus data?
+
+```yaml
+# Storage calculation:
+# Ingestion rate × retention period × bytes per sample
+# 100k samples/s × 15 days × 2 bytes = ~250GB
+
+# prometheus.yml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Command line flags
+--storage.tsdb.retention.time=15d
+--storage.tsdb.retention.size=200GB
+```
+
+---
+
+### Q21: How do you create a monitoring strategy for microservices?
+
+1. **Infrastructure layer** → Node metrics (CPU, RAM, disk, network)
+2. **Platform layer** → K8s metrics (pod health, scheduling)
+3. **Application layer** → RED metrics per service
+4. **Business layer** → Orders/min, signup rate, revenue
+5. **User experience** → Page load time, error rate
+
+---
+
+### Q22: What is uptime monitoring?
+
+External checks that verify your service is accessible from the internet. Tools: Pingdom, UptimeRobot, Datadog Synthetics.
+
+---
+
+### Q23: How do you handle alert storms?
+
+1. **Group alerts** → Combine related alerts into one
+2. **Inhibition rules** → If cluster is down, suppress pod alerts
+3. **Silences** → Mute during maintenance windows
+4. **Deduplication** → Same alert from multiple sources = one notification
+
+---
+
+### Q24: How do you build a monitoring dashboard for executives?
+
+Focus on business impact:
+- Service availability (uptime %)
+- Error budget remaining
+- User-facing error rate
+- Deployment frequency and success rate
+- Mean time to recovery
+- Cost metrics
+
+---
+
+# 11. Logging
+
+## 📝 Logging - 24 Interview Questions with Detailed Answers
+
+### Q1: What is centralized logging and why is it needed?
+
+**Problem:** With 50+ servers and 100+ containers, you can't SSH into each one to read logs.
+
+**Solution:** Centralized logging collects ALL logs to one searchable location.
+
+**Architecture (EFK/ELK Stack):**
+```
+App Logs → Filebeat/Fluentd (collector) → Elasticsearch (storage) → Kibana (visualization)
+```
+
+---
+
+### Q2: Explain the ELK/EFK stack.
+
+| Component | Role | Alternative |
+|-----------|------|-------------|
+| **Elasticsearch** | Store and index logs | OpenSearch, Loki |
+| **Logstash/Fluentd** | Collect, parse, transform logs | Filebeat, Fluent Bit |
+| **Kibana** | Search and visualize logs | Grafana |
+
+---
+
+### Q3: How do you configure Fluentd/Fluent Bit for Kubernetes?
+
+```yaml
+# Fluent Bit DaemonSet (runs on every node)
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluent-bit
+  namespace: logging
+spec:
+  template:
+    spec:
+      containers:
+      - name: fluent-bit
+        image: fluent/fluent-bit:latest
+        volumeMounts:
+        - name: varlog
+          mountPath: /var/log
+        - name: containers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+      volumes:
+      - name: varlog
+        hostPath:
+          path: /var/log
+      - name: containers
+        hostPath:
+          path: /var/lib/docker/containers
+```
+
+---
+
+### Q4: What is structured logging and why is it important?
+
+```json
+// ❌ Unstructured (hard to search/parse)
+"ERROR: Failed to connect to database at 10.0.1.5:5432 for user admin"
+
+// ✅ Structured (easy to search, filter, analyze)
+{
+  "timestamp": "2024-01-15T10:30:45Z",
+  "level": "ERROR",
+  "service": "payment-api",
+  "message": "Database connection failed",
+  "host": "10.0.1.5",
+  "port": 5432,
+  "user": "admin",
+  "error": "Connection refused",
+  "trace_id": "abc-123-xyz"
+}
+```
+
+---
+
+### Q5: How do you search logs effectively in Kibana/Elasticsearch?
+
+```
+# Kibana Query Language (KQL)
+level: ERROR AND service: "payment-api"
+message: "timeout" AND NOT host: "staging*"
+status >= 500 AND @timestamp >= "2024-01-15"
+
+# Find all errors from a specific trace
+trace_id: "abc-123-xyz"
+
+# Find slow requests
+response_time > 5000
+```
+
+---
+
+### Q6: What are log levels and when to use each?
+
+| Level | Use For | Example |
+|-------|---------|---------|
+| **DEBUG** | Development details | "Querying user with ID 123" |
+| **INFO** | Normal operations | "Server started on port 8080" |
+| **WARN** | Potential issues | "Retry 2/3 for API call" |
+| **ERROR** | Failures needing attention | "Database connection failed" |
+| **FATAL** | System cannot continue | "Out of memory, shutting down" |
+
+**Production:** Set to INFO. Use DEBUG only when troubleshooting.
+
+---
+
+### Q7: How do you handle log rotation?
+
+```bash
+# /etc/logrotate.d/myapp
+/var/log/myapp/*.log {
+    daily              # Rotate daily
+    rotate 14          # Keep 14 days
+    compress           # gzip old logs
+    delaycompress      # Don't compress most recent rotation
+    missingok          # Don't error if log missing
+    notifempty         # Don't rotate empty files
+    copytruncate       # Truncate original (for apps that keep file open)
+    size 100M          # Also rotate if >100MB
+}
+```
+
+---
+
+### Q8: How do you correlate logs across microservices?
+
+Use a **trace ID** that follows the request through all services:
+
+```
+Request → API Gateway (trace: abc-123) → Auth (trace: abc-123) → DB (trace: abc-123)
+```
+
+Search for `trace_id: abc-123` → See the complete request lifecycle across all services.
+
+---
+
+### Q9: What is Grafana Loki?
+
+Lightweight log aggregation (like Prometheus, but for logs). Doesn't index log content - only indexes labels (cheaper and faster than Elasticsearch for many use cases).
+
+```yaml
+# Query with LogQL
+{namespace="production", app="payment"} |= "error"
+{job="nginx"} | json | status >= 500
+```
+
+---
+
+### Q10: How do you set up alerting on logs?
+
+```yaml
+# Alert when error rate spikes in logs (Loki/Grafana)
+# Rule: More than 10 errors per minute from payment service
+sum(rate({app="payment"} |= "ERROR" [1m])) > 10
+```
+
+---
+
+### Q11: How do you handle sensitive data in logs?
+
+1. **Never log:** Passwords, API keys, credit card numbers, SSNs
+2. **Mask/redact** at the application level
+3. **Log filtering** in Fluentd/Logstash (remove sensitive fields)
+4. **Access control** on log systems
+
+```python
+# Python: Mask sensitive data before logging
+import re
+def mask_sensitive(msg):
+    msg = re.sub(r'password=\S+', 'password=***', msg)
+    msg = re.sub(r'\b\d{16}\b', '****-****-****-****', msg)  # Credit cards
+    return msg
+```
+
+---
+
+### Q12: How do you manage log storage costs?
+
+1. **Retention policies** → Delete logs older than 30 days
+2. **Tiered storage** → Hot (7 days) → Warm (30 days) → Cold/S3 (archive)
+3. **Only index what you search** → Don't index debug logs
+4. **Sampling** → Store only 10% of debug logs
+5. **Compression** → Always compress archived logs
+
+---
+
+### Q13: How do you debug issues using container logs?
+
+```bash
+# Docker
+docker logs <container> --tail 100 -f
+docker logs <container> --since 1h
+
+# Kubernetes
+kubectl logs <pod> -f
+kubectl logs <pod> --previous      # Previous crashed container
+kubectl logs <pod> -c <container>  # Specific container in pod
+kubectl logs -l app=myapp --all-containers  # All pods with label
+```
+
+---
+
+### Q14: What is log aggregation pipeline?
+
+```
+Application → Sidecar/Agent → Buffer/Queue → Processing → Storage → UI
+   (logs)     (Fluent Bit)     (Kafka)       (Logstash)    (ES)    (Kibana)
+```
+
+---
+
+### Q15: How do you implement audit logging?
+
+```python
+# Track WHO did WHAT, WHEN, and WHERE
+audit_log = {
+    "timestamp": "2024-01-15T10:30:00Z",
+    "actor": "user@company.com",
+    "action": "DELETE",
+    "resource": "deployment/payment-service",
+    "namespace": "production",
+    "source_ip": "10.0.1.50",
+    "result": "success"
+}
+```
+
+---
+
+### Q16: How do you handle logging in serverless?
+
+- Lambda/Functions → CloudWatch Logs (automatic)
+- Structure your logs (JSON)
+- Include request ID for tracing
+- Set appropriate log retention
+
+---
+
+### Q17: What are common logging mistakes?
+
+1. Logging too much (fills disk, high cost)
+2. Logging too little (can't debug)
+3. Unstructured logs (can't search)
+4. No log rotation (disk full)
+5. Logging sensitive data (security breach)
+6. No correlation IDs (can't trace across services)
+
+---
+
+### Q18: How do you troubleshoot missing logs?
+
+```bash
+# 1. Check if app is writing logs
+ls -la /var/log/myapp/
+tail -f /var/log/myapp/app.log
+
+# 2. Check log collector agent
+systemctl status filebeat
+filebeat test output    # Test connectivity to Elasticsearch
+
+# 3. Check disk space (agent might have stopped)
+df -h
+
+# 4. Check for permission issues
+ls -la /var/log/myapp/   # Check ownership
+
+# 5. Check network (agent → Elasticsearch)
+nc -zv elasticsearch:9200
+```
+
+---
+
+### Q19: How do you parse unstructured logs?
+
+```conf
+# Logstash/Fluentd grok pattern
+# Input: 10.0.1.5 - - [15/Jan/2024:10:30:45 +0000] "GET /api/users HTTP/1.1" 200 1234
+
+filter {
+  grok {
+    match => { "message" => "%{IP:client_ip} .* \[%{HTTPDATE:timestamp}\] \"%{WORD:method} %{URIPATH:path} HTTP/%{NUMBER}\" %{NUMBER:status} %{NUMBER:bytes}" }
+  }
+}
+```
+
+---
+
+### Q20: How do you set up logging for a new microservice?
+
+1. Choose structured format (JSON)
+2. Include: timestamp, level, service name, trace_id, message
+3. Configure log rotation
+4. Deploy log collector sidecar/agent
+5. Create Kibana index pattern
+6. Build dashboard for the service
+7. Set up alerts for errors
+
+---
+
+### Q21: What is log sampling?
+
+Only store a percentage of logs (e.g., 10% of DEBUG logs) to reduce cost while still having enough data for debugging.
+
+---
+
+### Q22: How do you search for patterns across time in logs?
+
+Use time-based queries in Kibana/Loki to identify patterns:
+- Error spikes correlating with deployments
+- Periodic errors (memory leak → OOM every 24h)
+- Gradual increase in response times
+
+---
+
+### Q23: How do you integrate logging with incident response?
+
+1. Alert fires → Link to relevant log dashboard
+2. Log dashboard shows → Affected services, error messages
+3. Correlation → Use trace_id to find root cause
+4. Timeline → When did errors start? What changed?
+
+---
+
+### Q24: Explain the difference between push and pull logging.
+
+| Model | How It Works | Example |
+|-------|-------------|---------|
+| **Push** | App sends logs to central system | Fluentd → Elasticsearch |
+| **Pull** | Central system fetches logs | Prometheus (for metrics) |
+
+Most
         
