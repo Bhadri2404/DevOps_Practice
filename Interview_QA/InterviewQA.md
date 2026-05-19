@@ -7598,12 +7598,2121 @@ Use time-based queries in Kibana/Loki to identify patterns:
 
 ---
 
-### Q24: Explain the difference between push and pull logging.
+# 11. Logging (Continued)
 
-| Model | How It Works | Example |
-|-------|-------------|---------|
-| **Push** | App sends logs to central system | Fluentd → Elasticsearch |
-| **Pull** | Central system fetches logs | Prometheus (for metrics) |
+### Q24: Explain the difference between push and pull logging. (Continued)
 
-Most
+Most logging systems use **push** model because:
+- Logs are generated unpredictably (you can't "scrape" them at intervals)
+- Applications know when events happen and push immediately
+- High-volume logs need buffering (agents handle this)
+
+**Push model in practice:**
+```
+App writes to stdout → Container runtime captures → 
+Fluent Bit agent reads file → Buffers → Pushes to Elasticsearch
+```
+
+**Pull model (rare for logs, common for metrics):**
+```
+Prometheus scrapes /metrics endpoint every 15s
+Loki's promtail tails log files (technically pull from files)
+```
+
+**Hybrid approach (best practice):**
+- Apps write logs to stdout (12-factor app principle)
+- Agent on each node pushes logs to central system
+- This decouples the app from the logging infrastructure
+
+---
+
+# 12. Troubleshooting
+
+## 📝 Troubleshooting - 24 Interview Questions with Detailed Answers
+
+### Q1: A production application is running slow. How do you troubleshoot?
+
+**Systematic approach (top-down):**
+
+```bash
+# Step 1: Verify the symptom
+curl -o /dev/null -s -w "Response Time: %{time_total}s\nHTTP Code: %{http_code}\n" http://myapp:8080/api/users
+# Confirms slow response (e.g., 8 seconds instead of 200ms)
+
+# Step 2: Check system resources
+top -bn1 | head -20
+# Look at: %CPU, %MEM, load average
+# High CPU → CPU-bound process
+# High memory → Memory pressure, swapping
+# High load average (> CPU count) → System overloaded
+
+# Step 3: Check if it's disk I/O
+iostat -x 1 3
+# High %util or await → Disk is the bottleneck
+
+# Step 4: Check network
+ss -tan | awk '{print $1}' | sort | uniq -c | sort -rn
+# Many CLOSE_WAIT → Application not closing connections (connection leak)
+# Many TIME_WAIT → Too many short-lived connections (use connection pooling)
+
+# Step 5: Check application logs
+kubectl logs <pod> --tail 200 | grep -i "slow\|timeout\|error"
+# Or: tail -200 /var/log/myapp/app.log | grep -i "slow\|timeout"
+
+# Step 6: Check dependencies (database, cache, external APIs)
+# Is the database slow?
+kubectl exec <pod> -- curl -w "Time: %{time_total}s\n" http://db-service:5432
+# Is Redis slow?
+redis-cli -h redis-host PING    # Should be instant
+redis-cli -h redis-host INFO | grep used_memory
+
+# Step 7: Check recent changes
+kubectl rollout history deployment/myapp
+git log --oneline -10   # Recent code changes
+```
+
+**Root cause decision tree:**
+
+| Observation | Likely Cause | Fix |
+|-------------|-------------|-----|
+| High CPU | Infinite loop, regex, unoptimized query | Profile code, fix query |
+| High Memory | Memory leak, large cache | Restart, fix leak, increase memory |
+| High Disk I/O | Logging too much, no indexing | Reduce logging, add DB indexes |
+| Many CLOSE_WAIT | Connection leak | Fix code to close connections |
+| Database slow | Missing indexes, lock contention | Add indexes, optimize queries |
+| External API slow | Third-party issue | Add timeout, circuit breaker, cache |
+
+---
+
+### Q2: EC2 instance is unreachable. Systematic troubleshooting.
+
+```bash
+# Layer 1: Is the instance running?
+aws ec2 describe-instance-status --instance-ids i-xxxxx
+# Check: InstanceState, SystemStatus, InstanceStatus
+
+# Layer 2: Can you reach it at network level?
+ping -c 3 <public-ip>
+# Timeout → Network/firewall issue
+# Note: ICMP might be blocked by security group
+
+# Layer 3: Check specific port
+nc -zv <public-ip> 22 -w 5
+# Timeout → Security Group, NACL, or route issue
+# Connection refused → SSH service not running
+
+# Layer 4: Check from AWS perspective
+# Security Group:
+aws ec2 describe-security-groups --group-ids sg-xxxxx \
+    --query 'SecurityGroups[*].IpPermissions[?FromPort==`22`]'
+
+# Route Table:
+aws ec2 describe-route-tables --filters "Name=association.subnet-id,Values=subnet-xxxxx"
+# Must have: 0.0.0.0/0 → igw-xxxxx
+
+# NACL:
+aws ec2 describe-network-acls --filters "Name=association.subnet-id,Values=subnet-xxxxx"
+# Must allow BOTH inbound port 22 AND outbound ephemeral ports (1024-65535)
+
+# Layer 5: Check instance itself
+# Use EC2 Serial Console or Systems Manager Session Manager
+aws ssm start-session --target i-xxxxx
+
+# Once inside:
+systemctl status sshd
+df -h                  # Disk full prevents SSH
+dmesg | tail -20       # Hardware/kernel issues
+cat /var/log/auth.log  # SSH authentication issues
+```
+
+**Common causes and fixes:**
+
+| Cause | How to Identify | Fix |
+|-------|----------------|-----|
+| Security Group missing port 22 | `describe-security-groups` | Add inbound rule |
+| No Internet Gateway | Route table has no igw route | Attach IGW, add route |
+| NACL blocking | Stateless - check both directions | Add allow rules |
+| SSH service crashed | `systemctl status sshd` | Restart via SSM |
+| Disk full | `df -h` shows 100% | Clean disk via SSM |
+| Wrong key pair | SSH shows "Permission denied" | Use correct key |
+| Instance in private subnet | No public IP route | Use bastion or SSM |
+
+---
+
+### Q3: Kubernetes pods are in CrashLoopBackOff. How do you fix it?
+
+```bash
+# Step 1: Check what's happening
+kubectl get pods -n production
+# NAME           READY   STATUS             RESTARTS   AGE
+# myapp-abc123   0/1     CrashLoopBackOff   15         30m
+
+# Step 2: Check pod events
+kubectl describe pod myapp-abc123 -n production
+# Look at:
+# - Events section (bottom)
+# - Last State → Reason, Exit Code
+# - Exit Code 1 = Application error
+# - Exit Code 137 = OOMKilled (out of memory)
+# - Exit Code 139 = Segfault
+
+# Step 3: Check logs from crashed container
+kubectl logs myapp-abc123 -n production --previous
+# --previous shows logs from the LAST crash (before restart)
+
+# Step 4: Common scenarios:
+
+# Scenario A: Exit Code 1 (application error)
+# Logs show: "Error: Cannot connect to database"
+# Fix: Check ConfigMap/Secret for correct DB credentials
+kubectl get configmap app-config -n production -o yaml
+
+# Scenario B: Exit Code 137 (OOMKilled)
+kubectl describe pod myapp-abc123 | grep -i "oom\|memory\|killed"
+# Fix: Increase memory limits
+kubectl patch deployment myapp -n production -p \
+    '{"spec":{"template":{"spec":{"containers":[{"name":"myapp","resources":{"limits":{"memory":"1Gi"}}}]}}}}'
+
+# Scenario C: Image issue
+# Events show: "Back-off restarting failed container"
+# Logs show nothing (container can't even start)
+# Fix: Check if the image exists and CMD is correct
+kubectl get pod myapp-abc123 -o jsonpath='{.spec.containers[0].image}'
+docker pull <that-image>  # Test if it exists
+
+# Step 5: Debug interactively (override command)
+kubectl run debug-pod --image=<same-image> --rm -it -- /bin/sh
+# Now you're inside the container - test manually
+```
+
+---
+
+### Q4: Database connection failures from application. How to troubleshoot?
+
+```bash
+# Step 1: Verify from the application pod
+kubectl exec -it <app-pod> -- sh
+
+# Step 2: Test DNS resolution
+nslookup db-service.production.svc.cluster.local
+# If fails → CoreDNS issue
+# If resolves to wrong IP → Service selector mismatch
+
+# Step 3: Test port connectivity
+nc -zv db-service 5432 -w 5
+# Connection refused → DB not running
+# Timeout → Network Policy or firewall blocking
+
+# Step 4: Test authentication
+# For PostgreSQL:
+psql -h db-service -U myuser -d mydb -c "SELECT 1"
+# "password authentication failed" → Wrong credentials
+# "too many connections" → Connection pool exhausted
+# "connection refused" → DB service is down
+
+# Step 5: Check from DB side
+kubectl exec -it <db-pod> -- sh
+ss -tulnp | grep 5432   # Is postgres listening?
+cat /var/log/postgresql/postgresql.log | tail -20
+
+# Step 6: Check connection limits
+psql -c "SELECT count(*) FROM pg_stat_activity;"
+psql -c "SHOW max_connections;"
+# If current connections ≈ max_connections → Pool exhaustion
+```
+
+**Root causes:**
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Connection refused | DB pod crashed | Check DB pod status, restart |
+| Timeout | Network Policy blocking | Add allow rule for app→db |
+| Auth failed | Wrong Secret | Update Kubernetes Secret |
+| Too many connections | Connection pool leak | Fix app code, increase pool |
+| Intermittent failures | DNS caching issue | Check CoreDNS, add connection retry |
+
+---
+
+### Q5: High CPU usage on a server. How do you identify and fix it?
+
+```bash
+# Step 1: Identify the process
+top -c
+# Press 'P' to sort by CPU (default)
+# Note the PID and COMMAND of top consumer
+
+# Step 2: Get more details about the process
+ps aux | grep <PID>
+# Shows full command, user, start time
+
+# Step 3: What is the process doing?
+strace -p <PID> -c -t 5
+# Shows system calls the process is making
+# If heavy on read/write → I/O bound
+# If heavy on futex → Lock contention
+
+# Step 4: For Java applications
+jstack <PID> > /tmp/thread-dump.txt
+# Shows what each thread is doing
+
+# Step 5: Check if it's a runaway process or expected load
+pidstat -p <PID> 1 5
+# Shows CPU usage over time for that process
+
+# Step 6: CPU usage per core
+mpstat -P ALL 1 3
+# If one core at 100% and others idle → Single-threaded bottleneck
+
+# Step 7: Quick fix (if needed immediately)
+# Reduce priority (nice value)
+renice +10 -p <PID>
+# Or limit CPU with cgroups
+echo <PID> > /sys/fs/cgroup/cpu/limited/cgroup.procs
+
+# Step 8: Long-term fix
+# - Profile the application
+# - Fix inefficient algorithms
+# - Add caching
+# - Scale horizontally (add more instances)
+```
+
+---
+
+### Q6: Disk full emergency. How do you recover?
+
+```bash
+# Step 1: Identify which filesystem is full
+df -h
+# Look for 100% or near-full partitions
+
+# Step 2: Find what's consuming space
+du -sh /* 2>/dev/null | sort -rh | head -10
+# Then drill down into the largest directory
+du -sh /var/* | sort -rh | head -10
+du -sh /var/log/* | sort -rh | head -10
+
+# Step 3: Quick wins to free space immediately
+# Clean system journals
+journalctl --vacuum-size=100M
+
+# Clean old package caches
+apt-get clean            # Debian/Ubuntu
+yum clean all            # CentOS/RHEL
+
+# Clean Docker (if Docker is running)
+docker system prune -a --volumes -f
+
+# Find and delete old log files
+find /var/log -name "*.log" -mtime +7 -delete
+find /var/log -name "*.gz" -mtime +30 -delete
+
+# Step 4: Find large files
+find / -type f -size +100M -exec ls -lh {} \; 2>/dev/null | sort -k5 -rh | head -10
+
+# Step 5: Check for deleted files still held open
+lsof +L1
+# Shows files that are deleted but still open by processes
+# Fix: Restart the process holding the file
+# Or truncate: > /proc/<PID>/fd/<FD>
+
+# Step 6: Check inodes (disk can be "full" even with space available)
+df -i
+# If inodes at 100% → Too many small files
+find /tmp -type f | wc -l    # Count files in /tmp
+```
+
+**Prevention:**
+- Set up disk monitoring alerts at 80%
+- Configure logrotate for all applications
+- Set Docker storage limits
+- Use separate partitions for /var/log
+- Automate cleanup with cron jobs
+
+---
+
+### Q7: Service is returning 502 Bad Gateway errors. How to debug?
+
+```bash
+# 502 means: Load balancer/proxy connected to upstream, but upstream returned invalid response
+
+# Step 1: Check if the backend application is running
+kubectl get pods -l app=myapp
+ss -tulnp | grep <app-port>
+
+# Step 2: Check load balancer health checks
+aws elbv2 describe-target-health --target-group-arn <arn>
+# If targets are "unhealthy" → App isn't responding to health checks
+
+# Step 3: Test directly (bypass load balancer)
+# From inside the network:
+curl -v http://<backend-ip>:<port>/health
+# If this works → Problem is between LB and backend
+# If this fails → Backend application issue
+
+# Step 4: Check nginx/proxy logs
+kubectl logs <nginx-pod> | grep "502"
+# Look for: "upstream prematurely closed connection"
+
+# Step 5: Common causes
+# a) Backend crashed → Check pod status, restart
+# b) Backend too slow → Increase proxy timeout
+# c) Health check path wrong → Fix ALB health check config
+# d) Security Group → ALB SG must be allowed in backend SG
+# e) Backend listening on wrong interface → Must bind to 0.0.0.0 not 127.0.0.1
+
+# Step 6: Check nginx upstream timeout
+# In nginx config:
+proxy_connect_timeout 60;
+proxy_send_timeout 60;
+proxy_read_timeout 60;
+```
+
+---
+
+### Q8: DNS resolution is failing. How to troubleshoot?
+
+```bash
+# Step 1: Check what DNS server is configured
+cat /etc/resolv.conf
+# nameserver 10.0.0.2  ← This is your DNS server
+
+# Step 2: Test DNS resolution
+dig myapp.internal.com
+nslookup myapp.internal.com
+
+# Step 3: Test with specific DNS server
+dig @8.8.8.8 myapp.internal.com          # Google's DNS
+dig @10.0.0.2 myapp.internal.com         # Your VPC DNS
+
+# Step 4: If internal DNS fails but external works:
+# Problem is with your internal DNS service (Route53 private zone, CoreDNS)
+
+# Step 5: In Kubernetes, check CoreDNS
+kubectl get pods -n kube-system -l k8s-app=kube-dns
+kubectl logs -n kube-system -l k8s-app=kube-dns
+
+# Step 6: Test from inside a pod
+kubectl run dnstest --image=busybox --rm -it -- nslookup kubernetes.default
+# Should resolve to cluster IP of kubernetes service
+
+# Step 7: Check /etc/resolv.conf inside the pod
+kubectl exec <pod> -- cat /etc/resolv.conf
+# Should show: nameserver <CoreDNS-ClusterIP>
+# search <namespace>.svc.cluster.local svc.cluster.local cluster.local
+
+# Step 8: Check network policy blocking DNS
+# DNS uses UDP port 53 - network policies must allow it
+kubectl get networkpolicies -A
+```
+
+**Common DNS issues:**
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| All DNS fails | DNS server down | Restart CoreDNS/fix resolver |
+| Only internal fails | Private zone misconfigured | Check Route53 / CoreDNS configmap |
+| Intermittent failures | DNS rate limiting | Increase CoreDNS replicas |
+| New records not resolving | DNS cache | Lower TTL, flush cache |
+| Pod DNS fails | Network Policy blocking UDP 53 | Allow DNS traffic |
+
+---
+
+### Q9: Application memory leak. How to identify and handle?
+
+```bash
+# Step 1: Confirm memory is growing over time
+# Watch memory usage for the process
+while true; do
+    ps -o pid,rss,vsz,comm -p <PID>
+    sleep 60
+done >> /tmp/mem-monitor.log
+
+# Step 2: Check memory growth rate
+kubectl top pod <pod> --containers
+# Run multiple times over hours - if it keeps growing → leak
+
+# Step 3: Check when OOMKill will happen
+kubectl describe pod <pod> | grep -A 3 "Limits"
+# Compare with current usage from kubectl top
+
+# Step 4: For Java applications
+jmap -heap <PID>           # Heap summary
+jmap -histo <PID> | head -20   # Top objects by count
+jcmd <PID> GC.run          # Force garbage collection
+# If memory drops after GC → Not a leak (just needs tuning)
+# If memory stays high after GC → Real leak
+
+# Step 5: For Python applications
+# Add memory profiling to the code (tracemalloc)
+# Or use: py-spy dump --pid <PID>
+
+# Step 6: Immediate mitigation
+# Option A: Restart the pod/service (buys time)
+kubectl rollout restart deployment/myapp
+
+# Option B: Add memory limit to auto-restart on OOM
+resources:
+  limits:
+    memory: "1Gi"   # Will OOMKill and restart at 1GB
+
+# Step 7: Long-term fix
+# - Profile the application
+# - Fix connection/resource leaks
+# - Use memory profiling tools
+# - Add proper resource cleanup (finally blocks, context managers)
+```
+
+---
+
+### Q10: Jenkins build is failing intermittently. How to debug?
+
+```bash
+# Step 1: Check build console output
+# Look for the FIRST error (not the last)
+# Common patterns:
+# - "Connection reset" → Network issue to registry/repository
+# - "Out of memory" → Agent needs more RAM
+# - "No space left on device" → Agent disk full
+# - "Timeout" → Dependency download slow
+
+# Step 2: Check if it's flaky tests
+# Run the same build 5 times - if it passes sometimes:
+# → Flaky test (race condition, external dependency)
+
+# Step 3: Check Jenkins agent health
+# On the agent:
+df -h                    # Disk space
+free -h                  # Memory
+docker system df         # Docker disk usage (if Docker builds)
+
+# Step 4: Check network from agent
+# Can agent reach Git?
+nc -zv github.com 443 -w 5
+# Can agent reach Docker registry?
+nc -zv registry.company.com 443 -w 5
+# Can agent reach artifact repository?
+nc -zv nexus.company.com 8081 -w 5
+
+# Step 5: Check for resource contention
+# Multiple builds running simultaneously on same agent
+top -bn1 | head -5       # Check load
+ss -tan | wc -l          # Check open connections
+
+# Step 6: Check timing patterns
+# Does it fail:
+# - At certain times? → Resource contention with other jobs
+# - On certain agents? → Agent-specific issue
+# - After certain jobs? → Previous job not cleaning up
+
+# Fix strategies:
+# 1. Clean workspace before build
+# 2. Increase agent resources
+# 3. Use separate Docker layer cache per build
+# 4. Add retry logic for flaky external calls
+# 5. Quarantine flaky tests
+```
+
+---
+
+### Q11: Container keeps getting OOMKilled. How to fix?
+
+```bash
+# Step 1: Confirm OOMKill
+kubectl describe pod <pod> | grep -i "OOMKilled\|memory\|killed"
+# State: Terminated
+# Reason: OOMKilled
+# Exit Code: 137
+
+# Step 2: Check current memory usage vs limits
+kubectl top pod <pod>
+kubectl get pod <pod> -o jsonpath='{.spec.containers[0].resources.limits.memory}'
+
+# Step 3: Determine actual memory needs
+# Run the app with monitoring and observe peak memory usage
+# Use Prometheus: container_memory_usage_bytes{pod="<pod>"}
+
+# Step 4: Fix options:
+# Option A: Increase memory limit (if app genuinely needs more)
+kubectl patch deployment myapp -p '{"spec":{"template":{"spec":{"containers":[{"name":"myapp","resources":{"limits":{"memory":"2Gi"},"requests":{"memory":"1Gi"}}}]}}}}'
+
+# Option B: Fix the memory leak (better long-term solution)
+# For Java: Tune JVM heap
+# env:
+#   - name: JAVA_OPTS
+#     value: "-Xms256m -Xmx768m -XX:+UseG1GC"
+
+# Option C: Add swap (not recommended for production K8s)
+# Option D: Scale horizontally instead of vertically
+```
+
+---
+
+### Q12: SSH connection drops after a few minutes of inactivity.
+
+```bash
+# Cause: Intermediate network device (NAT, firewall, LB) drops idle connections
+
+# Fix 1: Client-side keepalive (~/.ssh/config)
+Host *
+    ServerAliveInterval 60      # Send keepalive every 60 seconds
+    ServerAliveCountMax 3       # Disconnect after 3 missed keepalives
+
+# Fix 2: Server-side keepalive (/etc/ssh/sshd_config)
+ClientAliveInterval 60
+ClientAliveCountMax 3
+
+# Fix 3: Use screen/tmux (session survives disconnection)
+tmux new -s mysession
+# If disconnected:
+tmux attach -t mysession
+
+# Fix 4: For AWS NAT Gateway (350s idle timeout)
+# Set ServerAliveInterval below 350 seconds
+```
+
+---
+
+### Q13: Load balancer health checks are failing. Systematic debug.
+
+```bash
+# Step 1: Check target health
+aws elbv2 describe-target-health --target-group-arn <arn>
+# Possible states: healthy, unhealthy, draining, initial, unused
+
+# Step 2: Check what health check is configured
+aws elbv2 describe-target-groups --target-group-arns <arn> \
+    --query 'TargetGroups[*].{Path:HealthCheckPath,Port:HealthCheckPort,Interval:HealthCheckIntervalSeconds}'
+
+# Step 3: Simulate health check from instance
+curl -v http://localhost:8080/health
+# Must return 200 (or whatever success code is configured)
+
+# Step 4: Check if app is binding correctly
+ss -tulnp | grep 8080
+# Must show 0.0.0.0:8080 (all interfaces)
+# NOT 127.0.0.1:8080 (localhost only - ALB can't reach!)
+
+# Step 5: Check Security Groups
+# ALB security group → must have outbound to target port
+# Instance security group → must allow inbound FROM ALB security group on target port
+
+# Step 6: Check timing
+# If health check interval=30s and timeout=5s:
+# App must respond within 5s to health endpoint
+# If app takes 6s → Health check fails!
+
+# Fix: Make /health endpoint lightweight (no DB queries)
+```
+
+---
+
+### Q14: Kubernetes node is in NotReady state.
+
+```bash
+# Step 1: Check node status
+kubectl get nodes
+kubectl describe node <node-name>
+# Look at "Conditions" section:
+# Ready=False → kubelet not reporting
+# MemoryPressure=True → Node running out of RAM
+# DiskPressure=True → Node running out of disk
+
+# Step 2: SSH into the node (if accessible)
+ssh <node-ip>
+
+# Step 3: Check kubelet
+systemctl status kubelet
+journalctl -u kubelet --since "10 minutes ago" | tail -50
+# Common errors:
+# "PLEG is not healthy" → Container runtime issue
+# "node not ready" → Kubelet can't reach API server
+
+# Step 4: Check container runtime
+systemctl status containerd   # or docker
+crictl ps                     # List running containers
+
+# Step 5: Check resources
+df -h                # Disk full → Eviction starts
+free -h              # Memory pressure
+top -bn1 | head -5   # CPU overload
+
+# Step 6: Check network to control plane
+nc -zv <api-server-ip> 6443 -w 5
+# If fails → Network partition between node and master
+
+# Common fixes:
+# - Disk pressure: Clean up, increase disk
+# - Memory pressure: Evict pods, add memory
+# - Kubelet crashed: systemctl restart kubelet
+# - Network issue: Fix Security Groups/route tables
+```
+
+---
+
+### Q15: API response times suddenly increased. How to investigate?
+
+```bash
+# Step 1: When did it start?
+# Check monitoring dashboards for the exact time of change
+# Correlate with: deployments, config changes, traffic spikes
+
+# Step 2: Is it all endpoints or specific ones?
+# Check in Grafana: response time by endpoint
+# If one endpoint: likely DB query or downstream service issue
+# If all endpoints: infrastructure or shared resource issue
+
+# Step 3: Check for recent deployments
+kubectl rollout history deployment/myapp
+git log --since="2 hours ago" --oneline
+
+# Step 4: Check database
+# Slow query log
+kubectl logs <db-pod> | grep "duration"
+# Connection count
+kubectl exec <db-pod> -- psql -c "SELECT count(*) FROM pg_stat_activity"
+# Active queries
+kubectl exec <db-pod> -- psql -c "SELECT query, now()-query_start AS duration FROM pg_stat_activity WHERE state='active'"
+
+# Step 5: Check external dependencies
+# Trace requests through the system
+# Look for the slowest hop in distributed tracing (Jaeger/Zipkin)
+
+# Step 6: Check resource saturation
+kubectl top pods
+# If CPU is near limits → Throttling (K8s reduces CPU when at limit)
+# If memory is high → GC pauses (for Java/Go)
+
+# Step 7: Immediate mitigation
+# Roll back if deployment correlated
+kubectl rollout undo deployment/myapp
+# Scale up if traffic spike
+kubectl scale deployment/myapp --replicas=10
+```
+
+---
+
+### Q16: Docker container cannot access external network.
+
+```bash
+# Step 1: Check from inside the container
+docker exec -it <container> sh
+ping 8.8.8.8        # Test raw IP connectivity
+ping google.com     # Test DNS resolution
+
+# Step 2: If ping to IP works but DNS fails
+cat /etc/resolv.conf    # Check DNS config inside container
+# Fix: Run container with custom DNS
+docker run --dns 8.8.8.8 myapp
+
+# Step 3: If no network at all
+# Check Docker network mode
+docker inspect <container> | jq '.[0].NetworkSettings.Networks'
+
+# Step 4: Check host networking
+# On the Docker host:
+iptables -t nat -L POSTMASQUERADE -n    # NAT rules for containers
+ip addr show docker0                      # Docker bridge interface
+sysctl net.ipv4.ip_forward               # Must be 1
+
+# Step 5: Fix IP forwarding if disabled
+echo 1 > /proc/sys/net/ipv4/ip_forward
+# Or permanently:
+echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+sysctl -p
+
+# Step 6: Restart Docker daemon (resets networking)
+systemctl restart docker
+# WARNING: This stops all containers!
+```
+
+---
+
+### Q17: Kubernetes Ingress not routing traffic correctly.
+
+```bash
+# Step 1: Check Ingress resource
+kubectl get ingress -n <namespace>
+kubectl describe ingress <name> -n <namespace>
+# Look at: Rules, Backend, Address
+
+# Step 2: Check Ingress Controller pods
+kubectl get pods -n ingress-nginx
+kubectl logs -n ingress-nginx <ingress-controller-pod> | tail -50
+
+# Step 3: Verify the Service exists and has endpoints
+kubectl get svc <backend-service> -n <namespace>
+kubectl get endpoints <backend-service> -n <namespace>
+# Empty endpoints → Pod labels don't match Service selector
+
+# Step 4: Test from Ingress Controller
+kubectl exec -it <ingress-controller-pod> -n ingress-nginx -- curl http://<service>.<namespace>.svc.cluster.local
+
+# Step 5: Check TLS certificate (if HTTPS)
+curl -vI https://myapp.company.com 2>&1 | grep -A 5 "SSL certificate"
+kubectl get secret <tls-secret> -n <namespace>
+
+# Step 6: Common fixes
+# - Wrong host in Ingress rule
+# - Service port mismatch (Ingress → Service port, not targetPort)
+# - Missing Ingress class annotation
+# - TLS secret in wrong namespace
+```
+
+---
+
+### Q18: Application logs show "Connection pool exhausted" errors.
+
+```bash
+# Cause: Application opened too many DB connections or isn't returning them
+
+# Step 1: Check current connections from DB side
+psql -c "SELECT count(*), state FROM pg_stat_activity GROUP BY state;"
+# active: Queries currently running
+# idle: Connected but not doing anything
+# idle in transaction: Transaction started but not committed (PROBLEM!)
+
+# Step 2: Find the culprit
+psql -c "SELECT client_addr, count(*) FROM pg_stat_activity GROUP BY client_addr ORDER BY count DESC;"
+# Shows which application host is using most connections
+
+# Step 3: Check application connection pool config
+# Typical settings:
+# pool_size = 10       # Connections per instance
+# max_overflow = 5     # Extra connections under load
+# pool_timeout = 30    # Wait this long for a connection before error
+# pool_recycle = 3600  # Recycle connections every hour
+
+# Step 4: Fix
+# A) Increase max_connections in database
+# ALTER SYSTEM SET max_connections = 200;
+# B) Use PgBouncer as connection pooler between app and DB
+# C) Fix "idle in transaction" → Find and fix uncommitted transactions
+# D) Reduce pool_size per app instance and scale horizontally
+```
+
+---
+
+### Q19: Sudden spike in 5xx errors after deployment.
+
+```bash
+# Step 1: Confirm correlation with deployment
+kubectl rollout history deployment/myapp
+# Check timestamp of last deployment vs error spike
+
+# Step 2: Quick rollback (if impact is high)
+kubectl rollout undo deployment/myapp
+# This buys you time to investigate
+
+# Step 3: Compare old and new versions
+kubectl get deployment myapp -o yaml  # Current config
+kubectl rollout history deployment/myapp --revision=<previous>
+
+# Step 4: Check what changed in the code
+git diff <old-tag>..<new-tag>
+# Focus on: config files, database migrations, dependency changes
+
+# Step 5: If rollback fixed it, investigate root cause:
+# - New code has a bug
+# - Missing environment variable
+# - Database migration incompatible
+# - New dependency version conflict
+# - Resource limits too tight for new code
+```
+
+---
+
+### Q20: Network latency between microservices is high.
+
+```bash
+# Step 1: Measure the actual latency
+kubectl exec <pod-a> -- curl -o /dev/null -s -w "DNS: %{time_namelookup}s\nConnect: %{time_connect}s\nTotal: %{time_total}s\n" http://service-b:8080/health
+
+# Step 2: Compare in-pod vs external
+# From inside the pod network: should be < 1ms
+# If high → Network plugin issue (CNI)
+
+# Step 3: Check if DNS is adding latency
+# DNS lookup should be < 5ms for internal services
+# If high → CoreDNS overloaded, add replicas
+
+# Step 4: Check for packet loss
+kubectl exec <pod-a> -- ping -c 100 <pod-b-ip>
+# Look for % packet loss
+
+# Step 5: Check node placement
+kubectl get pods -o wide
+# If pods are on different nodes → Node-to-node network
+# If pods are on same node → Should be very fast
+
+# Step 6: Check MTU issues
+kubectl exec <pod> -- ping -c 1 -M do -s 1472 <target-ip>
+# If fails with "message too long" → MTU mismatch
+# Fix: Adjust CNI MTU settings
+```
+
+---
+
+### Q21: Cron job not executing as expected.
+
+```bash
+# Step 1: Check if cron service is running
+systemctl status cron   # or crond
+
+# Step 2: Check crontab
+crontab -l              # Current user
+crontab -u deploy -l    # Specific user
+
+# Step 3: Check cron logs
+grep CRON /var/log/syslog | tail -20
+# Or: journalctl -u cron --since "1 hour ago"
+
+# Step 4: Common issues
+# a) PATH not set in cron (different from interactive shell)
+# Fix: Add at top of crontab:
+PATH=/usr/local/bin:/usr/bin:/bin
+
+# b) Script not executable
+chmod +x /scripts/myjob.sh
+
+# c) Output not captured (errors silently disappear)
+*/5 * * * * /scripts/myjob.sh >> /var/log/myjob.log 2>&1
+
+# d) Environment variables not available in cron
+# Fix: Source profile or set variables in crontab
+
+# e) Wrong timing
+# Test with: * * * * * /scripts/myjob.sh (every minute)
+# Then fix schedule once confirmed working
+```
+
+---
+
+### Q22: SSL/TLS certificate issues. How to troubleshoot?
+
+```bash
+# Step 1: Check certificate details
+echo | openssl s_client -servername myapp.com -connect myapp.com:443 2>/dev/null | openssl x509 -noout -text | grep -E "Subject:|Issuer:|Not After"
+
+# Step 2: Common errors and fixes
+# "certificate has expired" → Renew cert (Let's Encrypt: certbot renew)
+# "certificate is not trusted" → Missing intermediate CA in chain
+# "hostname mismatch" → Certificate doesn't cover this domain
+# "self-signed certificate" → Production needs CA-signed cert
+
+# Step 3: Check certificate chain
+openssl s_client -connect myapp.com:443 -showcerts 2>/dev/null | grep -E "s:|i:"
+# Should show: your cert → intermediate CA → root CA
+
+# Step 4: Check expiry
+echo | openssl s_client -connect myapp.com:443 2>/dev/null | openssl x509 -noout -enddate
+
+# Step 5: In Kubernetes
+kubectl get certificate -A          # If using cert-manager
+kubectl describe certificate <name>
+kubectl get secret <tls-secret> -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -text
+```
+
+---
+
+### Q23: Application losing data during deployments.
+
+```bash
+# Cause: Container receives SIGTERM but doesn't handle graceful shutdown
+
+# Step 1: Check if app handles SIGTERM
+# In app code, must catch SIGTERM and:
+# 1. Stop accepting new requests
+# 2. Complete in-flight requests
+# 3. Close database connections
+# 4. Then exit
+
+# Step 2: Kubernetes graceful shutdown config
+spec:
+  terminationGracePeriodSeconds: 60  # Give app 60s to shutdown
+  containers:
+  - name: myapp
+    lifecycle:
+      preStop:
+        exec:
+          command: ["sh", "-c", "sleep 10"]
+          # Wait 10s for LB to deregister before shutting down
+
+# Step 3: Check if container gets SIGKILL (forced)
+kubectl describe pod <pod> | grep "Killing"
+# "Killing container with grace period override" → App didn't exit in time
+# Fix: Increase terminationGracePeriodSeconds or fix app shutdown
+
+# Step 4: For databases/stateful apps
+# Use StatefulSet with PVC (data persists across restarts)
+# Never use Deployment for stateful data without external storage
+```
+
+---
+
+### Q24: Complete incident response workflow.
+
+```
+DETECT → TRIAGE → INVESTIGATE → MITIGATE → RESOLVE → POSTMORTEM
+
+Step 1: DETECT
+- Alert fires (PagerDuty, Slack)
+- "Payment API error rate > 5%"
+
+Step 2: TRIAGE (first 5 minutes)
+- Assess impact: Who's affected? How many users?
+- Assign severity (P1/P2/P3/P4)
+- Communicate: "Investigating payment issues, 5% of transactions affected"
+
+Step 3: INVESTIGATE (5-30 minutes)
+- Check monitoring dashboards
+- Check recent deployments: kubectl rollout history deployment/payment
+- Check logs: kubectl logs -l app=payment | grep ERROR
+- Check dependencies: DB, Redis, external APIs
+
+Step 4: MITIGATE (immediate fix)
+- Rollback if deployment-related: kubectl rollout undo
+- Scale up if traffic-related: kubectl scale --replicas=10
+- Failover if hardware-related
+- Disable feature flag if feature-related
+
+Step 5: RESOLVE (root cause fix)
+- Fix the actual code/config/infrastructure issue
+- Deploy fix through normal CI/CD
+- Verify fix in production
+
+Step 6: POSTMORTEM (within 48 hours)
+- Timeline of events
+- Root cause analysis
+- What went well
+- What went wrong
+- Action items to prevent recurrence
+```
+
+---
+
+# 13. EC2/Cloud Infrastructure
+
+## 📝 EC2/Cloud - 24 Interview Questions with Detailed Answers
+
+### Q1: Explain EC2 instance types and when to use each.
+
+| Family | Optimized For | Use Case | Example |
+|--------|--------------|----------|---------|
+| **t3/t4g** | Burstable CPU | Web servers, dev, microservices | t3.medium |
+| **m5/m6i** | Balanced | General purpose, app servers | m5.xlarge |
+| **c5/c6i** | Compute | Batch processing, gaming, HPC | c5.2xlarge |
+| **r5/r6i** | Memory | Databases, caches, analytics | r5.large |
+| **i3/i4i** | Storage I/O | Databases needing fast local disk | i3.xlarge |
+| **g4/p4** | GPU | ML training, video processing | g4dn.xlarge |
+
+**How to choose:**
+1. Start with t3 for most workloads (cost-effective)
+2. If CPU is consistently high → Move to c5 (compute optimized)
+3. If memory is the bottleneck → Move to r5 (memory optimized)
+4. Monitor with CloudWatch and right-size
+
+---
+
+### Q2: What is the difference between Security Groups and NACLs?
+
+| Feature | Security Group | NACL |
+|---------|---------------|------|
+| Level | Instance (ENI) level | Subnet level |
+| Statefulness | Stateful (return traffic auto-allowed) | Stateless (explicit rules both ways) |
+| Rules | Allow only | Allow AND Deny |
+| Evaluation | All rules evaluated | Evaluated in order (number) |
+| Association | Multiple SGs per instance | One NACL per subnet |
+| Default | Deny all inbound, allow all outbound | Allow all |
+
+**Production tip:** Use Security Groups as primary control. Use NACLs for subnet-level blocking (e.g., blocking known malicious IPs).
+
+---
+
+### Q3: Design a highly available architecture on AWS.
+
+```
+                    Internet
+                       │
+                 ┌─────┴─────┐
+                 │   Route53  │  (DNS failover)
+                 └─────┬─────┘
+                       │
+                 ┌─────┴─────┐
+                 │    ALB     │  (Multi-AZ)
+                 └──┬─────┬──┘
+                    │     │
+          ┌─────────┘     └─────────┐
+          │ AZ-A                    │ AZ-B
+    ┌─────┴─────┐            ┌─────┴─────┐
+    │ Public    │            │ Public    │
+    │ Subnet    │            │ Subnet    │
+    │ NAT GW   │            │ NAT GW   │
+    └─────┬─────┘            └─────┬─────┘
+    ┌─────┴─────┐            ┌─────┴─────┐
+    │ Private   │            │ Private   │
+    │ Subnet    │            │ Subnet    │
+    │ App (ASG) │            │ App (ASG) │
+    └─────┬─────┘            └─────┬─────┘
+    ┌─────┴─────┐            ┌─────┴─────┐
+    │ DB Subnet │            │ DB Subnet │
+    │ RDS Primary│           │ RDS Standby│
+    └───────────┘            └───────────┘
+```
+
+**Key principles:**
+- Multi-AZ for every component
+- Auto Scaling Groups for app tier
+- RDS Multi-AZ for database
+- ALB distributes traffic across AZs
+- NAT Gateway per AZ (avoid cross-AZ charges)
+
+---
+
+### Q4: How do you reduce AWS costs?
+
+| Strategy | Savings | Best For |
+|----------|---------|----------|
+| Reserved Instances | 30-75% | Steady-state workloads |
+| Spot Instances | Up to 90% | Batch processing, fault-tolerant jobs |
+| Savings Plans | 30-72% | Flexible across instance families |
+| Right-sizing | 20-50% | Over-provisioned instances |
+| Scheduled scaling | Variable | Known traffic patterns |
+| S3 lifecycle policies | Variable | Old data moved to cheaper tiers |
+| NAT Gateway optimization | Variable | Reduce cross-AZ data transfer |
+
+```bash
+# Find under-utilized instances
+aws cloudwatch get-metric-statistics \
+    --namespace AWS/EC2 \
+    --metric-name CPUUtilization \
+    --dimensions Name=InstanceId,Value=i-xxxxx \
+    --start-time $(date -d '7 days ago' +%Y-%m-%dT%H:%M:%S) \
+    --end-time $(date +%Y-%m-%dT%H:%M:%S) \
+    --period 3600 \
+    --statistics Average
+# If average CPU < 10% → Downsize the instance
+```
+
+---
+
+### Q5: What is Auto Scaling and how do you configure it?
+
+```yaml
+# Auto Scaling configuration components:
+# 1. Launch Template - What to launch
+# 2. Auto Scaling Group (ASG) - How many and where
+# 3. Scaling Policy - When to scale
+
+# AWS CLI example:
+aws autoscaling create-auto-scaling-group \
+    --auto-scaling-group-name myapp-asg \
+    --launch-template LaunchTemplateId=lt-xxxxx,Version='$Latest' \
+    --min-size 2 \
+    --max-size 10 \
+    --desired-capacity 3 \
+    --vpc-zone-identifier "subnet-aaa,subnet-bbb" \
+    --target-group-arns arn:aws:elasticloadbalancing:...
+
+# Target Tracking Policy (recommended - simplest)
+aws autoscaling put-scaling-policy \
+    --auto-scaling-group-name myapp-asg \
+    --policy-name cpu-target-tracking \
+    --policy-type TargetTrackingScaling \
+    --target-tracking-configuration '{
+        "PredefinedMetricSpecification": {
+            "PredefinedMetricType": "ASGAverageCPUUtilization"
+        },
+        "TargetValue": 70.0
+    }'
+# Maintains CPU at 70% by adding/removing instances
+```
+
+---
+
+### Q6: How do you secure an AWS account?
+
+1. **Enable MFA** on root account and all IAM users
+2. **Never use root account** for daily operations
+3. **Use IAM roles** for EC2/Lambda (not access keys)
+4. **Principle of least privilege** (minimal permissions)
+5. **Enable CloudTrail** (audit all API calls)
+6. **Enable GuardDuty** (threat detection)
+7. **Enable AWS Config** (compliance monitoring)
+8. **Use VPC** (never launch in default VPC)
+9. **Encrypt at rest** (EBS, S3, RDS encryption)
+10. **Encrypt in transit** (HTTPS, TLS everywhere)
+
+---
+
+### Q7: Explain IAM roles, policies, and best practices.
+
+```json
+// Example: EC2 instance role policy (least privilege)
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetObject",
+                "s3:PutObject"
+            ],
+            "Resource": "arn:aws:s3:::my-app-bucket/*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:BatchGetImage"
+            ],
+            "Resource": "arn:aws:ecr:us-east-1:123456789:repository/my-app"
+        }
+    ]
+}
+```
+
+**Best practices:**
+- Use roles (not access keys) for services
+- One role per application/function
+- Use conditions (IP restrictions, MFA required)
+- Review permissions regularly (Access Analyzer)
+
+---
+
+### Q8: What is Infrastructure as Code (IaC)? Terraform example.
+
+```hcl
+# main.tf - Create VPC, Subnet, and EC2 instance
+provider "aws" {
+  region = "us-east-1"
+}
+
+resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+  tags = { Name = "production-vpc" }
+}
+
+resource "aws_subnet" "public" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.1.0/24"
+  availability_zone = "us-east-1a"
+  tags = { Name = "public-subnet-1a" }
+}
+
+resource "aws_instance" "app" {
+  ami           = "ami-xxxxx"
+  instance_type = "t3.medium"
+  subnet_id     = aws_subnet.public.id
+  
+  tags = {
+    Name        = "app-server"
+    Environment = "production"
+    Team        = "platform"
+  }
+}
+```
+
+```bash
+# Terraform workflow
+terraform init      # Download providers
+terraform plan      # Show what will change
+terraform apply     # Apply changes
+terraform destroy   # Tear down everything
+```
+
+---
+
+### Q9: How do you handle EC2 instance storage (EBS, Instance Store, EFS)?
+
+| Storage Type | Persistence | Use Case | Performance |
+|-------------|-------------|----------|-------------|
+| **EBS (gp3)** | Survives reboot/stop | Boot volume, databases | 3000 IOPS baseline |
+| **EBS (io2)** | Survives reboot/stop | High-performance DBs | Up to 64000 IOPS |
+| **Instance Store** | Lost on stop/terminate | Temp files, caches, buffers | Very fast (NVMe) |
+| **EFS** | Shared across instances | Shared data, CMS | Lower latency |
+| **S3** | Object storage | Backups, static assets, data lake | Very high throughput |
+
+---
+
+### Q10: What is VPC and how do you design it?
+
+**VPC (Virtual Private Cloud)** = Your own isolated network in AWS.
+
+**Design principles:**
+1. Use /16 CIDR (65,536 IPs - gives room to grow)
+2. At least 2 AZs for high availability
+3. Public subnets (ALB, NAT GW, bastion)
+4. Private subnets (app servers, workers)
+5. Database subnets (RDS, ElastiCache - most restricted)
+6. Separate subnets per AZ and per tier
+
+---
+
+### Q11: How do you set up VPC endpoints?
+
+```bash
+# VPC Endpoints allow private access to AWS services (no internet needed)
+
+# Gateway Endpoint (free) - S3 and DynamoDB
+aws ec2 create-vpc-endpoint \
+    --vpc-id vpc-xxxxx \
+    --service-name com.amazonaws.us-east-1.s3 \
+    --route-table-ids rtb-xxxxx
+
+# Interface Endpoint (paid) - Other services (ECR, Secrets Manager, etc.)
+aws ec2 create-vpc-endpoint \
+    --vpc-id vpc-xxxxx \
+    --service-name com.amazonaws.us-east-1.ecr.api \
+    --vpc-endpoint-type Interface \
+    --subnet-ids subnet-xxxxx \
+    --security-group-ids sg-xxxxx
+```
+
+---
+
+### Q12: How do you troubleshoot EC2 connectivity issues?
+
+Follow this checklist top to bottom:
+1. ✅ Instance running? (`aws ec2 describe-instances`)
+2. ✅ Public IP/EIP assigned? (for direct internet access)
+3. ✅ Internet Gateway attached to VPC?
+4. ✅ Route table has 0.0.0.0/0 → IGW?
+5. ✅ Security Group allows traffic on required port?
+6. ✅ NACL allows traffic? (check BOTH inbound AND outbound)
+7. ✅ OS firewall (iptables/ufw) not blocking?
+8. ✅ Service is running inside the instance?
+9. ✅ Service is binding to 0.0.0.0 (not 127.0.0.1)?
+
+---
+
+### Q13: What are placement groups?
+
+| Type | Behavior | Use Case |
+|------|----------|----------|
+| **Cluster** | All instances on same rack | Low latency (HPC, big data) |
+| **Spread** | Each instance on different hardware | High availability (critical instances) |
+| **Partition** | Groups of instances on separate racks | Distributed systems (Kafka, HDFS) |
+
+---
+
+### Q14: How do you manage AMIs (Amazon Machine Images)?
+
+```bash
+# Create AMI from running instance
+aws ec2 create-image --instance-id i-xxxxx --name "app-v1.2.3-$(date +%Y%m%d)"
+
+# Best practices:
+# 1. Automate AMI creation with Packer
+# 2. Tag AMIs with version and date
+# 3. Test AMIs before deploying to production
+# 4. Clean up old AMIs (deregister + delete snapshots)
+# 5. Copy AMIs to DR region
+
+# Packer template (build hardened AMI)
+# packer build template.pkr.hcl
+```
+
+---
+
+### Q15: How do you implement disaster recovery on AWS?
+
+| Strategy | RTO | RPO | Cost |
+|----------|-----|-----|------|
+| **Backup & Restore** | Hours | Hours | $ (cheapest) |
+| **Pilot Light** | Minutes-Hours | Minutes | $$ |
+| **Warm Standby** | Minutes | Seconds | $$$ |
+| **Multi-Site Active-Active** | Near-zero | Near-zero | $$$$ (most expensive) |
+
+---
+
+### Q16: What is AWS Systems Manager and how is it used?
+
+```bash
+# Session Manager (SSH alternative - no port 22 needed!)
+aws ssm start-session --target i-xxxxx
+
+# Run commands on multiple instances
+aws ssm send-command \
+    --instance-ids "i-aaa" "i-bbb" "i-ccc" \
+    --document-name "AWS-RunShellScript" \
+    --parameters 'commands=["apt update && apt upgrade -y"]'
+
+# Parameter Store (store configs/secrets)
+aws ssm put-parameter \
+    --name "/production/myapp/db-password" \
+    --type "SecureString" \
+    --value "supersecret"
+
+aws ssm get-parameter \
+    --name "/production/myapp/db-password" \
+    --with-decryption
+```
+
+---
+
+### Q17: How do you set up cross-account access?
+
+```json
+// Role in Account B (trusts Account A)
+{
+    "Version": "2012-10-17",
+    "Statement": [{
+        "Effect": "Allow",
+        "Principal": {
+            "AWS": "arn:aws:iam::111111111111:root"
+        },
+        "Action": "sts:AssumeRole"
+    }]
+}
+```
+
+```bash
+# From Account A, assume role in Account B
+aws sts assume-role \
+    --role-arn "arn:aws:iam::222222222222:role/CrossAccountRole" \
+    --role-session-name "MySession"
+```
+
+---
+
+### Q18: What are AWS best practices for tagging?
+
+```bash
+# Mandatory tags for all resources:
+Name          = "payment-api-prod-1"
+Environment   = "production"
+Team          = "platform"
+Service       = "payment-api"
+CostCenter    = "engineering"
+ManagedBy     = "terraform"
+
+# Benefits:
+# - Cost allocation (know which team spends what)
+# - Automation (stop dev instances at night)
+# - Access control (IAM policies based on tags)
+# - Inventory management
+```
+
+---
+
+### Q19: How do you handle secrets in AWS?
+
+```bash
+# AWS Secrets Manager (recommended for credentials)
+aws secretsmanager create-secret \
+    --name "production/myapp/db-credentials" \
+    --secret-string '{"username":"admin","password":"secret123"}'
+
+# Retrieve in application
+aws secretsmanager get-secret-value \
+    --secret-id "production/myapp/db-credentials" \
+    --query SecretString --output text
+
+# Auto-rotation (Lambda rotates password automatically)
+aws secretsmanager rotate-secret \
+    --secret-id "production/myapp/db-credentials" \
+    --rotation-lambda-arn arn:aws:lambda:...
+```
+
+---
+
+### Q20: What is CloudFormation vs Terraform?
+
+| Feature | CloudFormation | Terraform |
+|---------|---------------|-----------|
+| Provider | AWS only | Multi-cloud (AWS, GCP, Azure) |
+| Language | JSON/YAML | HCL (HashiCorp Configuration Language) |
+| State | Managed by AWS | Self-managed (S3 + DynamoDB) |
+| Drift detection | Built-in | `terraform plan` |
+| Cost | Free | Free (open source) |
+| Ecosystem | AWS native | Larger community, more providers |
+
+---
+
+### Q21: How do you implement monitoring for AWS resources?
+
+```bash
+# CloudWatch Alarms
+aws cloudwatch put-metric-alarm \
+    --alarm-name "HighCPU-Production" \
+    --metric-name CPUUtilization \
+    --namespace AWS/EC2 \
+    --statistic Average \
+    --period 300 \
+    --threshold 80 \
+    --comparison-operator GreaterThanThreshold \
+    --evaluation-periods 2 \
+    --alarm-actions arn:aws:sns:us-east-1:123456:alerts-topic \
+    --dimensions Name=InstanceId,Value=i-xxxxx
+```
+
+---
+
+### Q22: What is EKS and how does it compare to self-managed K8s?
+
+| Feature | EKS (Managed) | Self-Managed |
+|---------|---------------|--------------|
+| Control plane | AWS manages | You manage |
+| Cost | $0.10/hr + worker nodes | Only EC2 cost |
+| Upgrades | AWS handles | Manual (complex) |
+| Monitoring | CloudWatch integration | Set up yourself |
+| Networking | VPC CNI (native) | Choose CNI plugin |
+| Best for | Production teams | Learning/customization |
+
+---
+
+### Q23: How do you implement blue-green deployments with AWS?
+
+```bash
+# Method 1: Route53 weighted routing
+# Blue (current): weight 100
+# Green (new): weight 0
+# → Shift: Blue=0, Green=100
+
+# Method 2: ALB target groups
+# Switch ALB listener from Blue target group to Green target group
+aws elbv2 modify-listener \
+    --listener-arn <arn> \
+    --default-actions Type=forward,TargetGroupArn=<green-tg-arn>
+
+# Method 3: CodeDeploy
+# Automatically manages blue-green with health checks and rollback
+```
+
+---
+
+### Q24: How do you handle multi-region deployments?
+
+**Considerations:**
+- Data replication (RDS read replicas, DynamoDB Global Tables)
+- DNS routing (Route53 latency-based or failover)
+- S3 cross-region replication
+- Container image replication (ECR replication)
+- Configuration consistency (same Terraform modules)
+- Cost (data transfer between regions is expensive)
+
+---
+
+# 14. Security
+
+## 📝 Security - 24 Interview Questions with Detailed Answers
+
+### Q1: What are the top security practices for DevOps (DevSecOps)?
+
+1. **Shift left** → Security testing early in pipeline (not just before deploy)
+2. **Least privilege** → Give minimum permissions needed
+3. **Secret management** → Never hardcode credentials
+4. **Immutable infrastructure** → Don't patch running servers; rebuild
+5. **Defense in depth** → Multiple layers of security
+6. **Encrypt everything** → At rest AND in transit
+7. **Audit logging** → Track who did what
+8. **Automated scanning** → SAST, DAST, dependency scanning
+9. **Network segmentation** → Restrict lateral movement
+10. **Incident response plan** → Know what to do when breached
+
+---
+
+### Q2: How do you manage secrets in a CI/CD pipeline?
+
+```bash
+# ❌ NEVER do this:
+export DB_PASSWORD="mysecret"    # In pipeline script
+echo "password=secret" > .env    # Committed to git
+
+# ✅ Correct approaches:
+
+# 1. CI/CD built-in secrets (Jenkins credentials, GitHub Secrets)
+# 2. External secret manager:
+#    - HashiCorp Vault
+#    - AWS Secrets Manager
+#    - Azure Key Vault
+
+# 3. Vault integration example:
+vault read -field=password secret/myapp/db
+
+# 4. In Kubernetes:
+# External Secrets Operator syncs from Vault/AWS to K8s Secrets
+
+# 5. Never store secrets in:
+# - Git repository (even in private repos)
+# - Docker images (visible in layers)
+# - Environment variables in Dockerfiles
+# - Jenkins console output (mask them!)
+```
+
+---
+
+### Q3: How do you scan for vulnerabilities in Docker images?
+
+```bash
+# Trivy (recommended - comprehensive and fast)
+trivy image --severity HIGH,CRITICAL myapp:latest
+
+# In CI/CD pipeline:
+trivy image --exit-code 1 --severity CRITICAL myapp:latest
+# --exit-code 1 → Fails the build if vulnerabilities found
+
+# Scan specific types
+trivy image --vuln-type os myapp:latest      # OS packages only
+trivy image --vuln-type library myapp:latest  # App dependencies only
+
+# Scan before pushing to registry (Dockerfile):
+# Build → Scan → Push (only if scan passes)
+docker build -t myapp:${SHA} .
+trivy image --exit-code 1 myapp:${SHA}
+docker push myapp:${SHA}   # Only runs if trivy passes
+
+# Other tools:
+# - Snyk: snyk container test myapp:latest
+# - Grype: grype myapp:latest
+# - Docker Scout: docker scout cves myapp:latest
+```
+
+---
+
+### Q4: What is the principle of least privilege? Give examples.
+
+**Definition:** Grant only the minimum permissions necessary to perform a task.
+
+**Examples:**
+
+```json
+// ❌ BAD: Too permissive
+{
+    "Effect": "Allow",
+    "Action": "s3:*",
+    "Resource": "*"
+}
+
+// ✅ GOOD: Specific actions on specific resources
+{
+    "Effect": "Allow",
+    "Action": ["s3:GetObject", "s3:PutObject"],
+    "Resource": "arn:aws:s3:::my-app-bucket/uploads/*"
+}
+```
+
+```yaml
+# ❌ BAD Kubernetes RBAC
+rules:
+- apiGroups: ["*"]
+  resources: ["*"]
+  verbs: ["*"]
+
+# ✅ GOOD Kubernetes RBAC
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list"]
+```
+
+---
+
+### Q5: How do you implement network security in Kubernetes?
+
+```yaml
+# Default deny all traffic (zero trust)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-all
+  namespace: production
+spec:
+  podSelector: {}      # Apply to all pods
+  policyTypes:
+  - Ingress
+  - Egress
+  # No rules = deny everything
+
+---
+# Allow specific traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-to-db
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      app: database
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: api
+    ports:
+    - protocol: TCP
+      port: 5432
+
+---
+# Allow DNS (required for all pods)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: production
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+```
+
+---
+
+### Q6: How do you secure SSH access to servers?
+
+```bash
+# 1. Key-based authentication only (disable passwords)
+# /etc/ssh/sshd_config:
+PasswordAuthentication no
+PermitRootLogin no
+PubkeyAuthentication yes
+MaxAuthTries 3
+ClientAliveInterval 300
+ClientAliveCountMax 2
+
+# 2. Use SSH certificates instead of individual keys
+# (easier to manage at scale)
+
+# 3. Use a bastion/jump host
+ssh -J bastion-host internal-server
+# Or in ~/.ssh/config:
+Host internal-*
+    ProxyJump bastion.company.com
+
+# 4. Better: Use AWS Systems Manager Session Manager
+# No SSH port needed, full audit trail, no key management
+aws ssm start-session --target i-xxxxx
+
+# 5. Use SSH CA (Certificate Authority)
+# Issue short-lived certificates (expire in 8 hours)
+# No need to manage authorized_keys on every server
+```
+
+---
+
+### Q7: What is RBAC and how do you implement it?
+
+**RBAC (Role-Based Access Control)** = Users get permissions through roles, not directly.
+
+```
+User → Role → Permissions
+Admin → admin-role → full access to production
+Developer → dev-role → read-only in production, full access in dev
+CI/CD → deploy-role → can update deployments only
+```
+
+---
+
+### Q8: How do you handle SSL/TLS certificates?
+
+```bash
+# Let's Encrypt (free, automated)
+certbot certonly --nginx -d myapp.company.com
+
+# Auto-renewal
+certbot renew --dry-run    # Test
+# Cron: 0 0 1 * * certbot renew
+
+# In Kubernetes (cert-manager)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: myapp-tls
+spec:
+  secretName: myapp-tls-secret
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+  - myapp.company.com
+  - api.company.com
+```
+
+---
+
+### Q9: How do you detect and respond to a security breach?
+
+```
+Detection:
+1. CloudTrail alerts (unusual API calls)
+2. GuardDuty findings (threat intelligence)
+3. Monitoring alerts (unusual traffic patterns)
+4. Log analysis (failed login attempts)
+
+Response:
+1. CONTAIN → Isolate affected resources (modify SG to deny all)
+2. ASSESS → Determine scope (what's compromised?)
+3. ERADICATE → Remove attacker access (rotate all credentials)
+4. RECOVER → Restore from known-good state
+5. LEARN → Post-incident analysis, improve defenses
+```
+
+---
+
+### Q10: What is container security? How do you secure pods?
+
+```yaml
+# Pod Security Context (restrict what containers can do)
+spec:
+  securityContext:
+    runAsNonRoot: true           # Don't run as root
+    runAsUser: 1000              # Specific user ID
+    fsGroup: 2000               # File system group
+  containers:
+  - name: myapp
+    securityContext:
+      allowPrivilegeEscalation: false   # Can't become root
+      readOnlyRootFilesystem: true      # Can't write to disk
+      capabilities:
+        drop:
+          - ALL                  # Remove all Linux capabilities
+        add:
+          - NET_BIND_SERVICE     # Only add what's needed
+    resources:
+      limits:
+        cpu: "1"
+        memory: "512Mi"
+```
+
+---
+
+### Q11: How do you implement secret rotation?
+
+```python
+# Automated secret rotation with AWS Secrets Manager
+# Lambda function triggered on rotation schedule
+
+def rotate_secret(event, context):
+    # Step 1: Create new password
+    new_password = generate_random_password(length=32)
+    
+    # Step 2: Update the actual database password
+    update_database_password(new_password)
+    
+    # Step 3: Update the secret in Secrets Manager
+    client.put_secret_value(
+        SecretId=event['SecretId'],
+        SecretString=json.dumps({"password": new_password})
+    )
+    
+    # Step 4: Applications automatically get new secret
+    # (if using dynamic secret fetching, not env vars)
+```
+
+---
+
+### Q12: What is WAF (Web Application Firewall)?
+
+WAF protects web applications from common attacks (SQL injection, XSS, DDoS).
+
+```bash
+# AWS WAF rules:
+# 1. Rate limiting (block IPs with >1000 requests/5min)
+# 2. SQL injection detection
+# 3. XSS (Cross-Site Scripting) detection
+# 4. Geo-blocking (block specific countries)
+# 5. IP reputation lists (known bad actors)
+# 6. Bot detection
+```
+
+---
+
+### Q13: How do you secure a CI/CD pipeline?
+
+1. **Branch protection** → Require PR reviews, no direct push to main
+2. **Signed commits** → Verify code comes from trusted developers
+3. **Secret scanning** → Detect leaked secrets in code (GitLeaks, TruffleHog)
+4. **SAST** → Static code analysis (SonarQube, Semgrep)
+5. **Dependency scanning** → Check for vulnerable libraries (Snyk, Dependabot)
+6. **Image scanning** → Before pushing to registry (Trivy)
+7. **Least privilege** → CI/CD service accounts have minimal permissions
+8. **Audit trail** → Log who deployed what and when
+9. **OIDC tokens** → Use federated identity (no long-lived secrets)
+10. **Pipeline isolation** → PRs from forks can't access secrets
+
+---
+
+### Q14: What is encryption at rest and in transit?
+
+| Type | What It Protects | How |
+|------|-----------------|-----|
+| **At Rest** | Data stored on disk | AES-256 encryption (EBS, S3, RDS) |
+| **In Transit** | Data traveling over network | TLS/HTTPS (certificates) |
+
+```bash
+# Verify encryption in transit
+curl -vI https://myapp.com 2>&1 | grep "SSL connection using"
+# Should show: TLS 1.2 or TLS 1.3
+
+# Verify encryption at rest (AWS)
+aws ec2 describe-volumes --volume-ids vol-xxxxx --query 'Volumes[*].Encrypted'
+# Should return: true
+```
+
+---
+
+### Q15: How do you implement API authentication and authorization?
+
+| Method | Use Case | Security Level |
+|--------|----------|----------------|
+| API Key | Simple, internal APIs | Low (key can be stolen) |
+| JWT Token | User authentication | Medium |
+| OAuth 2.0 | Third-party access | High |
+| mTLS | Service-to-service | Highest |
+
+---
+
+### Q16: What is supply chain security?
+
+Protecting the entire software delivery pipeline from compromised dependencies, build tools, or infrastructure.
+
+**Practices:**
+- Pin dependency versions (don't use `latest`)
+- Verify checksums of downloaded packages
+- Use private mirrors for dependencies
+- Sign container images (cosign/Notary)
+- Use SBOM (Software Bill of Materials)
+- Reproducible builds
+
+---
+
+### Q17: How do you secure Kubernetes Secrets?
+
+```bash
+# Default K8s secrets are base64 encoded (NOT encrypted!)
+# Solutions:
+
+# 1. Enable encryption at rest (etcd)
+# In kube-apiserver config:
+--encryption-provider-config=/etc/kubernetes/encryption-config.yaml
+
+# 2. Use External Secrets Operator
+# Secrets stored in Vault/AWS Secrets Manager, synced to K8s
+
+# 3. Use Sealed Secrets (Bitnami)
+# Encrypt secrets before committing to Git
+kubeseal --cert pub-cert.pem < secret.yaml > sealed-secret.yaml
+
+# 4. Limit RBAC access to secrets
+# Only allow specific service accounts to read specific secrets
+```
+
+---
+
+### Q18: What is a security audit and how do you perform one?
+
+```bash
+# 1. Check for exposed services
+nmap -sV -p 1-65535 your-server-ip
+
+# 2. Check for outdated packages with known CVEs
+apt list --upgradable 2>/dev/null | grep -i security
+
+# 3. Check file permissions
+find / -perm -4000 -type f 2>/dev/null    # SUID files
+find / -perm -2000 -type f 2>/dev/null    # SGID files
+
+# 4. Check for unnecessary open ports
+ss -tulnp
+
+# 5. Check SSH configuration
+sshd -T | grep -E "permitrootlogin|passwordauthentication|pubkeyauthentication"
+
+# 6. Check Docker security
+docker info --format '{{.SecurityOptions}}'
+
+# 7. AWS Security audit
+aws iam generate-credential-report
+aws configservice describe-compliance-by-resource
+```
+
+---
+
+### Q19: How do you implement zero-trust networking?
+
+**Zero Trust = "Never trust, always verify"**
+
+Principles:
+1. Verify every connection (even internal)
+2. Least privilege access
+3. Micro-segmentation (Network Policies)
+4. mTLS between services (service mesh)
+5. Short-lived credentials (rotate frequently)
+6. Continuous verification (don't trust just because you authenticated once)
+
+---
+
+### Q20: What is DDoS protection and how do you implement it?
+
+```
+Layers of DDoS protection:
+
+1. CloudFlare/AWS Shield → Absorbs volumetric attacks (Layer 3/4)
+2. AWS WAF → Rate limiting, geo-blocking (Layer 7)
+3. Auto Scaling → Handle traffic spikes
+4. CDN (CloudFront) → Absorb traffic at edge
+5. Rate limiting at application → Block abusive clients
+```
+
+---
+
+### Q21: How do you handle compliance (SOC2, PCI-DSS, HIPAA)?
+
+- **Automated compliance checks** (AWS Config rules, Open Policy Agent)
+- **Audit logging** for all actions (CloudTrail, K8s audit logs)
+- **Encryption** everywhere (at rest + in transit)
+- **Access controls** (RBAC, MFA, least privilege)
+- **Regular patching** (automated security updates)
+- **Data classification** (know what's sensitive)
+- **Evidence collection** (automated reports)
+
+---
+
+### Q22: How do you secure container registries?
+
+```bash
+# 1. Enable vulnerability scanning on push (ECR)
+aws ecr put-image-scanning-configuration \
+    --repository-name myapp \
+    --image-scanning-configuration scanOnPush=true
+
+# 2. Image signing (verify image authenticity)
+cosign sign --key cosign.key registry/myapp:v1.0.0
+cosign verify --key cosign.pub registry/myapp:v1.0.0
+
+# 3. Admission control (only allow signed/scanned images)
+# Kyverno or OPA Gatekeeper policy
+
+# 4. Access control
+# Private registry, authenticated pulls only
+# Separate repos per team/environment
+```
+
+---
+
+### Q23: What is SAST vs DAST vs SCA?
+
+| Type | When | What It Does | Tools |
+|------|------|-------------|-------|
+| **SAST** | Build time | Scans source code for bugs | SonarQube, Semgrep |
+| **DAST** | Runtime | Tests running application | OWASP ZAP, Burp Suite |
+| **SCA** | Build time | Checks dependencies for CVEs | Snyk, Dependabot, Trivy |
+
+---
+
+### Q24: How do you respond to a leaked secret?
+
+```bash
+# IMMEDIATE ACTIONS (within minutes):
+
+# 1. Revoke the leaked credential
+aws iam delete-access-key --user-name compromised-user --access-key-id AKIA...
+# Or rotate the password/token immediately
+
+# 2. Check for unauthorized access
+# CloudTrail: What was done with this credential?
+aws cloudtrail lookup-events --lookup-attributes AttributeKey=AccessKeyId,AttributeValue=AKIA...
+
+# 3. Contain the blast radius
+# Block the compromised key/user
+# Revoke any sessions: aws iam delete-login-profile
+
+# 4. Audit all systems that used this credential
+# Check for backdoors (new users, new keys, changed policies)
+
+# 5. Rotate ALL credentials the compromised system had access to
+# If DB password leaked → Change DB password + update all apps
+
+# 6. Fix the root cause
+# - Remove secret from git history (git filter-branch or BFG)
+# - Add pre-commit hooks (detect secrets before commit)
+# - Move to proper secret management (Vault, Secrets Manager)
+
+# 7. Document and communicate
+# Incident report, notify affected parties if required
+
+# Prevention:
+# - pre-commit hooks: detect-secrets, gitleaks
+# - CI scanning: TruffleHog, GitLeaks
+# - Never store secrets in code or Docker images
+```
+
+---
+
+# 🎯 Quick Reference: Top Commands for Interviews
+
+## Must-Know One-Liners
+
+```bash
+# Check what's listening on ports
+ss -tulnp
+
+# Find large files
+find / -type f -size +100M -exec ls -lh {} \;
+
+# Check disk usage by directory
+du -sh /* | sort -rh | head -10
+
+# Check memory usage
+free -h
+
+# Monitor in real-time
+top -c    # Processes
+watch -n1 kubectl get pods   # K8s pods
+
+# Kubernetes quick debug
+kubectl get events --sort-by='.lastTimestamp' | tail -20
+kubectl describe pod <pod> | tail -30
+
+# Docker cleanup
+docker system prune -a --volumes -f
+
+# Test connectivity
+nc -zv host port -w 5
+curl -o /dev/null -s -w "%{http_code}" http://url
+
+# Tail logs with filter
+tail -f /var/log/app.log | grep --line-buffered "ERROR"
+kubectl logs -f <pod> | grep --line-buffered "ERROR"
+```
+
+---
+
+## Interview Tips
+
+1. **Always start with "How would you troubleshoot..."**
+   - Describe your systematic approach (don't jump to solutions)
+   - Start broad, then narrow down
+
+2. **Use the OSI model for networking issues**
+   - Layer 3: Can I ping it?
+   - Layer 4: Can I reach the port?
+   - Layer 7: Does the app respond?
+
+3. **Mention monitoring and alerting** in every answer
+   - "I would also set up alerts so we catch this earlier next time"
+
+4. **Talk about prevention**
+   - "After fixing this, I'd add a CI check to prevent it from happening again"
+
+5. **Mention documentation**
+   - "I'd write a runbook for this scenario"
+
+---
+
+*These notes cover 14 topics × 24 questions = 336 interview questions with production-focused answers. Good luck with your interviews! 🚀*
         
