@@ -1698,6 +1698,28 @@ terraform apply -var-file="dev.tfvars" --auto-approve
    terraform workspace list       # default, dev, uat, prod
    ```
 
+   my-terraform-project/
+│
+├── .terraform/
+├── .terraform.lock.hcl
+│
+├── main.tf
+├── variables.tf
+├── outputs.tf
+│
+├── terraform.tfstate                # default workspace state
+│
+└── terraform.tfstate.d/
+    │
+    ├── dev/
+    │   └── terraform.tfstate
+    │
+    ├── uat/
+    │   └── terraform.tfstate
+    │
+    └── prod/
+        └── terraform.tfstate
+
 2. **Deploy Dev**:
    ```
    terraform workspace select dev
