@@ -956,3 +956,541 @@ resource "null_resource" "post_config" {
 
 - When would you move logic from `null_resource` into a proper CI/CD job?
 - How do you avoid fragile dependencies when using `null_resource`?
+
+## 7. Advanced Design, Testing, Governance, and Real Incidents
+
+### Q31. How do you design Terraform modules for multi-cloud (AWS + Azure) without duplicating logic?
+
+**Answer:**  
+
+Patterns:
+
+- Separate cloud-specific modules:
+  - `aws_network`, `aws_eks`, `azure_network`, `azure_aks`.
+- Build higher-level “service” modules that consume these cloud modules behind a common interface (variables, outputs).
+- Use consistent naming and tagging patterns across clouds.
+
+**Example:**
+
+- A `vpc` module for AWS and a `vnet` module for Azure both expose `subnets`, `id`, `cidr` outputs.
+- A higher-level module uses one or the other depending on `var.cloud` but keeps the rest of pipeline consistent.
+
+**Common Mistakes:**
+
+- Trying to build one “universal” module using many `count`/`for_each` and conditionals; becomes unreadable.
+- Duplicating entire stacks with no shared patterns, making governance difficult.
+
+**Follow-up Questions:**
+
+- How do you keep tagging and naming policies consistent across clouds?
+- How would you test modules for each cloud independently?
+
+---
+
+### Q32. How do you test Terraform code and modules beyond `validate`?
+
+**Answer:**  
+
+Testing layers:
+
+- **Static analysis & linting:**
+  - `tflint`, `checkov`, `tfsec` for style and security best practices.
+- **Unit/integration tests:**
+  - Terratest (Go-based testing framework) spins up resources and asserts properties.
+- **Plan-based checks:**
+  - CI job that parses `terraform plan` JSON to assert that only allowed resources are being changed.
+
+**Best Practice:**
+
+- Include linters in CI.
+- For critical modules (VPC, security), run Terratest against a throwaway environment regularly.
+
+**Follow-up Questions:**
+
+- Example of a bug caught by `tflint` or `checkov`.
+- How do you apply the same testing approach to multiple modules?
+
+---
+
+### Q33. How do you integrate policy-as-code with Terraform (e.g., OPA, Sentinel, Conftest)?
+
+**Answer:**  
+
+Patterns:
+
+- Use OPA/Conftest to validate Terraform plans or JSON outputs:
+  - Ensure no public S3 buckets.
+  - Ensure RDS encryption enabled.
+  - Ensure tags applied.
+
+- In Terraform Cloud/Enterprise:
+  - Use Sentinel policies to enforce rules at plan/apply time.
+
+CI example:
+
+- Pipeline step that converts `plan` to JSON (`terraform show -json tfplan`) and runs `conftest test` with Rego policies.
+
+**Common Mistakes:**
+
+- Policies too strict too early; teams find ways to bypass.
+- No exemptions or controlled overrides process.
+
+**Follow-up Questions:**
+
+- What are good starter policies for a bank?
+- How do you iterate on policies without blocking all teams?
+
+---
+
+### Q34. How would you handle a Terraform provider breaking change (e.g., new version) in a large codebase?
+
+**Answer:**  
+
+Approach:
+
+1. Pin provider versions in `required_providers`.
+2. Test new provider version in non-prod on a small subset of Terraform configs/modules.
+3. Read provider changelog: identify breaking changes and required config adjustments.
+4. Update modules/config progressively, using branches and CI to validate.
+5. Roll out provider version bump across repos in phases.
+
+**Common Mistakes:**
+
+- Using `~>` or no version pin, then suddenly pulling a breaking change.
+- Upgrading everything at once without testing.
+
+**Follow-up Questions:**
+
+- Example of a provider upgrade you handled.
+- How would you automate scanning repos for outdated provider versions?
+
+---
+
+### Q35. How do you structure Terraform code to support reusable network/VPC patterns?
+
+**Answer:**  
+
+Design:
+
+- Create a reusable `vpc` module that:
+  - Accepts CIDR, number of AZs, subnet masks.
+  - Creates public/private subnets, route tables, IGW/NAT, NACLs, etc.
+  - Outputs subnets, route tables, and security group IDs.
+
+Usage:
+
+- Each environment (dev, prod) calls `module "vpc"` with different CIDR/size.
+- Other modules (EKS, RDS) consume VPC outputs.
+
+**Common Mistakes:**
+
+- Hardcoding CIDRs or region-specific values in the module instead of variables.
+- Mixing environment-specific logic inside the module rather than in root configs.
+
+**Follow-up Questions:**
+
+- How do you handle cross-account/shared networking with modules?
+- How do you evolve a VPC module without breaking existing stacks?
+
+---
+
+### Q36. How do you manage Terraform for hundreds of microservices vs shared platform components?
+
+**Answer:**  
+
+Patterns:
+
+- **Shared platform** (networking, clusters, shared services) as separate Terraform stacks owned by platform team.
+- Each **application team** may have smaller Terraform usage for app-specific infra (queues, buckets, DNS) and uses outputs from shared stacks.
+
+Coordination:
+
+- Clear contracts via outputs and data sources.
+- Avoid each app re-provisioning shared infra; instead, reference platform-managed resources.
+
+**Common Mistakes:**
+
+- Each team creating its own VPC, cluster, or duplicating platform components.
+- No ownership boundaries; overlapping changes.
+
+**Follow-up Questions:**
+
+- How do you pass platform outputs (e.g., VPC IDs) to app-level stacks safely?
+- How do you govern who can modify platform vs app infra?
+
+---
+
+### Q37. Describe an incident caused by Terraform and how you resolved it.
+
+**Answer (example narrative):**  
+
+**Incident:**  
+Terraform plan unexpectedly destroyed a shared security group used by multiple services, causing connectivity failures.
+
+**Root Causes:**
+
+- A refactor changed `for_each` keys for security groups, causing Terraform to treat existing security group as “removed”.
+- There was no `prevent_destroy` or policy checking for shared resources.
+
+**Handling:**
+
+1. Stopped further applies after noticing plan suggested destruction.
+2. Restored from cloud provider snapshots / backups.
+3. Used `terraform state mv` to re-associate existing security group to new `for_each` key.
+4. Implemented:
+   - `prevent_destroy` on shared resources.
+   - Additional plan review checks and policy-as-code to flag security group destroys.
+
+**Follow-up Questions:**
+
+- How would you ensure similar misconfiguration is caught in non-prod first?
+- How do you document and communicate such an incident?
+
+---
+
+### Q38. How do you avoid “big-bang” changes with Terraform in prod?
+
+**Answer:**  
+
+Practices:
+
+- Break down infrastructure into smaller stacks/modules.
+- Make small, incremental changes; avoid large diff plans in prod.
+- Use feature flags and separate pipelines for risky changes (e.g., network re-architecture).
+- Use blue-green or parallel stacks for high-risk changes, then switch traffic.
+
+**Common Mistakes:**
+
+- Applying a massive plan with dozens of high-risk changes in one go.
+- No ability to roll back or partially deploy.
+
+**Follow-up Questions:**
+
+- How do you determine a safe change size?
+- How would you use plan reports to communicate change risk?
+
+---
+
+### Q39. How do you manage Terraform state for cross-account AWS setups (e.g., shared services vs app accounts)?
+
+**Answer:**  
+
+Patterns:
+
+- Separate state backends per account and per domain (networking, security, app).
+- Use cross-account roles with limited permissions:
+  - Terraform in shared “infra” account assumes roles into target accounts.
+- Maintain clear separation in directories and state.
+
+**Example:**
+
+- `infra-account` Terraform manages baseline.
+- `app1-account` Terraform uses remote backend in its own S3 bucket, with cross-account role assumptions.
+
+**Common Mistakes:**
+
+- Single state bucket for all accounts and envs; risk of misapply across boundaries.
+- Over-privileged roles.
+
+**Follow-up Questions:**
+
+- How do you structure IAM policies for Terraform roles?
+- How do you manage lifecycle of shared resources spanning multiple accounts?
+
+---
+
+### Q40. How do you use `-target` (targeted apply) and what are the risks?
+
+**Answer:**  
+
+`terraform apply -target=resource.addr` limits operations to a subset of resources.
+
+**Use cases:**
+
+- Emergency fix where you want to update one resource only.
+
+**Risks:**
+
+- Bypasses full dependency graph; you might miss related changes.
+- Overuse can leave infra in an inconsistent state if dependencies are not updated.
+
+**Best Practice:**
+
+- Use sparingly; prefer full `plan/apply` whenever possible.
+- Document any targeted apply usage and clean up with full apply later.
+
+**Follow-up Questions:**
+
+- Example scenario where targeted apply helped.
+- How do you verify system is consistent afterward?
+
+---
+
+### Q41. How do you handle long-running Terraform applies (e.g., provisioning many resources)?
+
+**Answer:**  
+
+Strategies:
+
+- Split configuration into smaller stacks to reduce blast radius and runtime.
+- Use appropriate timeouts and retries (especially for cloud resources that sometimes fail).
+- Monitor apply progress; if using CI, ensure job timeouts are reasonable.
+- In some cases, use `-parallelism` to tune concurrency.
+
+**Common Mistakes:**
+
+- Very high `-parallelism` causing API throttling.
+- Zero monitoring; if apply fails halfway, no clear picture of partial changes.
+
+**Follow-up Questions:**
+
+- How do you resume after a failed long apply?
+- How do you handle rate limits from cloud providers?
+
+---
+
+### Q42. How do you design Terraform for zero-downtime updates of load balancers or gateways?
+
+**Answer:**  
+
+Patterns:
+
+- Use `create_before_destroy` for resources that support parallel instances (e.g., ALB).
+- Manage DNS cutover using weighted records (Route53 / Azure DNS).
+- For gateways, create new resource and switch target references rather than in-place update.
+
+**Example:**
+
+- Create new ALB, attach target groups, and update DNS; then later decommission old ALB.
+
+**Common Mistakes:**
+
+- In-place update of resource when provider forces replacement, causing downtime.
+- Not coordinating with app rollouts.
+
+**Follow-up Questions:**
+
+- How would you combine Terraform changes with application-level blue-green deployment?
+- What metrics do you monitor during such infra rollout?
+
+---
+
+### Q43. How do you enforce tagging policies with Terraform in an enterprise?
+
+**Answer:**  
+
+Approach:
+
+- Use locals or modules to define common tags (env, owner, cost-center, app).
+- Require tag-related variables in modules.
+- Enforce via policy-as-code:
+  - Policy checks that all resources have required tags.
+- Build Terraform modules that automatically apply required tags.
+
+**Common Mistakes:**
+
+- Allowing teams to omit tags; later cannot cost-allocate or identify owners.
+- Tags scattered across config with no central management.
+
+**Follow-up Questions:**
+
+- Example of tag schema you’d propose.
+- How do you handle optional tags vs mandatory tags?
+
+---
+
+### Q44. How do you manage rollbacks of Terraform changes?
+
+**Answer:**  
+
+In general, Terraform is **not** designed for “rollback” like Git; instead:
+
+- Use version control to revert `.tf` changes.
+- Re-run `terraform plan/apply` to converge infra back to previous configuration.
+- For destructive changes (like dropping resources), consider separate recovery mechanisms (backups, snapshots).
+
+**Common Mistakes:**
+
+- Assuming Terraform has a “rollback” button like CI/CD for apps.
+- Not having backups/snapshots when applying destructive changes.
+
+**Follow-up Questions:**
+
+- Example of how you reversed a risky Terraform change.
+- How do you integrate snapshotting (RDS/EBS) with Terraform workflows?
+
+---
+
+### Q45. How do you represent environment-specific differences (e.g., dev vs prod) in Terraform?
+
+**Answer:**  
+
+Patterns:
+
+- Reuse same modules; pass different variables per env.
+- Use different workspaces or separate directories (common).
+- Use `terraform.tfvars` or env-specific var files.
+
+Example:
+
+```bash
+terraform apply -var-file=dev.tfvars
+terraform apply -var-file=prod.tfvars
+```
+
+**Common Mistakes:**
+
+- Conditionals inside modules making logic complex instead of separating env config.
+- Hardcoding prod-specific values inside modules.
+
+**Follow-up Questions:**
+
+- Would you prefer workspaces or separate state per environment? Why?
+- How do you enforce that critical settings are stricter in prod (e.g., no public access)?
+
+---
+
+### Q46. How do you coordinate Terraform changes with other tools like Ansible in this role?
+
+**Answer:**  
+
+Division of responsibilities:
+
+- Terraform:
+  - Creates infrastructure (VPCs, subnets, instances, clusters, DBs, IAM, etc.).
+- Ansible:
+  - Configures OS, installs packages, sets up services, does ongoing config management.
+
+Integration:
+
+- Terraform outputs (e.g., instance IPs, hostnames) consumed by Ansible inventory.
+- Jenkins pipeline orchestrates:
+  - Terraform apply → Ansible playbooks → app deployment.
+
+**Common Mistakes:**
+
+- Overlapping responsibilities (both tools managing same resource state).
+- Using Terraform provisioners heavily instead of Ansible.
+
+**Follow-up Questions:**
+
+- Example pipeline that combines Terraform and Ansible safely.
+- How do you handle drift when Ansible changes conflict with Terraform-managed attributes?
+
+---
+
+### Q47. How do you use data sources in Terraform, and what are the pitfalls?
+
+**Answer:**  
+
+Data sources allow you to **read** existing resources not managed by the current Terraform config (e.g., existing VPC, AMI IDs).[web:69]
+
+Example:
+
+```hcl
+data "aws_vpc" "default" {
+  default = true
+}
+
+resource "aws_subnet" "example" {
+  vpc_id = data.aws_vpc.default.id
+  ...
+}
+```
+
+**Pitfalls:**
+
+- Over-reliance on data sources pointing to mutable external resources.
+- If data source targets change, Terraform plan may propose large changes.
+
+**Follow-up Questions:**
+
+- How do you use data sources in multi-account setups?
+- How do you avoid coupling to fragile external naming conventions?
+
+---
+
+### Q48. How do you manage provider configurations, especially when using multiple accounts/regions?
+
+**Answer:**  
+
+Patterns:
+
+- Use `alias` providers for multiple accounts or regions:
+
+```hcl
+provider "aws" {
+  region = "us-east-1"
+}
+
+provider "aws" {
+  alias  = "euwest"
+  region = "eu-west-1"
+}
+```
+
+- Assign provider to resources/modules via `provider = aws.euwest`.
+
+**Common Mistakes:**
+
+- Not specifying provider alias in modules, causing resources to be created in wrong region/account.
+- Using environment variables for credentials without clear separation.
+
+**Follow-up Questions:**
+
+- How do you structure provider configurations for AWS + Azure side by side?
+- How do you keep credentials out of configs?
+
+---
+
+### Q49. How do you ensure Terraform changes are auditable and comply with change-management processes?
+
+**Answer:**  
+
+Practices:
+
+- All Terraform code in Git; changes via PR with review.
+- Plans attached to PR or change record; reviewed and approved.
+- CI/CD logs showing who triggered `apply`, when, and with what plan.
+- Link plan/apply to ticket IDs (e.g., Jira/ServiceNow).
+
+**Common Mistakes:**
+
+- Running Terraform manually with no record.
+- No tie between infra changes and change tickets.
+
+**Follow-up Questions:**
+
+- How would you generate human-readable change reports from plans?
+- How might you integrate Terraform Cloud/Enterprise with approvals?
+
+---
+
+### Q50. What are the biggest Terraform pitfalls you’ve seen, and how would you avoid them in this role?
+
+**Answer (structured):**  
+
+1. **Local state & manual applies**  
+   - Avoid: remote backends, locking, CI/CD-driven applies.
+
+2. **Unreviewed plans**  
+   - Avoid: mandatory plan review, approvals before apply.
+
+3. **Overly complex modules**  
+   - Avoid: small, focused modules; clear interfaces.
+
+4. **Drift & manual console changes**  
+   - Avoid: terraform-only changes, drift detection pipelines.
+
+5. **Security oversights (state, providers, secrets)**  
+   - Avoid: encrypt state, restrict access, secret management via external stores.
+
+6. **Lack of testing & policy**  
+   - Avoid: tflint, checkov, Terratest, policy-as-code.
+
+For this Specialist DevOps role, emphasize strong governance, safe CI/CD integration, and solid recovery patterns for any Terraform-related incident.
+
+**Follow-up Questions:**
+
+- Which of these pitfalls have you personally remediated?
+- How would you design the Terraform ecosystem for SocGen from scratch?
