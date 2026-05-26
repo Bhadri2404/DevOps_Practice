@@ -515,3 +515,464 @@ Systematic approach:
 - How do you decide when a retry is acceptable vs when to fix the root cause?
 
 ---
+### Q16. How would you implement blue–green deployment with Jenkins and Kubernetes?
+
+**Answer:**  
+Blue–green deployment keeps two production-like environments: **blue** (current live) and **green** (new version). The flow:
+
+1. Deploy the new version to the **green** environment (separate namespace, or different labels/Ingress paths).
+2. Run functional and performance tests against green.
+3. Switch traffic from blue to green (Ingress, service selector, or external load balancer).
+4. Monitor KPIs; keep blue as fallback for fast rollback.
+
+**Implementation with Jenkins + K8s:**
+
+- Jenkins pipeline stages:
+  - Deploy new image to `green` namespace (or `app=green` label).
+  - Run smoke/integration tests against green endpoint.
+  - If healthy, update Ingress/service routing to point to green.
+  - Optionally scale down blue after a safe period.
+
+**Common Mistakes:**
+
+- Sharing the same DB without considering schema changes and compatibility.
+- Not having clear mapping in monitoring to distinguish blue vs green.
+
+**Debugging Tips:**
+
+- If traffic fails after switch, check:
+  - Ingress rules and annotations.
+  - Service selectors pointing to the right pods.
+  - NetworkPolicies still allowing traffic.
+
+**Follow-up Questions:**
+
+- How is canary different from blue–green?
+- When would you not use blue–green (e.g., huge stateful systems)?
+
+---
+
+### Q17. Describe canary deployment and how Jenkins would orchestrate it.
+
+**Answer:**  
+Canary deployment gradually rolls out a new version to a small subset of traffic, monitors health, and then increases traffic gradually if all looks good.
+
+**With Jenkins + K8s/Ingress:**
+
+1. Deploy canary pods with label `version=canary` alongside stable pods.
+2. Use Ingress/controller (or service mesh) to route a small percentage of traffic (e.g., 5%) to the canary.
+3. Jenkins pipeline:
+   - Stage to deploy canary.
+   - Stage to monitor metrics for a window (errors, latency, business KPIs).
+   - If successful, increase to 25% → 50% → 100%.
+   - If issues, roll back to stable and remove canary.
+
+**Common Mistakes:**
+
+- No clear canary success criteria; purely manual judgment.
+- Monitoring only infrastructure metrics, not business metrics.
+
+**Debugging Tips:**
+
+- If canary behaves badly but stable is fine, diff configs and env vars between them.
+- Correlate errors with specific canary/pod labels in logs (Elastic, Kibana).[web:46]
+
+**Follow-up Questions:**
+
+- How to automate canary decision using metrics?
+- How would you do canary for stateful or DB-migrating services?
+
+---
+
+### Q18. How do you secure CI/CD pipelines from a supply-chain security perspective?
+
+**Answer:**  
+
+Key controls:
+
+- **Source integrity**: signed commits, branch protection, mandatory reviews.
+- **Dependency hygiene**: SCA (dependency scanning) stages in the pipeline.
+- **Build environment**: immutable, minimal agent images; no random tools installed.
+- **Artifact signing**: sign container images or binaries; verify at deploy time.
+- **Secret hygiene**: no secrets in repos; short-lived tokens; rotated credentials.
+- **Access control**: minimal permissions for Jenkins/GitHub Actions service accounts.[web:26]
+
+**Scenario:**  
+If a malicious library version gets into dependencies, SCA stage should block the build and raise an alert.
+
+**Common Mistakes:**
+
+- Allowing arbitrary script execution from PRs on privileged runners.
+- Using untrusted public images as build bases.
+
+**Debugging Tips:**
+
+- If a security stage randomly fails, check for network firewalls, rate limits, or scanner config.
+- Ensure scanners are up-to-date with vulnerability feeds.
+
+**Follow-up Questions:**
+
+- How to run “untrusted” PR jobs safely?
+- How do you handle 0-day vulnerabilities in core libraries?
+
+---
+
+### Q19. How would you design CI/CD for infrastructure code (Terraform/Ansible) differently from application code?
+
+**Answer:**  
+
+Infra CI/CD patterns:
+
+- **CI**:
+  - `terraform fmt -check`, `validate`, `tflint`.
+  - Policy-as-code checks (OPA/Conftest, Terraform Cloud/Enterprise policies).
+- **CD**:
+  - `plan` always reviewed (peer review + approval).
+  - `apply` triggered by human or by Jenkins after explicit approval.
+  - Strong use of remote backends and locking.[web:28]
+
+Differences vs app CI/CD:
+
+- Fewer, more deliberate runs.
+- Stronger change-management integration (tickets, approvals).
+- More sensitive impact (network, security, multi-team blast radius).
+
+**Common Mistakes:**
+
+- Treating infra pipelines like app pipelines and doing auto-apply on every commit.
+- Not enforcing review of plans.
+
+**Follow-up Questions:**
+
+- How do you roll back a bad infra change?
+- How to structure Terraform modules and workspaces for multi-env?
+
+---
+
+### Q20. How do you handle environment-specific configuration in Jenkins pipelines without hardcoding?
+
+**Answer:**  
+
+Patterns:
+
+- **Config as code**: environment-specific YAML/JSON/Helm values files stored in Git.
+- **Parameterized pipelines**: environment parameter chooses config file.
+- **Use `when {}` in Declarative pipelines** to branch logic based on env.
+- Use **Shared Library** functions like `getEnvConfig(envName)`.
+
+**Example:**
+
+```groovy
+def envConfig = readYaml file: "config/${params.ENV}.yaml"
+sh "helm upgrade --install app charts/app --set image.tag=${env.IMAGE_TAG} --set replicaCount=${envConfig.replicas}"
+```
+
+**Common Mistakes:**
+
+- Copy-pasting same Jenkinsfile per environment with different literals.
+- Mixing configuration and executable logic.
+
+**Debugging Tips:**
+
+- Log effective configuration before applying.
+- Validate YAML/JSON files separately in CI to avoid runtime parsing errors.
+
+**Follow-up Questions:**
+
+- How do you keep config DRY across environments?
+- What belongs in code vs config vs secret storage?
+
+---
+
+### Q21. Describe a robust rollback strategy using Jenkins + Kubernetes.
+
+**Answer:**  
+
+Core idea: rolling back to a known-good version quickly and safely.
+
+**Options:**
+
+1. **Helm rollback**:
+   - `helm rollback <release> <revision>` in a Jenkins stage.
+2. **Kubernetes rollout undo**:
+   - `kubectl rollout undo deployment/<name> -n <ns>`.
+3. **Traffic-based rollback** (blue–green/canary):
+   - Switch back traffic in load balancer/Ingress to previous env/version.
+
+**Pipeline best practices:**
+
+- Keep previous image tags and Helm revisions recorded (e.g., in artifacts or config).
+- Provide a “Rollback” job in Jenkins that can be triggered with parameters.
+
+**Common Mistakes:**
+
+- No clear mapping of which version is currently running.
+- Rolling forward without understanding the root cause, leading to more issues.
+
+**Follow-up Questions:**
+
+- How to include DB schema changes in rollback planning?
+- How can observability help you decide between rollback vs hotfix?
+
+---
+
+### Q22. How do you use Jenkins to enforce quality gates (tests, coverage, static analysis)?
+
+**Answer:**  
+
+Typical enforcement:
+
+- **Unit tests**: pipeline fails if tests fail.
+- **Coverage**: coverage thresholds enforced using tools or quality gates (e.g., SonarQube).
+- **Lint/static analysis**: pipeline stage fails if critical issues detected.
+- **Security checks**: SAST/SCA scan must pass before building or deploying.[web:42][web:46]
+
+**Scenario:**  
+In a bank, a Jenkins stage might call SonarQube and enforce that new code has no critical vulnerabilities and at least 80% coverage; otherwise, the build fails.
+
+**Common Mistakes:**
+
+- Running quality tools but not actually failing the pipeline on violations.
+- Treating all issues equally instead of focusing on new or high-severity issues.
+
+**Follow-up Questions:**
+
+- How do you onboard an existing legacy repo to strict quality gates gradually?
+- How do you handle “technical debt” findings that are out of scope for current sprint?
+
+---
+
+### Q23. Describe your approach to handling secrets across Jenkins, GitHub Actions, and Kubernetes.
+
+**Answer:**  
+
+Pillars:
+
+- **Centralized secret management** (Vault, AWS Secrets Manager, Azure Key Vault).
+- Jenkins credentials store only references/tokens, not raw long-lived secrets.
+- GitHub Actions: use GitHub Secrets or external secret provider; use OIDC for short-lived cloud credentials.
+- Kubernetes: use Secrets for apps, ideally synced from external secret manager via operators.
+
+**Pattern:**  
+Jenkins obtains short-lived AWS/Azure/K8s tokens via OIDC or vault; pipelines inject them for the duration of the job only; Kubernetes apps read runtime secrets from external provider.
+
+**Common Mistakes:**
+
+- Hardcoding tokens in Jenkinsfiles or values.yaml.
+- Checking kubeconfig with tokens into repo.
+
+**Follow-up Questions:**
+
+- How to rotate secrets without pipeline downtime?
+- How to detect if secrets have been leaked via logs or repos?
+
+---
+
+### Q24. How would you design CI/CD for a monorepo with multiple services?
+
+**Answer:**  
+
+Challenges: multiple services, shared libs, dependency graph.
+
+Approach:
+
+- Use path-based triggers:
+  - If only `service-a/` changed, run service A pipeline.
+  - If shared libs changed, run more services.
+- Use matrix jobs or dynamic stages for each affected service.
+- For CD, each service has its own Helm chart + environment config; pipelines build, test, and deploy only impacted services.
+
+**Implementation in Jenkins:**
+
+- Use scripted Declarative pipelines that compute changed paths (`git diff`) and spawn stages only for affected services.
+- Or use multibranch with `Jenkinsfile` per service directory.
+
+**Common Mistakes:**
+
+- Always rebuilding/deploying everything on any change.
+- No clear separation of ownership within the monorepo.
+
+**Follow-up Questions:**
+
+- How to manage shared versioning in a monorepo?
+- How to keep pipelines fast despite repo growth?
+
+---
+
+### Q25. How do you implement approval gates in Jenkins for production deployments?
+
+**Answer:**  
+
+Patterns:
+
+- Use `input` step in Declarative pipeline with appropriate roles:
+
+```groovy
+stage('Approve Prod Deploy') {
+  steps {
+    input message: "Deploy to PROD?", ok: "Deploy", submitter: "prod-approvers"
+  }
+}
+```
+
+- Integrate with Jira/ServiceNow:
+  - Require valid change ticket ID as parameter.
+  - Validate ticket status via REST call before proceeding.
+
+**Best Practices:**
+
+- Clearly log who approved and when.
+- Timebox approvals (jobs don’t wait forever).
+
+**Common Mistakes:**
+
+- Approvals every step (too much friction).
+- Approvals by generic accounts instead of identifiable users.
+
+**Follow-up Questions:**
+
+- How to avoid approvals becoming rubber-stamping?
+- How can auto-approvals be used for low-risk changes?
+
+---
+
+### Q26. A Jenkins pipeline randomly fails on “git checkout”. How do you debug?
+
+**Answer:**  
+
+Steps:
+
+1. Check error details: network timeout, authentication error, shallow clone issue, branch not found.
+2. Validate SCM URL and credentials.
+3. Test connectivity from the agent directly (`git ls-remote`).
+4. Check Git server logs (rate limiting, auth issues).
+
+**Common Causes:**
+
+- Intermittent network firewalls/proxies.
+- Incorrect or expiring credentials.
+- Very large repos / timeouts.
+
+**Mitigations:**
+
+- Use shallow clones (`depth: 1`) if appropriate.
+- Configure retry logic specifically for SCM checkout.
+- Add mirrors or caching proxies for remote repos.
+
+**Follow-up Questions:**
+
+- How to handle mono‑repos with very large history?
+- How do you verify that a checkout is consistent (no partial clones)?
+
+---
+
+### Q27. What is a “pipeline template” and how would you use it in this role?
+
+**Answer:**  
+
+A pipeline template is a standard Jenkinsfile or library function pattern reused by many repositories. In this role, you can have templates for:
+
+- FastAPI microservice (build, test, scan, deploy).
+- PySpark batch job.
+- Airflow plugin or DAG validation.
+
+Implementation:
+
+- Use a Shared Library exposing `call()` functions like `fastapiPipeline()` and let Jenkinsfile be just:
+
+```groovy
+@Library('sg-devops-lib@1.2.0') _
+fastapiPipeline()
+```
+
+**Benefits:**
+
+- Consistency, faster onboarding, easier global changes (e.g., add new security stage).
+
+**Common Mistakes:**
+
+- Template too rigid, preventing specific customizations.
+- Hidden behavior that teams don’t understand.
+
+**Follow-up Questions:**
+
+- How to allow customization in templates while keeping core stages mandatory?
+- How to roll out a new mandatory stage (e.g., SCA) across all templates?
+
+---
+
+### Q28. How do you handle multi-region or multi-cluster deployments in CI/CD?
+
+**Answer:**  
+
+Patterns:
+
+- Treat each region/cluster as an environment.
+- Deploy in sequence or parallel, with per-region health checks.
+- Use region-specific configs/values.
+- Build once, deploy same artifact to all.
+
+**Pipeline Example:**
+
+- Stage: Deploy to Region A (EKS cluster A) → smoke test.
+- Stage: Deploy to Region B (EKS cluster B) → smoke test.
+- Stage: If both good, mark release as globally successful.
+
+**Common Mistakes:**
+
+- Region-specific builds (inconsistency).
+- Not having rollback strategy per region.
+
+**Follow-up Questions:**
+
+- How do you avoid “partial” deployments (only some regions updated)?
+- How would you incorporate global traffic routing (Route53, Azure Traffic Manager)?
+
+---
+
+### Q29. How would you integrate Jenkins with observability tools (Elastic, Kibana, Grafana)?
+
+**Answer:**  
+
+Key ideas:
+
+- Emit structured logs from Jenkins jobs (e.g., via log appender or log shipping) into Elastic; include fields like job name, build number, app name, environment, version.[web:46]
+- Use Grafana to track pipeline metrics: duration, failure rate, queue time.
+- Build dashboards that correlate deployments with production metrics (errors, latency).
+
+**Scenario:**
+
+- After deployment, if errors spike, you can quickly correlate that to Jenkins build number using tags in logs and metrics.
+
+**Follow-up Questions:**
+
+- How do you ensure each deployment is traceable in logs/metrics?
+- How would you alert on pipeline anomalies (e.g., sudden spike in failures)?
+
+---
+
+### Q30. How do you support L2/L3 production operations via Jenkins jobs?
+
+**Answer:**  
+
+L2/L3 ops patterns with Jenkins:
+
+- Build **runbook jobs**: restart service, clear cache, trigger failover, re-run Airflow DAG, backfill data.
+- Add guardrails: approvals, RBAC limiting who can run which job and with what parameters.
+- Implement **“validation jobs”**: check config consistency, DB connectivity, K8s health before release.
+
+**Scenario:**
+
+- L2 engineer receives alert about failing Airflow DAG; triggers a Jenkins job “rerun-dag-with-safe-params” that replays tasks with extra logging and with limited concurrency.
+
+**Common Mistakes:**
+
+- Over-automation: expose powerful jobs with minimal controls.
+- No audit trail of who ran which ops job.
+
+**Follow-up Questions:**
+
+- How to design Jenkins jobs as safe “buttons” for support teams?
+- How to handle sensitive operations (DB changes) via Jenkins?
+
+---
