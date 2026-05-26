@@ -931,3 +931,582 @@ def flaky_operation():
 
 - How would you make this decorator log each retry attempt with backoff (e.g., exponential)?
 
+## 11. Pandas, Data Analysis, and Log/Metric Processing
+
+### Q31. How would you use Pandas to quickly analyze HTTP status codes from a CSV log?
+
+**Scenario:** CSV file `access.csv` with columns: `timestamp,method,path,status,latency_ms`.
+
+**Answer:**
+
+```python
+import pandas as pd
+
+df = pd.read_csv("access.csv")
+
+# Count by status
+status_counts = df["status"].value_counts()
+print(status_counts)
+
+# Filter slow requests
+slow = df[df["latency_ms"] > 1000]
+print("Slow requests:", len(slow))
+```
+
+**DevOps Use:** quick ad-hoc analysis of exported logs or metrics (e.g., from ELK or CloudWatch export).[web:110]
+
+**Follow-up Question:**
+
+- How would you compute p95 latency per endpoint (`path`) using Pandas?
+
+---
+
+### Q32. Program: Using Pandas, compute error rate per service from a CSV.
+
+**CSV:** `service,status,timestamp`.
+
+**Answer:**
+
+```python
+import pandas as pd
+
+df = pd.read_csv("service_status.csv")
+
+# Group by service and status
+counts = df.groupby(["service", "status"]).size().unstack(fill_value=0)
+
+# Add error rate column
+counts["error_rate"] = counts.get("ERROR", 0) / counts.sum(axis=1)
+print(counts)
+```
+
+**Follow-up Question:**
+
+- How would you sort services by highest error rate and export to a new CSV?
+
+---
+
+### Q33. Concept: When would you choose PySpark over Pandas in a DevOps/Data platform context?
+
+**Answer:**  
+
+- **Pandas:** In-memory, single-node; great for small–medium datasets (MB–a few GB) and quick analysis.[web:110]
+- **PySpark:** Distributed, cluster-based; use when logs/metrics/data are in 10s–100s of GB or more, or stored in HDFS/S3/clustered systems.
+
+In SocGen-like context, PySpark is useful for:
+
+- Processing large historical log datasets.
+- Building ETL/ELT jobs in Hadoop/Cloudera or on EMR.
+
+**Follow-up Question:**
+
+- Can you sketch a simple PySpark job that counts errors per service from a large log file?
+
+---
+
+### Q34. PySpark example: Count ERROR lines per service from a text log.
+
+**Answer:** (simplified)
+
+```python
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, split
+
+spark = SparkSession.builder.appName("ErrorCount").getOrCreate()
+
+df = spark.read.text("logs.txt")  # one log line per row
+
+# Assume "api serviceA ERROR ..." structure
+df_split = df.select(
+    split(col("value"), " ").alias("parts")
+).select(
+    col("parts").getItem(1).alias("service"),
+    col("parts").getItem(2).alias("level")
+)
+
+errors = df_split.filter(col("level") == "ERROR") \
+                 .groupBy("service") \
+                 .count()
+
+errors.show()
+```
+
+**Follow-up Question:**
+
+- How would you write the result back to a partitioned table in a data lake (e.g., S3/Hive)?
+
+---
+
+## 12. More DevOps-Focused Short Programs
+
+### Q35. Program: Rotate a log file if it exceeds a size limit (simple rotation).
+
+**Answer:**
+
+```python
+import os
+from pathlib import Path
+import shutil
+
+log_path = Path("app.log")
+max_size_bytes = 10 * 1024 * 1024  # 10 MB
+
+if log_path.exists() and log_path.stat().st_size > max_size_bytes:
+    archive_path = log_path.with_suffix(".log.1")
+    if archive_path.exists():
+        archive_path.unlink()  # delete old rotation
+    shutil.move(str(log_path), str(archive_path))
+    log_path.touch()
+    print("Rotated log:", log_path, "->", archive_path)
+else:
+    print("No rotation needed")
+```
+
+**Follow-up Question:**
+
+- How would you extend this to keep multiple rotations (app.log.1, app.log.2, …)?
+
+---
+
+### Q36. Program: Compare two config files (JSON) and print keys whose values changed.
+
+**Answer:**
+
+```python
+import json
+from pathlib import Path
+
+old = json.loads(Path("config_old.json").read_text())
+new = json.loads(Path("config_new.json").read_text())
+
+changed = {}
+
+for key in set(old.keys()) | set(new.keys()):
+    if old.get(key) != new.get(key):
+        changed[key] = {"old": old.get(key), "new": new.get(key)}
+
+print(changed)
+```
+
+**DevOps Use:** detect config drift between two versions of deployment configs.
+
+**Follow-up Question:**
+
+- How would you handle nested dictionaries (e.g., `logging.level`) recursively?
+
+---
+
+### Q37. Program: Simple “tail -f”-like script in Python.
+
+**Answer:**
+
+```python
+import time
+
+def tail_f(path: str):
+    with open(path) as f:
+        f.seek(0, 2)  # go to end of file
+        while True:
+            line = f.readline()
+            if not line:
+                time.sleep(0.5)
+                continue
+            print(line, end="")
+
+# tail_f("app.log")
+```
+
+**DevOps Use:** quickly build custom log tailers with additional logic (e.g., filtering for ERROR).
+
+**Follow-up Question:**
+
+- How would you modify this to only print lines containing “ERROR” or a specific service name?
+
+---
+
+### Q38. Program: Parse a `.env` file into a Python dict.
+
+**Sample `.env`:**
+
+```text
+ENV=prod
+DEBUG=false
+API_KEY=xyz
+```
+
+**Answer:**
+
+```python
+from pathlib import Path
+
+def load_env(path: str) -> dict:
+    env = {}
+    for line in Path(path).read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, _, value = line.partition("=")
+        env[key.strip()] = value.strip()
+    return env
+
+env_vars = load_env(".env")
+print(env_vars)
+```
+
+**Follow-up Question:**
+
+- How would you handle quoted values and simple type casting (true/false to bool, numbers to int)?
+
+---
+
+### Q39. Program: Find missing environment variables required by a service.
+
+**Answer:**
+
+```python
+import os
+
+required = {"DB_HOST", "DB_USER", "DB_PASSWORD", "API_KEY"}
+
+missing = [var for var in required if var not in os.environ]
+
+if missing:
+    print("Missing environment variables:", missing)
+else:
+    print("All required env vars present")
+```
+
+**Use:** pre-flight check in deployment scripts.
+
+**Follow-up Question:**
+
+- How would you plug this into a FastAPI app startup or a CI pipeline step?
+
+---
+
+## 13. Structuring Larger Scripts and Reuse
+
+### Q40. How do you structure a medium-sized DevOps tool in Python to keep it maintainable?
+
+**Answer:**  
+
+- Package layout:
+
+```text
+tool/
+  __init__.py
+  cli.py
+  core/
+    __init__.py
+    aws.py
+    k8s.py
+    logging.py
+  utils/
+    __init__.py
+    files.py
+    net.py
+```
+
+- Use `cli.py` as entrypoint with `argparse` or `click`.
+- Keep pure logic (core functions) separate from CLI parsing.
+- Add unit tests for `core` and `utils`.
+
+**DevOps Benefit:** easier to evolve from “script” to “tool” without breaking everything.
+
+**Follow-up Question:**
+
+- How would you package this as a pip-installable CLI for internal use?
+
+---
+
+### Q41. Concept: Why is `if __name__ == "__main__":` important in your scripts?
+
+**Answer:**  
+
+- Ensures that code inside this block runs only when the file is executed as a script, not when imported as a module.
+- Prevents side effects when importing functions into other scripts or tests.
+
+**Example:**
+
+```python
+def main():
+    print("Running task...")
+
+if __name__ == "__main__":
+    main()
+```
+
+**DevOps Benefit:** allows reuse of logic in other scripts or tests while keeping CLI entry simple.
+
+**Follow-up Question:**
+
+- How would you create multiple entrypoints (subcommands) within the same script?
+
+---
+
+## 14. PySpark, Airflow, and Automation Hooks (High Level)
+
+### Q42. How would you trigger a Python-based data pipeline (Airflow + PySpark) from a DevOps perspective?
+
+**Answer:**  
+
+- Airflow DAG written in Python defines tasks:
+  - PySpark job submits to YARN/Kubernetes/EMR.
+  - Supporting tasks (S3 sync, validation, notifications).
+- DevOps focus:
+  - CI/CD for DAGs.
+  - Infrastructure (Airflow schedulers, workers).
+  - Monitoring DAG runs and retry policies.
+
+**Simplified DAG pattern:**
+
+```python
+from airflow import DAG
+from airflow.operators.bash import BashOperator
+from datetime import datetime
+
+with DAG("pyspark_job", start_date=datetime(2024,1,1), schedule="@daily") as dag:
+    run_spark = BashOperator(
+        task_id="run_spark",
+        bash_command="spark-submit /opt/jobs/job.py",
+    )
+```
+
+**Follow-up Question:**
+
+- How would you parameterize the PySpark job (e.g., date range) from Airflow?
+
+---
+
+### Q43. How do you write a Python function suitable as an Airflow task (using `PythonOperator`)?
+
+**Answer:**
+
+```python
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from datetime import datetime
+
+def cleanup_tmp(**context):
+    print("Cleaning up tmp files...")
+    # implement cleanup logic here
+
+with DAG("maintenance", start_date=datetime(2024,1,1), schedule="@daily") as dag:
+    cleanup = PythonOperator(
+        task_id="cleanup_tmp",
+        python_callable=cleanup_tmp,
+        provide_context=True,
+    )
+```
+
+**DevOps Benefit:** reuse same Python functions inside tests or CLI tools.
+
+**Follow-up Question:**
+
+- How would you pass environment-specific parameters into this function?
+
+---
+
+## 15. Final Short Coding Tasks / Rapid-Fire
+
+### Q44. Program: Given a list of dictionaries, group them by a key (e.g., env) into a dict of lists.
+
+**Input:**
+
+```python
+items = [
+    {"name": "svc1", "env": "dev"},
+    {"name": "svc2", "env": "prod"},
+    {"name": "svc3", "env": "dev"},
+]
+```
+
+**Answer:**
+
+```python
+from collections import defaultdict
+
+grouped = defaultdict(list)
+for item in items:
+    grouped[item["env"]].append(item)
+
+print(dict(grouped))
+```
+
+**Follow-up Question:**
+
+- How would you flatten this back to a list of names grouped by env?
+
+---
+
+### Q45. Program: Flatten a nested list (1 level) of hosts.
+
+**Input:**
+
+```python
+hosts = [["web-1", "web-2"], ["api-1"], ["db-1", "db-2"]]
+```
+
+**Answer:**
+
+```python
+flat = [h for group in hosts for h in group]
+print(flat)
+```
+
+**Follow-up Question:**
+
+- How would you handle arbitrarily deep nesting (general flatten)?
+
+---
+
+### Q46. Program: Sort services by their error rate (given dict service→(ok, error)).
+
+**Input:**
+
+```python
+stats = {
+    "svc1": {"ok": 90, "error": 10},
+    "svc2": {"ok": 50, "error": 50},
+    "svc3": {"ok": 95, "error": 5},
+}
+```
+
+**Answer:**
+
+```python
+def error_rate(s):
+    ok = s["ok"]
+    err = s["error"]
+    total = ok + err
+    return err / total if total else 0
+
+sorted_svcs = sorted(
+    stats.items(),
+    key=lambda kv: error_rate(kv),[3]
+    reverse=True,
+)
+
+for name, stat in sorted_svcs:
+    print(name, error_rate(stat))
+```
+
+**Follow-up Question:**
+
+- How would you filter out services with low total traffic to avoid noisy rates?
+
+---
+
+### Q47. Program: Validate Kubernetes image tags (disallow `:latest`).
+
+**Answer:**
+
+```python
+images = [
+    "repo/app:1.0.0",
+    "repo/api:latest",
+    "repo/worker:2.1",
+]
+
+bad = [img for img in images if img.endswith(":latest")]
+
+if bad:
+    print("Disallowed tags:", bad)
+    # exit non-zero in CI
+else:
+    print("All image tags valid")
+```
+
+**DevOps Use:** put this in CI to block `latest` usage.
+
+**Follow-up Question:**
+
+- How would you integrate this check into a pre-commit or Jenkins pipeline?
+
+---
+
+### Q48. Program: Simple rate limiter (allow N actions per time window).
+
+**Answer:**
+
+```python
+import time
+from collections import deque
+
+class RateLimiter:
+    def __init__(self, max_calls: int, window_sec: float):
+        self.max_calls = max_calls
+        self.window = window_sec
+        self.calls = deque()
+
+    def allow(self) -> bool:
+        now = time.time()
+        while self.calls and self.calls < now - self.window:
+            self.calls.popleft()
+        if len(self.calls) < self.max_calls:
+            self.calls.append(now)
+            return True
+        return False
+
+# Example:
+# limiter = RateLimiter(5, 1.0)  # max 5 calls per second
+```
+
+**Follow-up Question:**
+
+- How would you use this around an API call loop to avoid throttling?
+
+---
+
+### Q49. Program: Simple in-memory cache with TTL.
+
+**Answer:**
+
+```python
+import time
+
+class Cache:
+    def __init__(self, ttl: float = 60.0):
+        self.ttl = ttl
+        self.store = {}
+
+    def get(self, key):
+        value, expires = self.store.get(key, (None, 0))
+        if time.time() > expires:
+            self.store.pop(key, None)
+            return None
+        return value
+
+    def set(self, key, value):
+        self.store[key] = (value, time.time() + self.ttl)
+
+# Example:
+# cache = Cache(ttl=10)
+# cache.set("health:serviceA", {"status": "ok"})
+```
+
+**DevOps Use:** caching expensive API calls during scripts or small long-running processes.
+
+**Follow-up Question:**
+
+- How would you make this thread-safe for use with multithreading?
+
+---
+
+### Q50. Concept: What Python habits make you a strong DevOps engineer?
+
+**Answer (key points):**
+
+- Prefer **small, composable functions** with clear inputs/outputs.
+- Write **idempotent scripts** (safe to re-run) with proper error handling.
+- Use **logging** instead of prints; avoid swallowing exceptions silently.
+- Structure tools as **packages + CLI wrappers**, not monolithic single files.
+- Integrate with **tests, linters, and type hints** (mypy/ruff) to keep automation reliable.[web:106][web:109]
+
+In interviews, emphasize that you use Python as a glue for infra: interacting with AWS/GCP, Kubernetes, CI/CD, and observability systems in a clean, testable way.
+
+**Follow-up Question:**
+
+- If you had to build one “flagship” Python DevOps tool to showcase in interviews, what would it automate (e.g., EKS health/reporting, Terraform plan summarizer, cost analyzer), and what features would you include?
+
+
