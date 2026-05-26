@@ -817,3 +817,535 @@ Steps:
 - How would you design cost dashboards for engineering leads?
 - What policies would you implement to reduce future cost incidents?
 
+## 11. Security Services: KMS, Secrets, WAF, GuardDuty, Config
+
+### Q31. How does AWS KMS work and how would you use it in this role?
+
+**Answer:**  
+AWS Key Management Service (KMS) provides managed encryption keys (CMKs) and APIs for encrypting data at rest and in transit.[web:93] It integrates with most AWS services (S3, EBS, RDS, Lambda, Secrets Manager, etc.) so encryption can be enabled by selecting a key. In this role, KMS is central for encrypting logs, backups, database storage, and secrets across AWS accounts.
+
+**Patterns:**
+
+- Separate KMS keys per environment and purpose (logs, data, backups).
+- Use key policies and grants to control which roles/services can use keys.
+- Enable key rotation for customer-managed keys.
+
+**Common Mistakes:**
+
+- Overly permissive key policies (e.g., `Principal: *`).
+- Not considering cross-account use of KMS keys.
+
+**Follow-up Questions:**
+
+- How would you encrypt S3 buckets and EBS volumes with KMS?
+- How do you design KMS key policies for a multi-account setup?
+
+---
+
+### Q32. How do AWS Secrets Manager and Systems Manager Parameter Store differ, and when do you use each?
+
+**Answer:**  
+
+- **Secrets Manager:** Purpose-built for secrets (passwords, tokens, keys) with built-in rotation support for some services (RDS, etc.). Higher cost; rich features.[web:102]
+- **SSM Parameter Store:** General key–value store for configuration and some secrets (SecureString with KMS). Cheaper; good for app configs and less dynamic secrets.
+
+**Usage:**
+
+- Secrets Manager: database credentials, third-party API keys with rotation.
+- Parameter Store: non-sensitive configs, feature flags, or less frequently updated secrets.
+
+**Common Mistakes:**
+
+- Hardcoding secrets in environment variables or code instead of using these services.
+- Forgetting to apply IAM least privilege for reading secrets.
+
+**Follow-up Questions:**
+
+- How do you consume these secrets from Lambda, ECS, and EKS?
+- How do you handle secret rotation without downtime?
+
+---
+
+### Q33. What is AWS WAF and how would you use it to protect APIs and web applications?
+
+**Answer:**  
+AWS WAF is a web application firewall that filters incoming HTTP/HTTPS traffic for patterns like SQL injection, XSS, bots, and common CVEs.[web:102] It can be attached to CloudFront, ALB, or API Gateway.
+
+**Use in this role:**
+
+- Protect public APIs and web endpoints fronted by ALB or CloudFront.
+- Use managed rule sets plus custom rules for org-specific patterns.
+- Block/ratelimit abusive IPs or bot signatures.
+
+**Common Mistakes:**
+
+- Attaching WAF but not tuning rules, causing false positives or misses.
+- No monitoring of WAF logs to understand attacks.
+
+**Follow-up Questions:**
+
+- How would you design WAF rules for a public banking API?
+- How do you test WAF behavior before full rollout?
+
+---
+
+### Q34. What is Amazon GuardDuty and how does it help with security monitoring?
+
+**Answer:**  
+Amazon GuardDuty is a threat detection service that continuously monitors CloudTrail, VPC Flow Logs, and DNS logs for suspicious activity (e.g., unusual API calls, crypto mining, port scanning).[web:93]
+
+**Usage:**
+
+- Enable GuardDuty across all accounts via Organizations.
+- Integrate findings with SIEM or incident management tools.
+- Create runbooks for high-severity findings (e.g., isolate compromised instance, rotate keys).
+
+**Common Mistakes:**
+
+- Enabling GuardDuty but not operationalizing findings (no alerts, no runbooks).
+- Ignoring low/medium findings that might indicate early-stage attacks.
+
+**Follow-up Questions:**
+
+- How would you respond to a GuardDuty finding about exfiltration to a known bad IP?
+- How do you reduce noise while still catching real issues?
+
+---
+
+### Q35. How does AWS Config help with compliance and governance?
+
+**Answer:**  
+AWS Config records configuration changes to AWS resources and evaluates them against rules (managed or custom) to check compliance.[web:93] It can track things like “S3 buckets must be encrypted” or “Security groups should not allow 0.0.0.0/0 on port 22”.
+
+**Usage:**
+
+- Enable Config across accounts; send configuration snapshots and history to central S3.
+- Use Config rules and conformance packs to enforce security baselines.
+- Integrate non-compliance notifications with ticketing.
+
+**Common Mistakes:**
+
+- Enabling Config but not defining meaningful rules or remediation processes.
+- No remediation (manual or automated) when non-compliance detected.
+
+**Follow-up Questions:**
+
+- Which Config rules would you mandate for a bank’s landing zone?
+- How would you implement auto-remediation using SSM or Lambda?
+
+---
+
+## 12. Advanced Data and Storage Patterns
+
+### Q36. How do you securely expose S3 for application access from private subnets?
+
+**Answer:**  
+
+Patterns:
+
+- Use **VPC endpoints** (Gateway endpoints for S3/DynamoDB) so traffic stays within AWS backbone and doesn’t require NAT/IGW.[web:96]
+- Restrict bucket policies to allow access only from that VPC endpoint (or specific VPC).
+- Use IAM roles attached to EC2/EKS (IRSA) to authorize S3 actions.
+
+**Benefits:**
+
+- No public internet for S3 access.
+- Reduced NAT costs and attack surface.
+
+**Common Mistakes:**
+
+- Using public S3 endpoints via NAT or IGW when endpoints are available.
+- Bucket policies that still allow public access.
+
+**Follow-up Questions:**
+
+- How would you audit S3 buckets to ensure they are private and properly encrypted?
+- How do you handle cross-account S3 access securely?
+
+---
+
+### Q37. How do you design S3 lifecycle policies and storage tiers for logs and data?
+
+**Answer:**  
+
+Approach:
+
+- Use lifecycle rules per prefix/class:
+  - Logs: keep in S3 Standard for 30–90 days, then S3 Glacier/Glacier Deep Archive for compliance retention.
+  - Cold data/archives: direct to infrequent access or Glacier.
+- Transition and expiration defined with days since object creation.
+
+**Benefits:**
+
+- Cost optimization while meeting retention/compliance needs.[web:102]
+
+**Common Mistakes:**
+
+- No lifecycle policies; cost grows unchecked.
+- Aggressive expiration before compliance requirements are satisfied.
+
+**Follow-up Questions:**
+
+- How would you design lifecycle for application logs vs audit logs?
+- How do you restore data from Glacier for incident investigation?
+
+---
+
+### Q38. How do you manage RDS for transactional databases in a high-availability setup?
+
+**Answer:**  
+
+Patterns:
+
+- Use Multi-AZ RDS for automatic failover within region.
+- Choose appropriate engine (PostgreSQL/MySQL/Oracle) and instance class.
+- Use read replicas for read scaling where needed.
+- Encrypt with KMS; ensure automated backups and PITR (point-in-time recovery) are enabled.
+
+**Operational Practices:**
+
+- Monitor connections, CPU, storage, replication lag.
+- Design schema and maintenance windows to avoid peak-time disruptions.
+
+**Common Mistakes:**
+
+- Single-AZ RDS in production.
+- No proper backup and test restore procedures.
+
+**Follow-up Questions:**
+
+- How would you design DR for RDS across regions?
+- How do you minimize downtime during version upgrades?
+
+---
+
+## 13. Multi-Region, Multi-Cloud, and Edge
+
+### Q39. How would you architect a multi-region active–active API on AWS?
+
+**Answer:**  
+
+Design:
+
+- Deploy identical stacks (VPC, services, data stores) in two or more regions.
+- Use Route53 with latency-based or geo-based routing plus health checks.
+- Data layer:
+  - Use global or replicated datastores (Aurora Global, DynamoDB global tables) or event-based replication.
+- Shared identity and configuration via IAM, Secrets Manager, Parameter Store in each region (synchronized where needed).
+
+**Challenges:**
+
+- Data consistency and conflict resolution.
+- Stateful services and session management.
+
+**Common Mistakes:**
+
+- Multi-region compute but single-region database (not truly active–active).
+- No clear failover strategy for partial regional failures.
+
+**Follow-up Questions:**
+
+- How do you test failover and failback safely?
+- How do you choose between active–active vs active–passive?
+
+---
+
+### Q40. How do you integrate AWS workloads with other clouds (Azure) for hybrid/multi-cloud setups?
+
+**Answer:**  
+
+Patterns:
+
+- Network connectivity:
+  - VPN/ExpressRoute equivalent between Azure VNet and AWS VPC.
+  - Shared private DNS and service discovery solutions.
+- Identity and access:
+  - Central IdP (AD/Entra ID) for SSO; roles in both clouds.
+- Application layer:
+  - Design services so that some components run in AWS (e.g., data ingestion) and others in Azure (e.g., analytics), with clear APIs and contracts.
+
+**Best Practices:**
+
+- Use cloud-agnostic components where possible (Kubernetes, Terraform).
+- Avoid strongly coupling systems to provider-specific features unless necessary.
+
+**Follow-up Questions:**
+
+- Example scenario where you would choose Azure for part of the workload.
+- How do you handle observability across clouds?
+
+---
+
+## 14. More Incident Scenarios and RCAs
+
+### Q41. Incident: S3 bucket with sensitive logs was accidentally made public. How do you respond and prevent recurrence?
+
+**Answer:**  
+
+**Immediate Response:**
+
+1. Remove public access:
+   - Block public access at account and bucket level.
+   - Fix bucket policy and ACLs.
+2. Assess exposure:
+   - CloudTrail and access logs: which objects were accessed, from where.
+3. Notify security/compliance per incident process.
+
+**Prevention:**
+
+- Enable S3 Block Public Access at org/account level.
+- AWS Config rules and S3 Access Analyzer to detect public buckets.[web:93]
+- Policy-as-code in CI to prevent creation of public buckets.
+- Use Service Control Policies to block certain operations.
+
+**Follow-up Questions:**
+
+- How would you scan existing buckets for misconfigurations?
+- How do you manage exceptions where public access is required (e.g., static websites)?
+
+---
+
+### Q42. Incident: NAT gateway costs spike unexpectedly. How do you investigate?
+
+**Answer:**  
+
+Steps:
+
+1. Use Cost Explorer to see NAT Gateway cost by region/account.[web:99]
+2. Check VPC Flow Logs for outbound traffic volume and destinations.
+3. Identify offending resources:
+   - Instances/pods making frequent external calls.
+   - Misconfigured services (e.g., tight retry loops, chatty health checks).
+4. Mitigate:
+   - Fix loops, throttle or batch external calls.
+   - Use VPC endpoints for S3/DynamoDB to reduce NAT usage.
+
+**Prevention:**
+
+- CloudWatch alarms on NAT data processed metrics.
+- Evaluate architecture patterns (use of local caches, endpoints).
+
+**Follow-up Questions:**
+
+- How would you test that changes actually reduced NAT traffic?
+- What design patterns reduce reliance on NAT?
+
+---
+
+### Q43. Incident: EKS worker nodes in one AZ become NotReady, affecting services. What is your approach?
+
+**Answer:**  
+
+Steps:
+
+1. Confirm EKS nodes status; identify impacted AZ.
+2. Check underlying EC2 instances (status checks, networking).
+3. Review CloudWatch metrics/logs for that AZ (network, EBS, etc.).
+4. Mitigation:
+   - Cordone and drain impacted nodes.
+   - Scale ASG in healthy AZs.
+   - If AZ-level issue, route traffic away via ALB/Route53.
+
+**RCA Possibilities:**
+
+- AZ-level transient issue.
+- Node group misconfig (bad AMI, Kubelet failure).
+- Resource exhaustion (disk full, CPU).
+
+**Prevention:**
+
+- Multi-AZ node groups.
+- Health checks and automatic remediation.
+
+**Follow-up Questions:**
+
+- How would you ensure EKS cluster auto-recovers from AZ loss?
+- How do you develop and test runbooks for this scenario?
+
+---
+
+### Q44. Incident: CloudWatch alarms for “insufficient data” on key metrics. How do you debug?
+
+**Answer:**  
+
+Steps:
+
+1. Confirm if the underlying metrics stopped being published:
+   - Check metric graphs and log groups.
+2. For EC2/EKS:
+   - Check CloudWatch agent or Fluent Bit configuration.
+   - Confirm IAM permissions to push metrics.
+3. For custom metrics:
+   - Check application errors, network issues to CloudWatch APIs.
+4. If metrics not published:
+   - Fix agent/app configs.
+   - Add health checks to detect future gaps.
+
+**Common Causes:**
+
+- Agent upgrades or config changes.
+- IAM role or key revocations.
+
+**Follow-up Questions:**
+
+- How do you design robust monitoring so “insufficient data” itself alerts you?
+- How do you validate metrics publishing in lower environments?
+
+---
+
+### Q45. Incident: Slow API performance, but CPU and memory look fine. How do you approach it in AWS?
+
+**Answer:**  
+
+Investigate:
+
+- Network:
+  - ALB/NLB metrics (latency, TLS handshake time).
+  - VPC Flow Logs for packet loss or unexpected retries.
+- Dependencies:
+  - RDS (DB CPU, I/O, locks, slow queries).
+  - DynamoDB (throttling, RCUs/WCUs).
+- Application:
+  - Profiling (GC pauses, lock contention).
+  - Lambda concurrency (if serverless), cold starts.
+
+Use:
+
+- X-Ray or other tracing to see where time is spent.
+- CLB/ALB access logs for patterns.
+
+**Prevention:**
+
+- Capacity tuning for DB and caches.
+- Better connection pooling and backoff strategies.
+
+**Follow-up Questions:**
+
+- How would you prove whether the bottleneck is app vs DB vs network?
+- What metrics and traces would you add if not already available?
+
+---
+
+## 15. Putting It All Together
+
+### Q46. How would you design an end-to-end monitoring and alerting strategy for a microservice on AWS?
+
+**Answer:**  
+
+Components:
+
+- **Metrics:** ALB (5xx, latency), EC2/EKS (CPU, memory, restarts), DB (connections, slow queries), custom app metrics (latency, error rate).
+- **Logs:** Structured logs from app to CloudWatch logs and/or Elastic; ALB/Route53 logs for traffic patterns.
+- **Traces:** X-Ray or OpenTelemetry to trace end-to-end requests.
+- **Alarms:** SLO-based thresholds (latency, error rate), infra metrics (CPU, disk, queue depth).
+
+**Practices:**
+
+- Dashboards per service and shared platform dashboards.
+- On-call rotation with clear runbooks.
+
+**Follow-up Questions:**
+
+- What would be your “golden signals” and their thresholds?
+- How would you integrate alerts with incident management tools?
+
+---
+
+### Q47. How do you enforce DevSecOps principles across AWS, Kubernetes, CI/CD, and IaC in this role?
+
+**Answer:**  
+
+Approach:
+
+- Shift-left security:
+  - Static analysis (SAST), dependency scanning, IaC scanning (Terraform, Kubernetes manifests).
+- Runtime security:
+  - WAF, GuardDuty, EKS admission policies, image scanning.
+- Governance:
+  - Org-level guardrails (SCPs, Config rules).
+  - CI/CD policies (only hardened images, enforce encryption).
+
+**Processes:**
+
+- Security reviews as part of change process, not afterthought.
+- Training teams on secure use of AWS services.
+
+**Follow-up Questions:**
+
+- Example: how would you secure a new EKS-based service end-to-end?
+- How do you measure success of DevSecOps initiatives?
+
+---
+
+### Q48. How would you approach migrating an existing on-prem monolith to AWS in phases?
+
+**Answer:**  
+
+Strategy:
+
+- Discovery: understand dependencies, data, networking.
+- Landing zone and network setup.
+- Phase 1: lift-and-shift to EC2 with minimal changes (rehost).
+- Phase 2: modernize parts (break out services, move to EKS/Lambda, managed DBs).
+- Continuous improvements for cost, resilience, observability.
+
+**Key considerations:**
+
+- Data migration and cutover strategies.
+- Security and compliance (encryption, IAM, logging).
+
+**Follow-up Questions:**
+
+- How would you reduce risk during cutover?
+- What AWS services would you introduce first for quick wins?
+
+---
+
+### Q49. How do you ensure AWS infrastructure is fully reproducible and auditable?
+
+**Answer:**  
+
+Use:
+
+- Terraform and/or CloudFormation for all infra.
+- Git-based version control with PR review and CI/CD for infra changes.
+- Remote state and centralized logs for all runs.
+- CloudTrail for API activity, Config for resource states.
+
+**Practices:**
+
+- No manual changes in console for production.
+- Runbooks for emergency changes that must be codified afterwards.
+
+**Follow-up Questions:**
+
+- How would you handle a one-off emergency change that must be done via console?
+- How do you prove to auditors that infra matches code?
+
+---
+
+### Q50. What are the biggest AWS pitfalls you’ve seen, and how would you avoid them in this Specialist DevOps role?
+
+**Answer (structured):**  
+
+1. **Single-account, single-AZ designs**  
+   - Avoid: multi-account landing zone, multi-AZ everywhere.
+
+2. **Manual, undocumented changes**  
+   - Avoid: IaC + CI/CD; no console changes for prod.
+
+3. **Poor observability**  
+   - Avoid: standardized logging, metrics, and tracing for all services.
+
+4. **Security shortcuts**  
+   - Avoid: least privilege IAM, KMS, Secrets Manager, WAF, GuardDuty, Config rules.
+
+5. **Cost surprises**  
+   - Avoid: tagging, budgets, anomaly detection, regular reviews.
+
+In this role, emphasize designing AWS environments that are secure, observable, cost-efficient, and fully automated from provisioning (Terraform) to configuration (Ansible) and deployment (Jenkins/EKS).
+
+**Follow-up Questions:**
+
+- Which of these pitfalls have you personally encountered and corrected?
+- How would you apply these lessons specifically to SocGen’s DevOps platform?
