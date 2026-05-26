@@ -1,0 +1,471 @@
+# Terraform – 50 Advanced Questions and Answers
+
+> Focus areas (per your requirement): `terraform init/validate/fmt/plan/apply/destroy/taint/import/refresh/state` commands, outputs, variables, locals, modules, providers, backends, remote state, workspaces, lifecycle rules (`prevent_destroy`, `ignore_changes`, `create_before_destroy`), `depends_on`, `count`, `for_each`, dynamic blocks, provisioners, `null_resource`, drift detection, locking, state corruption, CI/CD integration, and debugging.[web:28][web:67]
+
+---
+
+## 1. Core Concepts, Commands, and Workflow
+
+### Q1. What is Terraform and how does it fit into DevOps for this role?
+
+**Answer:**  
+Terraform is a declarative Infrastructure-as-Code (IaC) tool that manages infrastructure across multiple cloud providers (AWS, Azure, others) by describing desired state in HCL and reconciling actual resources to match it.[web:28][web:67] In this role, Terraform is used to provision VPCs, subnets, security groups, EKS/AKS clusters, IAM, and supporting resources that application CI/CD pipelines and data platforms depend on.
+
+**Production Scenario:**  
+For SocGen, Terraform modules manage AWS VPC/EKS and Azure VNet/AKS, while Jenkins pipelines run `plan`/`apply` in a controlled manner as part of infra releases.
+
+**Common Mistakes:**
+
+- Mixing manual console changes with Terraform-managed resources without tracking drift.
+- Treating Terraform files as scripts rather than desired-state definitions.
+
+**Debugging Tips:**
+
+- Always start with `terraform plan` to understand what Terraform thinks the difference is.
+- If behavior is surprising, inspect state (`terraform state show`) and configuration simultaneously.
+
+**Follow-up Questions:**
+
+- How does Terraform differ from CloudFormation or Ansible?
+- What are advantages of declarative vs imperative IaC?
+
+---
+
+### Q2. Explain the Terraform workflow: `init` → `plan` → `apply` → `destroy`.
+
+**Answer:**  
+
+- `terraform init`: downloads provider plugins, sets up backend, prepares working directory.[web:28]
+- `terraform plan`: shows what actions will be taken (create/update/destroy) to reach desired state from current.
+- `terraform apply`: executes planned changes to reach desired state.
+- `terraform destroy`: removes all managed resources defined in configuration.
+
+**Best Practice in CI/CD:**
+
+- Run `fmt` + `validate` first.
+- Run `plan` and capture the plan artifact.
+- Have a human or a gated pipeline step review the plan, then run `apply` using that exact plan file.
+
+**Common Mistakes:**
+
+- Running `apply` directly on changes without reviewing plan.
+- Running `destroy` in the wrong workspace or environment.
+
+**Follow-up Questions:**
+
+- How do you prevent accidental `destroy` in production?
+- How do you separate environments using Terraform?
+
+---
+
+### Q3. What do `terraform fmt` and `terraform validate` do, and why are they useful in CI?
+
+**Answer:**  
+
+- `terraform fmt`: formats `.tf` files to canonical style. It ensures consistent code formatting across the team.
+- `terraform validate`: checks that configuration is syntactically valid and internally consistent (but does not access cloud APIs).[web:28][web:70]
+
+**In CI:**
+
+- `fmt -check` ensures style consistency.
+- `validate` catches simple errors early before `plan/apply`.
+
+**Common Mistakes:**
+
+- Skipping these steps; reviewers waste time on style/syntax issues.
+- Assuming `validate` executes all functions or checks cloud-side behavior (it doesn’t).
+
+**Follow-up Questions:**
+
+- How would you add tflint/checkov into this stage?
+- Where in Jenkins/GitHub Actions pipeline do you run these commands?
+
+---
+
+### Q4. What is `terraform plan` and why should you always review it?
+
+**Answer:**  
+`terraform plan` calculates and shows the actions Terraform will take to reconcile actual infra with the desired configuration: which resources will be created, changed, or destroyed.[web:67]
+
+**Why review:**
+
+- To detect unexpected deletions or replacements.
+- To catch drift or misconfigurations before they affect production.
+- To support peer review and approvals.
+
+**In CI/CD:**
+
+- Generate plan in non-interactive mode: `terraform plan -out=tfplan`.
+- Save `tfplan` as artifact.
+- Use that exact plan for `terraform apply tfplan` to avoid TOCTOU issues.
+
+**Common Mistakes:**
+
+- Running `apply` without having seen plan output.
+- Running `plan` and `apply` with different code or variables (e.g., commit changed between steps).
+
+**Follow-up Questions:**
+
+- How do you restrict `apply` in prod to only apply reviewed plans?
+- How do you handle large plans for complex infra?
+
+---
+
+### Q5. What does `terraform apply` do, and how can you make it safer?
+
+**Answer:**  
+`terraform apply` applies changes to reach desired state. It can accept:
+
+- No arguments: recomputes a new plan and asks for confirmation.
+- A plan file: `terraform apply tfplan` applies exactly the recorded actions.
+
+**Making it safer:**
+
+- Require peer review of code and plan before apply.
+- Use plan files generated by CI and only `apply` those.
+- Restrict who can run applies via RBAC and CI/CD roles.
+- Use backends with locking and versioning (e.g., S3 + DynamoDB, Azure blob).[web:28][web:72]
+
+**Common Mistakes:**
+
+- Running `apply` manually from laptops with local state.
+- Using `-auto-approve` in production jobs without safeguards.
+
+**Follow-up Questions:**
+
+- How do you ensure Terraform changes are traceable to change tickets?
+- How do you safely handle emergency fixes?
+
+---
+
+### Q6. When do you use `terraform destroy`, and how do you guard it?
+
+**Answer:**  
+`terraform destroy` destroys **all** resources in the current state and configuration.
+
+**Use cases:**
+
+- Tear down temporary environments (ephemeral test envs).
+- Clean up PoC/feature environments.
+
+**Guardrails:**
+
+- Never run `destroy` against shared or production environments.
+- Use workspaces and separate state per environment.
+- Use `prevent_destroy` lifecycle rule for critical resources.
+
+**Common Mistakes:**
+
+- Running `destroy` in wrong workspace or with wrong backend.
+- Not distinguishing between long-lived and ephemeral stacks.
+
+**Follow-up Questions:**
+
+- How would you restrict destroy at CI/CD level?
+- How do you handle selective teardown (only some resources)?
+
+---
+
+## 2. State, Backends, Locking, and Workspaces
+
+### Q7. What is the Terraform state file and why is it needed?
+
+**Answer:**  
+Terraform state holds a mapping between Terraform resources (logical names) and real-world infrastructure (resource IDs, attributes).[web:67] It allows Terraform to know what resources it manages and what their last known configuration was, enabling accurate diffing and updates.
+
+**Key aspects:**
+
+- Stores metadata and attributes that providers return.
+- Sensitive, should be protected (may contain secrets).
+
+**Common Mistakes:**
+
+- Keeping state only locally on developers’ machines.
+- Checking `.tfstate` into Git repos.
+
+**Debugging Tips:**
+
+- Use `terraform state list` to see resources Terraform knows about.
+- Use `terraform state show` to inspect a resource in state.
+
+**Follow-up Questions:**
+
+- How do you handle state when multiple engineers work on same infra?
+- What are the trade-offs between local and remote state?
+
+---
+
+### Q8. Why use a remote backend, and which ones are common for AWS/Azure?
+
+**Answer:**  
+Remote backends store state in a centralized, shared location, often with locking and versioning.[web:28][web:68]
+
+Common backends:
+
+- AWS: S3 + DynamoDB table for locks (via `s3` backend).
+- Azure: Azure Blob Storage (via `azurerm` backend).
+
+**Benefits:**
+
+- Collaboration (no local state divergence).
+- Locking to avoid concurrent applies.
+- Versioning and backup of state.
+
+**Common Mistakes:**
+
+- Misconfigured encryption or bucket policies exposing state.
+- Not enabling locking (e.g., S3 without DynamoDB).
+
+**Follow-up Questions:**
+
+- How do you configure S3/DynamoDB backend in Terraform?
+- How do you migrate from local backend to remote backend safely?
+
+---
+
+### Q9. Explain Terraform state locking and how it prevents corruption.
+
+**Answer:**  
+State locking ensures only one `terraform apply` or other state-changing command operates on the state at a time. For example, S3 backend with DynamoDB lock table uses a mutex-like lock: when Terraform applies changes, it acquires a lock; another concurrent run fails with a lock error.[web:68]
+
+**Why important:**
+
+- Prevents overlapping operations that could lead to conflicting resource changes and state corruption.
+
+**Common Mistakes:**
+
+- Disabling locking for convenience.
+- Forcing unlock without confirming that no other Terraform run is active.
+
+**Debugging Tips:**
+
+- If lock is stuck due to a crashed process, use `terraform force-unlock` with careful verification.
+- Use CI to serialize applies per environment.
+
+**Follow-up Questions:**
+
+- How would you design pipeline concurrency to avoid lock conflicts?
+- What happens if backend does not support locking?
+
+---
+
+### Q10. What are Terraform workspaces and when (not) to use them?
+
+**Answer:**  
+Workspaces allow multiple separate state files associated with the same configuration, e.g., `default`, `dev`, `staging`, `prod`.[web:28] They can be used to manage multiple similar environments.
+
+**Pros:**
+
+- Convenient for small, similar environments where resource addresses differ only by variables.
+
+**Cons / Pitfalls:**
+
+- Can become confusing when many envs share same config and accidental workspace mix-ups occur.
+- Directory and repository structure sometimes better for clear separation (per-environment folders).
+
+**Best Practice in Enterprises:**
+
+- Use separate state backends, folders, or repos per environment; use workspaces carefully and deliberately.
+
+**Follow-up Questions:**
+
+- Why might you prefer separate repos/modules over workspaces for prod vs dev?
+- How do you know which workspace you’re in when running commands?
+
+---
+
+## 3. Variables, Locals, Outputs, and Modules
+
+### Q11. How do you use variables, locals, and outputs in Terraform? Give an example.
+
+**Answer:**  
+
+- **Variables:** Externalize configuration, such as region, environment, CIDR ranges.
+- **Locals:** Derived values computed within the module; avoid repeated expressions.
+- **Outputs:** Expose values from a module/state for use elsewhere (other modules, CI/CD).
+
+**Example:**
+
+```hcl
+variable "environment" {
+  type = string
+}
+
+locals {
+  common_tags = {
+    env   = var.environment
+    owner = "devops"
+  }
+}
+
+resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+  tags       = local.common_tags
+}
+
+output "vpc_id" {
+  value = aws_vpc.main.id
+}
+```
+
+**Common Mistakes:**
+
+- Using locals for values that should be configurable via variables (hard-coding).
+- No outputs for critical values, making consumption by other components harder.
+
+**Follow-up Questions:**
+
+- How do you consume outputs from one Terraform stack in another?
+- What is the difference between `terraform output` and using data sources/state data?
+
+---
+
+### Q12. What are modules in Terraform and how do you structure them for enterprise use?
+
+**Answer:**  
+Modules are reusable containers for Terraform resources; a module is any directory with `.tf` files. Enterprise patterns:
+
+- **Root modules** (per environment/app): orchestrate submodules.
+- **Reusable modules**: `vpc`, `eks`, `aks`, `rds`, `networking`, etc., versioned and published (e.g., in Git/registry).[web:28][web:70]
+
+**Structure:**
+
+- `main.tf`, `variables.tf`, `outputs.tf`, `providers.tf`.
+- Clear input variables with descriptions and types.
+- Explicit outputs.
+
+**Common Mistakes:**
+
+- Monolithic modules doing too much (hard to reuse).
+- No versioning; using module source `ref=main` all the time.
+
+**Follow-up Questions:**
+
+- How do you version modules and manage compatibility?
+- How do you test modules (Terratest, integration tests)?
+
+---
+
+## 4. Meta-Arguments: `count`, `for_each`, `depends_on`, Dynamic Blocks
+
+### Q13. Compare `count` vs `for_each` and give examples where one is better.
+
+**Answer:**  
+
+- `count`:
+  - Used when number of instances is determined by length of a list or number.
+  - Instances are indexed: `resource.example[count.index]`.
+
+- `for_each`:
+  - Used with maps or sets of strings.
+  - Each instance keyed by unique key: `resource.example["key"]`.
+
+**Examples:**
+
+```hcl
+# count example
+resource "aws_instance" "web" {
+  count         = var.instance_count
+  ami           = var.ami
+  instance_type = "t3.micro"
+}
+
+# for_each example
+resource "aws_security_group" "sg" {
+  for_each = var.security_groups
+  name     = each.key
+  vpc_id   = var.vpc_id
+}
+```
+
+**Pros of `for_each`:**
+
+- Keys remain stable even if order changes.
+- Easier to manage additions/removals without index-shifting issues.[web:67]
+
+**Common Mistakes:**
+
+- Switching from `count` to `for_each` without using `terraform state mv`, causing resource recreation.
+- Assuming `count.index` stable when list changes.
+
+**Follow-up Questions:**
+
+- How do you safely refactor from `count` to `for_each`?
+- How do you handle situation where keys change?
+
+---
+
+### Q14. What is `depends_on` and when is it needed?
+
+**Answer:**  
+`depends_on` explicitly declares a dependency between resources when Terraform cannot infer it from references. This ensures resource A is created/updated before resource B.[web:70]
+
+**Example:**
+
+```hcl
+resource "aws_iam_role_policy_attachment" "attach" {
+  role       = aws_iam_role.example.name
+  policy_arn = aws_iam_policy.example.arn
+
+  depends_on = [aws_iam_policy.example]
+}
+```
+
+**When needed:**
+
+- Null resources or external resources.
+- When resources depend on side effects not represented by attribute references (e.g., out-of-band actions).
+
+**Common Mistakes:**
+
+- Overusing `depends_on` where not necessary, making plans more complex.
+- Assuming it can fix logical issues that are really about resource modeling.
+
+**Follow-up Questions:**
+
+- How do you debug unexpected ordering of resource creation?
+- When can a wrong `depends_on` cause apply to hang or be inefficient?
+
+---
+
+### Q15. What are dynamic blocks and where would you use them?
+
+**Answer:**  
+Dynamic blocks allow you to dynamically generate nested configuration blocks based on collections. They are helpful when the number or structure of nested blocks is data-driven.[web:28]
+
+**Example (security group rules):**
+
+```hcl
+variable "ingress_rules" {
+  type = list(object({
+    from_port = number
+    to_port   = number
+    protocol  = string
+    cidr      = string
+  }))
+}
+
+resource "aws_security_group" "example" {
+  name = "example"
+
+  dynamic "ingress" {
+    for_each = var.ingress_rules
+    content {
+      from_port   = ingress.value.from_port
+      to_port     = ingress.value.to_port
+      protocol    = ingress.value.protocol
+      cidr_blocks = [ingress.value.cidr]
+    }
+  }
+}
+```
+
+**Common Mistakes:**
+
+- Using dynamic blocks when simple repeated blocks are enough, making config harder to read.
+- Misunderstanding `for_each` context (`ingress.value` usage).
+
+**Follow-up Questions:**
+
+- Give another practical dynamic block example (e.g., multiple listeners for ALB).
+- How do you make dynamic blocks still readable and maintainable?
