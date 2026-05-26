@@ -972,3 +972,540 @@ After a change to NetworkPolicy and Ingress, external users cannot reach multipl
 - How would you structure the postmortem document?
 - What metrics and logs would you collect during the incident?
 
+## 9. Security, Admission, and Multi-Tenancy
+
+### Q31. What are Pod Security Standards (PSS) / Pod Security Admission, and why do they matter?
+
+**Answer:**  
+Pod Security Standards (Baseline, Restricted, Privileged) and Pod Security Admission (or equivalent mechanisms) define and enforce security-related constraints on Pods, such as disallowing privileged containers, hostPath mounts, or running as root.[web:57] They help ensure workloads follow minimum security baselines.
+
+**Use in regulated environments:**
+
+- Enforce baseline or restricted policies in shared or prod namespaces.
+- Prevent developers from accidentally running overly privileged containers.
+
+**Common Mistakes:**
+
+- Enabling strict policies without testing; many workloads suddenly fail to schedule.
+- No exception/allowlist process for legitimate privileged workloads (e.g., CNI, storage).
+
+**Debugging Tips:**
+
+- When Pods are denied, inspect events; admission errors will show why.
+- Test changes in lower environments first.
+
+**Follow-up Questions:**
+
+- How would you roll out stricter Pod security gradually?
+- What tools (OPA/Gatekeeper, Kyverno) can help implement richer policies?
+
+---
+
+### Q32. How would you implement multi-tenancy in a Kubernetes cluster?
+
+**Answer:**  
+
+Options:
+
+- **Soft multi-tenancy:** Namespaces with RBAC for teams, ResourceQuotas, NetworkPolicies, and Pod Security controls.
+- **Harder multi-tenancy:** Separate clusters per tenant or business unit, plus the above.
+
+**Critical controls:**
+
+- Namespaces per team/app.
+- RoleBindings per namespace.
+- ResourceQuotas and LimitRanges to avoid noisy neighbor issues.
+- NetworkPolicies to isolate traffic.
+
+**Common Mistakes:**
+
+- Single namespace for many teams; RBAC ineffective.
+- No quotas; one team’s misconfigured workload exhausts cluster resources.
+
+**Follow-up Questions:**
+
+- When would you move from multi-tenant cluster to per-team clusters?
+- How do you manage shared platform components (logging, monitoring) across tenants?
+
+---
+
+### Q33. What are Admission Controllers, and how do you use them?
+
+**Answer:**  
+Admission Controllers are plugins that intercept requests to the Kubernetes API after authentication/authorization but before objects are persisted. They can mutate or validate resources (e.g., add defaults, enforce policies).[web:52]
+
+Use cases:
+
+- Enforce labels/annotations.
+- Enforce image registries, security controls (no privileged containers).
+- Inject sidecars (e.g., service mesh proxies).
+
+**Tools:**
+
+- Built-in controllers.
+- Webhook-based (e.g., OPA Gatekeeper, Kyverno).
+
+**Common Mistakes:**
+
+- Writing validating webhooks that are slow or fragile, making the API server unreliable.
+- Not implementing fail‑open/fail‑closed logic carefully.
+
+**Follow-up Questions:**
+
+- How would you enforce “only images from internal registry”?
+- How to avoid admission controllers becoming single point of failure?
+
+---
+
+## 10. Advanced Storage, Backup, and DR
+
+### Q34. How do you back up Kubernetes cluster resources and application data?
+
+**Answer:**  
+
+Two layers:
+
+1. **Cluster state (resources):**
+   - Backup etcd directly (for self-managed clusters).
+   - Or periodically export manifests via tools (Velero, custom scripts).
+
+2. **Application data:**
+   - Snapshot/backup PVs via storage provider (EBS snapshots, Azure Disk snapshots, CSI snapshots).
+   - Application-level backups (database dumps, etc.).
+
+In managed services (EKS/AKS), you typically focus on manifest exports plus storage snapshots.
+
+**Common Mistakes:**
+
+- Only backing up manifests, not data; or only data, not manifests.
+- Not testing restores.
+
+**Follow-up Questions:**
+
+- How would you test backup and restore procedures?
+- How do you handle encryption and retention for backups?
+
+---
+
+### Q35. What is the reclaim policy for PersistentVolumes and why is it important?
+
+**Answer:**  
+Reclaim policy determines what happens to PV’s underlying storage when the PVC is deleted:
+
+- `Retain`: keep storage; data remains; manual cleanup needed.
+- `Delete`: automatically delete underlying storage (e.g., EBS volume).
+- `Recycle` (legacy): basic scrub/cleanup.[web:57]
+
+**Importance:**
+
+- For critical data, often use `Retain` to avoid accidental data loss.
+- For ephemeral workloads, `Delete` to avoid orphaned volumes and cost.
+
+**Common Mistakes:**
+
+- Defaulting to `Delete` for all, causing data loss when PVC deleted.
+- Leaving many retained PVs never cleaned up, incurring cost and confusion.
+
+**Follow-up Questions:**
+
+- How would you automate cleanup for retained volumes that are no longer needed?
+- How do you choose reclaim policy per workload?
+
+---
+
+### Q36. How do you handle database schema changes with rolling deployments on Kubernetes?
+
+**Answer:**  
+
+Pattern:
+
+- Use **migrations** separate from app rollout:
+  - Run migrations as Jobs or as pre-deploy step.
+- Ensure migrations are **backward-compatible**:
+  - Step 1: deploy schema that supports old + new code.
+  - Step 2: deploy new app version using new schema.
+  - Step 3: remove old fields later.
+
+**Common Mistakes:**
+
+- Deploy app that expects new columns before they are added.
+- Running destructive migrations (DROP columns) before old app retired.
+
+**Follow-up Questions:**
+
+- How do you implement migrations pipeline in Jenkins/CI/CD?
+- How would you roll back if migration breaks?
+
+---
+
+## 11. Observability and Debugging in Kubernetes
+
+### Q37. How do you design logs, metrics, and traces for Kubernetes workloads?
+
+**Answer:**  
+
+- **Logs:**
+  - Write to stdout/stderr; collect via DaemonSet agents to Elastic (or similar).
+  - Include correlation IDs and build/deploy metadata.
+
+- **Metrics:**
+  - Export app metrics (Prometheus format) with labels (service, version, env).
+  - Use Kubernetes metrics (CPU/mem, HPA, node health).
+
+- **Traces:**
+  - Use OpenTelemetry/Jaeger/Zipkin to trace requests across microservices.
+
+All correlated with Kubernetes metadata: namespace, pod name, node, container, version.
+
+**Common Mistakes:**
+
+- Writing logs to local files instead of stdout.
+- No version labels, making it hard to correlate behavior with deployments.
+
+**Follow-up Questions:**
+
+- How would you debug a performance regression after a deployment?
+- What golden signals would you monitor for each service?
+
+---
+
+### Q38. How do you debug intermittent latency issues inside a Kubernetes cluster?
+
+**Answer:**  
+
+Steps:
+
+1. Verify app-level metrics (latency histograms, error rate).
+2. Check **resource usage** (CPU, memory, I/O) per Pod and node.
+3. Check **network**:
+   - P95/P99 latency across services.
+   - NetworkPolicies, CNI health.
+4. Check **GC and runtime stats** for languages like Java/Python (e.g., GC pauses, GIL contention).
+5. Check **HPA scaling** behavior:
+   - Are pods under-provisioned during bursts?
+   - Are there cold starts due to frequent scaling?
+
+**Common RCAs:**
+
+- Under-sized Pods hitting CPU limit and throttling.
+- No connection pooling; too many connections to DB.
+- DNS or CNI glitches.
+
+**Follow-up Questions:**
+
+- How would you test whether latency is network vs application?
+- How do you protect dependencies (DB, cache) from overload?
+
+---
+
+### Q39. How do you troubleshoot DNS issues in Kubernetes?
+
+**Answer:**  
+
+Checklist:
+
+1. From a Pod, run:
+
+```bash
+kubectl exec -it <pod> -n <ns> -- nslookup other-service
+kubectl exec -it <pod> -n <ns> -- dig other-service.ns.svc.cluster.local
+```
+
+2. Check CoreDNS deployment and pods (`kube-system`).
+3. Check CoreDNS configmap for misconfigurations.
+4. Ensure NetworkPolicies allow traffic to DNS.
+
+**Common RCAs:**
+
+- CoreDNS pods down or misconfigured.
+- NetworkPolicies blocking DNS.
+- Wrong FQDN or service name.
+
+**Follow-up Questions:**
+
+- How does service DNS name resolution work (`svc.ns.svc.cluster.local`)?
+- How do you handle DNS for external dependencies (databases, APIs)?
+
+---
+
+## 12. Complex Scenarios, DR, and Real Incidents
+
+### Q40. Describe how you would handle a full cluster outage in production.
+
+**Answer:**  
+
+Steps:
+
+1. **Detection:** Multi-service failures, cluster API unreachable, node failures.
+
+2. **Immediate actions:**
+   - Declare Sev1 incident.
+   - Communicate impact and initial scope.
+   - Identify if cloud region outage or cluster-specific.
+
+3. **Mitigation:**
+   - Failover to DR cluster/region if available.
+   - Or temporarily route traffic to backup systems.
+
+4. **Technical investigation:**
+   - Check control plane health (managed by cloud in EKS/AKS).
+   - Check node groups, network, IAM, API server response.
+
+5. **Post-recovery RCA:**
+   - Root cause (e.g., misconfiguration, cloud incident, capacity exhaustion).
+   - Detection and mitigation improvements.
+   - Hardening measures (multi-region deployment, better autoscaling, runbooks).
+
+**Follow-up Questions:**
+
+- How do you design for region-level failure in EKS/AKS?
+- What data do you capture during the incident for RCA?
+
+---
+
+### Q41. How do you handle application-specific incidents caused by misconfigured Kubernetes manifests?
+
+**Answer:**  
+
+Example misconfigs: wrong environment variables, resource limits, probes, labels, or secrets.
+
+**Response:**
+
+1. Identify the misconfigured Deployment or manifest (compare current spec vs previous).
+2. Roll back to last known good version (`kubectl rollout undo` or Helm rollback).
+3. Validate that new config solves the issue.
+
+**Prevention:**
+
+- Manifest linting (kubeval, kube-linter).
+- Policy-as-code (OPA, Kyverno) to prevent dangerous configs.
+- Pre-deployment checks in CI (e.g., `kubectl apply --dry-run=server` on staging cluster).
+
+**Follow-up Questions:**
+
+- What validations would you add to pipelines to catch misconfigs early?
+- How do you maintain a catalog of standard manifest patterns?
+
+---
+
+### Q42. How would you design a Kubernetes platform to support both HTTP APIs and batch workloads?
+
+**Answer:**  
+
+Design:
+
+- **Namespaces**: separate for APIs vs batch; or per business domain.
+- **Node pools**: separate node groups for latency-sensitive HTTP vs CPU-heavy batch.
+- **Scheduling**:
+  - Taints/tolerations & affinity to keep API pods off batch nodes and vice versa.
+- **Autoscaling**:
+  - HPA for APIs based on CPU/latency.
+  - Job concurrency controls and scale-out nodes for batch.
+
+**Common Mistakes:**
+
+- Placing heavy batch jobs on same nodes as latency-sensitive APIs.
+- No isolation; a huge batch job saturates network or disk.
+
+**Follow-up Questions:**
+
+- How do you use PriorityClasses to protect critical workloads?
+- How would you manage cost vs performance for batch vs real-time?
+
+---
+
+### Q43. How do you safely inject sidecars (e.g., for service mesh or logging) into Pods?
+
+**Answer:**  
+
+Methods:
+
+- **Manual sidecars** in Pod specs.
+- **Mutating Admission Webhooks** (e.g., Istio, Linkerd injectors) that modify Pod spec as it’s created.
+
+Key considerations:
+
+- Ensure that sidecar injection does not break Pod startup (probes, ports).
+- Handle upgrade of sidecars carefully.
+- Workload owners must understand impact on traffic, TLS, and resource usage.
+
+**Common Mistakes:**
+
+- Sidecar injection not excluded for system Pods, causing issues.
+- Not resizing resources when adding sidecars.
+
+**Follow-up Questions:**
+
+- How do you control which namespaces get auto-injected sidecars?
+- How does sidecar injection impact debugging and logs?
+
+---
+
+### Q44. How do you manage configuration drift in Kubernetes clusters (cluster-level resources)?
+
+**Answer:**  
+
+Approaches:
+
+- Treat manifests as code (GitOps).
+- Use ArgoCD/Flux to continuously reconcile cluster state from Git.
+- Avoid `kubectl edit` and manual changes in prod.
+
+For cluster-level objects (CRDs, RBAC, NetworkPolicies), maintain separate “platform config” repos.
+
+**Common Mistakes:**
+
+- Manual hotfixes that never go back into Git.
+- Ad-hoc kubectl commands in prod; no traceability.
+
+**Follow-up Questions:**
+
+- How do you bootstrap a new cluster from Git?
+- How to handle emergency changes under GitOps?
+
+---
+
+### Q45. What is a Custom Resource Definition (CRD) and how is it used?
+
+**Answer:**  
+CRDs extend Kubernetes API with new resource types (e.g., `KafkaCluster`, `MySQLBackup`). They allow operators and controllers to manage domain-specific resources using Kubernetes semantics.[web:52]
+
+**Use Cases:**
+
+- Operators for DBs, message queues, ML models, certificates, etc.
+- Abstract complex operations into Kubernetes-native APIs.
+
+**Common Mistakes:**
+
+- Ignoring CRD behavior and treating them as simple config; not understanding operator reconciliation.
+
+**Follow-up Questions:**
+
+- Example of a CRD you’ve used (e.g., CertManager, Prometheus, ArgoCD).
+- How do you handle CRD versioning and migration?
+
+---
+
+### Q46. How do you handle secrets that need to be available across multiple namespaces?
+
+**Answer:**  
+
+Options:
+
+- Duplicate secrets per namespace (managed by automation).
+- Use external secret managers and operators that sync secrets into namespaces (e.g., External Secrets Operator).
+- For some clusters, use a shared namespace with controlled access and projected volumes (less common and must be secure).
+
+**Best Practice:**  
+Use external secret store as source of truth; Kubernetes Secrets as ephemeral copies.
+
+**Follow-up Questions:**
+
+- How do you rotate cross-namespace secrets with minimal downtime?
+- How do you avoid “secret sprawl” and mismanagement?
+
+---
+
+### Q47. How do you ensure safe, incremental rollouts in Kubernetes for critical banking APIs?
+
+**Answer:**  
+
+Patterns:
+
+- Small batches of changes; canary deployment or progressive traffic shifting.
+- Tight health checks and SLO-based decisions.
+- Use of feature flags for high-risk functionality.
+- Staged rollouts: one region/cluster first, then global.
+
+Technical tools:
+
+- Ingress with weighted routing.
+- Service mesh (Istio/Linkerd) for traffic splitting and observability.
+
+**Follow-up Questions:**
+
+- What KPIs would you watch during a critical rollout?
+- How do you design rollback decision criteria?
+
+---
+
+### Q48. How do you use Kubernetes for scheduled operational tasks (e.g., maintenance, cleanup)?
+
+**Answer:**  
+
+Use **CronJobs**:
+
+- Scheduled tasks for:
+  - Log cleanup.
+  - Temp data cleanup.
+  - Periodic health validations (e.g., run query against DB, validate responses).
+- Ensure CronJobs are idempotent and well monitored.
+
+**Operational Considerations:**
+
+- Configure concurrency policy (`Forbid`, `Replace`) to avoid overlapping runs.
+- Set history limits for Jobs.
+
+**Follow-up Questions:**
+
+- How do you handle failures in a CronJob (alerting, retry)?
+- How do you coordinate CronJobs that operate on shared resources (locking)?
+
+---
+
+### Q49. What’s your approach to designing Kubernetes runbooks for L2/L3 support?
+
+**Answer:**  
+
+Runbooks should be:
+
+- **Step-by-step**: “If you see X, run Y command and capture Z”.
+- **Automatable**: Many runbook steps become Jenkins or GitOps jobs.
+- **Context-rich**: include diagrams and service dependencies.
+
+Examples:
+
+- “Service down” runbook:
+  - Check Pods, Services, Ingress.
+  - Check logs in Elastic.
+  - Check last deployment status.
+- “High error rate” runbook:
+  - Validate backend dependencies.
+  - Check resource utilization.
+  - Rollback process.
+
+**Follow-up Questions:**
+
+- Example of a runbook you’ve created and later automated.
+- How do you keep runbooks up to date?
+
+---
+
+### Q50. What are the biggest pitfalls you’ve seen with Kubernetes adoption, and how would you avoid them?
+
+**Answer (structured):**  
+
+1. **Over-complexity for simple needs**  
+   - Avoid: Use managed services or simpler platforms when appropriate.
+
+2. **Lack of platform team / standards**  
+   - Avoid: Platform engineering team providing curated base images, Helm charts, and best practices.
+
+3. **Poor security posture**  
+   - Avoid: Enforce Pod security, RBAC, NetworkPolicies, image scanning early.
+
+4. **Insufficient observability**  
+   - Avoid: Set up logging, metrics, tracing as first-class citizens.
+
+5. **No clear ownership and SLOs**  
+   - Avoid: Assign service ownership; define SLOs and error budgets.
+
+6. **Manual operations**  
+   - Avoid: Use GitOps, CI/CD, and automation for routine changes.
+
+**Follow-up Questions:**
+
+- Which of these have you personally helped to fix?
+- How would you apply these lessons to this Specialist DevOps role?
+
+
