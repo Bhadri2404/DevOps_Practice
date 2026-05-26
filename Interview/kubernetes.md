@@ -492,3 +492,483 @@ spec:
 
 - How do you mix affinity with HPA and Cluster Autoscaler?
 - Give an example where bad affinity rules caused an incident.
+
+## 6. Pod Lifecycle, Probes, Resources, and Autoscaling
+
+### Q16. Explain the Pod lifecycle phases and how they relate to readiness for traffic.
+
+**Answer:**  
+Pod phases include **Pending**, **Running**, **Succeeded**, **Failed**, and **Unknown**.[web:52] A Pod goes from Pending (scheduled, images pulling) to Running (at least one container running), and eventually to Succeeded/Failed when containers exit. However, **“Running” does not mean “Ready for traffic”**; readiness is determined by **readiness probes** and endpoint registration.
+
+**Key Point:**  
+A Pod can be Running but **not Ready**, so Services/Ingress should not route traffic to it until readiness is true.
+
+**Common Mistakes:**
+
+- Assuming Running = healthy; ignoring readiness/liveness status.
+- No probes defined; traffic hits pods during slow startup.
+
+**Debugging Tips:**
+
+- `kubectl get pods -n <ns>` (check READY column, not just STATUS).
+- `kubectl describe pod` → look at events and conditions, especially `Ready`.
+
+**Follow-up Questions:**
+
+- What happens if a readiness probe fails but liveness probe passes?
+- How do preStop hooks interact with Pod termination?
+
+---
+
+### Q17. What are liveness, readiness, and startup probes? When do you use each?
+
+**Answer:**  
+
+- **Liveness probe:** Checks if the container should be restarted (e.g., deadlocked, stuck). If it fails, kubelet restarts container.
+- **Readiness probe:** Checks if Pod is ready to serve traffic. If it fails, Pod is removed from Service endpoints but not restarted.
+- **Startup probe:** For slow-starting apps; used to check if the app has started successfully. While startup probe is running, liveness/readiness are disabled.[web:52][web:57]
+
+**Use Cases:**
+
+- Readiness for DB-connected services, to avoid traffic before DB connection established.
+- Liveness for apps that might hang.
+- Startup for large Java apps or heavy ML models that load on startup.
+
+**Common Mistakes:**
+
+- Using liveness probe where readiness is appropriate (causing unnecessary restarts).
+- Too aggressive probe timeouts/intervals, causing flapping.
+
+**Debugging Tips:**
+
+- Check `kubectl describe pod` events for probe failures.
+- Temporarily disable or relax probes (in non-prod) to confirm they are cause of restarts.
+
+**Follow-up Questions:**
+
+- How would you design probes for a FastAPI service with a `/health` endpoint?
+- What are best practices for probe intervals and thresholds?
+
+---
+
+### Q18. How do resource requests and limits affect Pod scheduling and stability?
+
+**Answer:**  
+
+- **Requests:** Minimum CPU/memory guaranteed for a Pod; scheduler uses them to place Pods on nodes.[web:54]
+- **Limits:** Maximum CPU/memory allowed for a Pod; exceeding memory limit leads to OOMKill; CPU over limit can cause throttling.
+
+**Implications:**
+
+- Under-requesting can cause Pods to be packed densely and suffer from contention.
+- Over-requesting can cause low cluster utilization and scheduling failures.
+
+**Common Mistakes:**
+
+- No limits at all; single noisy Pod can starve others.
+- Same values for request and limit without understanding workload.
+
+**Debugging Tips:**
+
+- `kubectl top pods`/`kubectl top nodes` to see actual usage.
+- Check Pod events for OOM or throttling messages.
+
+**Follow-up Questions:**
+
+- How do you choose initial request/limit values?
+- How do resource requests interact with Cluster Autoscaler?
+
+---
+
+### Q19. What is the Horizontal Pod Autoscaler (HPA) and how does it work?
+
+**Answer:**  
+HPA automatically adjusts the number of Pod replicas based on observed metrics, such as CPU utilization, memory, or custom metrics.[web:52]
+
+Typical configuration:
+
+- Target Deployment/ReplicaSet.
+- Min/max replicas.
+- Metric target (e.g., average CPU utilization 70%).
+
+**Example (CPU-based HPA):**
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+```
+
+**Common Mistakes:**
+
+- No HPA on services with variable traffic → manual scaling pain.
+- HPA based only on CPU where latency or queue length is a better metric.
+
+**Debugging Tips:**
+
+- `kubectl describe hpa` to see scaling events.
+- Check metrics pipeline (e.g., metrics-server, Prometheus adapter) if HPA not scaling.
+
+**Follow-up Questions:**
+
+- How would you use custom metrics for HPA?
+- How does HPA interact with Cluster Autoscaler?
+
+---
+
+### Q20. What is the Cluster Autoscaler, and how does it differ from HPA?
+
+**Answer:**  
+
+- **HPA:** Scales **Pods** up/down based on workload metrics.
+- **Cluster Autoscaler (CA):** Scales **nodes** (VMs) up/down based on scheduling needs and underutilization.[web:54]
+
+**How they interact:**
+
+- HPA increases replicas → scheduler may not find enough room → CA adds nodes.
+- When load drops and some nodes become underutilized, CA drains and removes them.
+
+**Common Mistakes:**
+
+- Using HPA without CA – hitting scheduling failures during bursts.
+- Misconfigured CA that cannot scale (e.g., wrong IAM, ASG config).
+
+**Debugging Tips:**
+
+- Inspect Cloud provider logs (EKS/AWS & AKS/Azure).
+- Check CA logs (if deployed as Deployment/Pod in kube-system).
+
+**Follow-up Questions:**
+
+- How do you set safe scale-up/down thresholds?
+- How do you prevent “flapping” (frequent scale up/down cycles)?
+
+---
+
+### Q21. What causes CrashLoopBackOff and how do you troubleshoot it?
+
+**Answer:**  
+CrashLoopBackOff occurs when a container in a Pod repeatedly crashes soon after starting.[web:52]
+
+**Troubleshooting Steps:**
+
+1. `kubectl get pods -n <ns>` to confirm status.
+2. `kubectl describe pod <pod>` to see restart count and events.
+3. `kubectl logs <pod> -n <ns>` for current logs; if container restarts quickly, use `--previous`.
+4. Check:
+   - Command/entrypoint configuration.
+   - Env vars and config mounts.
+   - Resource limits causing OOM.
+
+**Common RCAs:**
+
+- Application bug causing immediate crash.
+- Missing environment variable or secret.
+- DB or dependency not reachable; app exits.
+- Misconfigured command/args.
+
+**Follow-up Questions:**
+
+- When would you use `kubectl logs --previous`?
+- How can readiness/liveness probes influence CrashLoopBackOff behavior?
+
+---
+
+### Q22. What is ImagePullBackOff and how do you handle it?
+
+**Answer:**  
+ImagePullBackOff indicates Kubernetes failed to pull the container image.
+
+**Possible Reasons:**
+
+- Wrong image name/tag.
+- No credentials for private registry.
+- Network connectivity issues to registry.
+
+**Troubleshooting:**
+
+1. `kubectl describe pod` → look for event messages (“Failed to pull”).
+2. Verify image name and tag exist in registry.
+3. Check imagePullSecrets and registry auth.
+4. Check node network connectivity.
+
+**Common Mistakes:**
+
+- Using `latest` and not realizing which tag is actually being pulled.
+- Missing `imagePullSecrets` for private registries.
+
+**Follow-up Questions:**
+
+- How do you organize image repositories/tags for multiple environments?
+- How do you avoid dependency on Docker Hub rate limits in production?
+
+---
+
+### Q23. How do you debug a Pod stuck in “ContainerCreating”?
+
+**Answer:**  
+
+Check:
+
+1. `kubectl describe pod` events:
+   - Image pull issues.
+   - Volume mount / PVC issues.
+   - CNI plugin issues.
+
+2. For volume-related:
+   - `kubectl get pvc,pv -n <ns>` – PVC may be `Pending`.
+
+3. For node-related:
+   - Node disk pressure / out of capacity.
+   - CNI or kubelet logs.
+
+**Common RCAs:**
+
+- Image pull errors (same as ImagePullBackOff).
+- Persistent volume not provisioning due to missing StorageClass or quota.
+- CNI misconfiguration while setting up pod network.
+
+**Follow-up Questions:**
+
+- How would you quickly differentiate between image vs volume vs node issues?
+- How do you monitor cluster events centrally?
+
+---
+
+### Q24. How do you debug a node marked as NotReady?
+
+**Answer:**  
+
+Steps:
+
+1. `kubectl get nodes` – see which node is `NotReady`.
+2. `kubectl describe node <name>` – check conditions (NetworkUnavailable, OutOfDisk, MemoryPressure, DiskPressure).
+3. Check node-level logs:
+   - kubelet logs.
+   - System logs, disk usage, CPU/memory.
+4. Cloud layer:
+   - EKS/AKS node group status.
+   - Underlying VM instance status.
+
+**Common RCAs:**
+
+- Node lost network to control plane.
+- Resource pressure (disk full, out of memory).
+- Kubelet crashed or not running.
+
+**Follow-up Questions:**
+
+- How would you safely drain a node?
+- How do you ensure critical workloads are rescheduled correctly?
+
+---
+
+### Q25. What commands and tools do you use most frequently for Kubernetes troubleshooting?
+
+**Answer:**  
+
+Common commands:
+
+```bash
+# Cluster and namespace overview
+kubectl get nodes
+kubectl get pods -A
+kubectl get pods -n <ns> -o wide
+
+# Deep dive into resources
+kubectl describe pod <pod> -n <ns>
+kubectl logs <pod> -n <ns>
+kubectl logs <pod> -n <ns> --previous
+
+# Rollout and resources
+kubectl rollout status deployment/<name> -n <ns>
+kubectl get deploy,rs,svc,ing -n <ns>
+
+# Resource usage
+kubectl top pods -n <ns>
+kubectl top nodes
+```
+
+Additional tools:
+
+- `k9s` or similar TUI for fast cluster navigation.
+- `stern` or `kubetail` for multi-pod log tailing.
+
+**Follow-up Questions:**
+
+- How do you script recurring checks for L2 support?
+- How do you integrate these checks with CI/CD (e.g., post-deploy validation)?
+
+---
+
+## 7. Storage: PV, PVC, StorageClasses, and Stateful Workloads
+
+### Q26. Explain PersistentVolume (PV), PersistentVolumeClaim (PVC), and StorageClass.
+
+**Answer:**  
+
+- **PV:** Cluster resource representing storage (e.g., EBS volume, Azure Disk, NFS).
+- **PVC:** User’s request for storage with size and access mode; binds to a PV that matches.
+- **StorageClass:** Template/definition for dynamic provisioning of PVs, including parameters for cloud-specific storage (type, IOPS, encryption).[web:57]
+
+**Flow:**
+
+1. App defines PVC with requested size and StorageClass.
+2. Dynamic provisioner creates PV according to StorageClass.
+3. PVC binds to PV; Pod mounts PVC.
+
+**Common Mistakes:**
+
+- No default StorageClass; PVC stays Pending.
+- Deleting PVC without understanding reclaim policy (e.g., `Delete` vs `Retain`).
+
+**Debugging Tips:**
+
+- `kubectl get pvc,pv` to see binding and status.
+- Check StorageClass and provisioner logs.
+
+**Follow-up Questions:**
+
+- What are `ReadWriteOnce`, `ReadOnlyMany`, `ReadWriteMany`?
+- How do you manage storage encryption and backup in EKS/AKS?
+
+---
+
+### Q27. How do you migrate stateful workloads to Kubernetes safely?
+
+**Answer:**  
+
+Steps:
+
+1. Assess workload suitability (e.g., DB, message broker).
+2. Plan storage:
+   - Use StatefulSet + PVCs + proper StorageClass.
+   - Understand IOPS and latency requirements.
+3. Migration path:
+   - Snapshot/backup existing data.
+   - Restore into Kubernetes-managed storage.
+   - Run in parallel (shadow) for testing if possible.
+4. Cutover carefully, with well-rehearsed rollback.
+
+**Common Mistakes:**
+
+- Lifting DBs into Kubernetes without proper storage or operational expertise.
+- No backup/restore plan tested before migration.
+
+**Follow-up Questions:**
+
+- When would you choose managed DB services (RDS/Azure SQL) instead of DB in K8s?
+- How to handle network latency between app in K8s and data outside K8s?
+
+---
+
+## 8. EKS/AKS, Multi-Cluster, and Advanced Topics
+
+### Q28. What are some EKS/AKS-specific considerations for running Kubernetes in AWS/Azure?
+
+**Answer:**  
+
+For **EKS (AWS):**[web:54]
+
+- IAM roles for service accounts (IRSA) for fine-grained access to AWS resources.
+- Native integration with ALB/NLB, VPC, security groups.
+- Node groups (managed/unmanaged) and Fargate profiles.
+
+For **AKS (Azure):**
+
+- Managed identities for Pods or nodes.
+- Integration with Azure Load Balancer, Application Gateway.
+- Azure CNI vs kubenet networking choices.
+
+**Common Mistakes:**
+
+- Using node IAM roles or access keys instead of fine-grained IRSA/managed identities.
+- Misconfigured networking causing IP exhaustion or unexpected peering issues.
+
+**Follow-up Questions:**
+
+- How do you grant a single microservice read-only access to one S3 bucket from EKS?
+- How do you secure AKS with Azure AD and RBAC?
+
+---
+
+### Q29. How do you manage multiple clusters (e.g., dev, stage, prod, multi-region) in a bank?
+
+**Answer:**  
+
+Patterns:
+
+- Separate clusters per environment (dev, QA, staging, prod).
+- Possibly separate clusters per region or domain (e.g., EU vs APAC).
+- Use cluster registry/config management (e.g., kubeconfig per cluster, or context switching tools).
+
+Management strategies:
+
+- Infra-as-Code (Terraform) for cluster provisioning.
+- GitOps or standardized Jenkins pipelines for workloads.
+- Central governance for policies (e.g., OPA, Kyverno).
+
+**Common Mistakes:**
+
+- Manually configuring clusters; drift across clusters.
+- Sharing clusters for prod and non‑prod without clear boundaries.
+
+**Follow-up Questions:**
+
+- How do you promote an app from one cluster to another safely?
+- How do you apply consistent security policies across clusters?
+
+---
+
+### Q30. Describe a Kubernetes production outage you might encounter and how you’d run the incident.
+
+**Answer (example scenario):**  
+
+**Incident:**  
+After a change to NetworkPolicy and Ingress, external users cannot reach multiple APIs; dashboards show 5xx errors.
+
+**Detection:**
+
+- Alerts from Grafana/Prometheus on HTTP 5xx and latency.
+- Synthetic checks failing for `/health` endpoints.
+
+**Incident handling steps:**
+
+1. Declare incident (Sev1/Sev2 depending on impact).
+2. Triage:
+   - Check Ingress and Services for one affected API.
+   - Confirm Pods are running and Ready.
+   - `kubectl get ep` shows no endpoints due to label mismatch after deployment.
+3. Scope:
+   - Realize multiple services share a common label or Ingress rule changed.
+4. Immediate mitigation:
+   - Roll back Deployment/Ingress/NetworkPolicy to previous revision (Helm rollback, `kubectl rollback`).
+   - Confirm recovery via health checks and error rate drop.
+5. RCA:
+   - Root cause: new Service selector and NetworkPolicy blocked traffic.
+   - Contributing factors: no pre-deploy validation for selectors; no automated tests for Ingress and NetworkPolicies.
+6. Prevention:
+   - Add pipeline step that validates selectors and endpoints in staging.
+   - Add “canary” Ingress rules with smaller blast radius.
+   - Improve change review on shared network policies.
+
+**Follow-up Questions:**
+
+- How would you structure the postmortem document?
+- What metrics and logs would you collect during the incident?
+
