@@ -407,3 +407,413 @@ Landing zone patterns (aligned with AWS best practices):[web:93][web:99]
 
 - How do you share network connectivity (Transit Gateway, shared services) across accounts?
 - How do you enforce tagging and IAM baselines across accounts?
+
+## 5. EKS, Containers, and Platform Integration
+
+### Q16. How would you design an EKS cluster for this kind of DevOps/Data platform role?
+
+**Answer:**  
+Amazon EKS provides managed Kubernetes control planes; you manage worker nodes or Fargate profiles and integrate with AWS networking and IAM.[web:102] For a bank/Data/ML platform:
+
+- Private EKS API endpoint or restricted public access (CIDR allowlist, IAM auth).
+- Worker nodes in private subnets, ALBs/NLBs in public subnets.
+- IAM Roles for Service Accounts (IRSA) to give Pods fine‑grained AWS permissions (S3, DynamoDB, Secrets Manager, etc.).
+- Separate namespaces and node groups for different workloads (app, data, ML, system).
+
+**Common Mistakes:**
+
+- Using node IAM roles for everything instead of IRSA (over-privileged).
+- Exposing EKS API endpoint to the internet without tight controls.
+
+**Follow-up Questions:**
+
+- How would you integrate EKS with existing VPC/Transit Gateway and on‑prem?
+- How do you manage cluster add-ons (CNI, CoreDNS, metrics-server) and upgrades?
+
+---
+
+### Q17. How do you manage access control in EKS (Kubernetes RBAC + AWS IAM)?
+
+**Answer:**  
+
+Layers:
+
+- **IAM → Kubernetes:** `aws-auth` ConfigMap maps IAM roles/users to Kubernetes groups (e.g., `system:masters`).
+- **Kubernetes RBAC:** Roles/ClusterRoles + RoleBindings/ClusterRoleBindings to control API access inside cluster.
+
+**Patterns:**
+
+- Developers assume IAM role that grants limited K8s rights (namespaced).
+- CI/CD roles (e.g., Jenkins) get service accounts + IRSA mapped to specific K8s permissions.
+
+**Common Mistakes:**
+
+- Mapping broad IAM roles to `system:masters`, giving full cluster admin.
+- Not separating human vs service access.
+
+**Follow-up Questions:**
+
+- How would you implement least-privilege for a data scientist team on EKS?
+- How do you audit who did what in EKS?
+
+---
+
+### Q18. How do you integrate EKS with ALB for exposing services?
+
+**Answer:**  
+
+Patterns:
+
+- Use AWS Load Balancer Controller in the cluster.
+- Define Kubernetes Ingress with proper annotations (ALB scheme, target type, SSL, WAF integration).
+- ALB gets created in public or internal subnets; targets are Pods behind NodePort or IP mode.
+
+**Benefits:**
+
+- Native AWS ALB features (WAF, SSL, path-based routing) for K8s services.
+- Centralized ingress for many microservices.
+
+**Common Mistakes:**
+
+- Misconfigured security groups between ALB and nodes.
+- Not specifying correct subnets/ingress class, leading to ALB in wrong place.
+
+**Follow-up Questions:**
+
+- How would you set up blue–green or canary at ALB + EKS level?
+- How do you debug 502/503 errors for EKS services exposed via ALB?
+
+---
+
+## 6. Lambda, Serverless, and Event-Driven Designs
+
+### Q19. What is AWS Lambda and when would you prefer it over EC2/EKS?
+
+**Answer:**  
+AWS Lambda is a serverless compute service that runs code in response to events, automatically managing compute, scaling, and availability; you pay only for execution time.[web:93][web:102]
+
+**Use cases:**
+
+- Lightweight API backends (with API Gateway/ALB).
+- Event processing (S3 uploads, SQS/Kinesis streams, CloudWatch events).
+- Automation tasks (cron-like functions, housekeeping jobs).
+
+**Prefer Lambda over EC2/EKS when:**
+
+- Workloads are bursty or low-throughput but must be highly available.
+- Operational overhead must be minimized.
+
+**Common Mistakes:**
+
+- Implementing heavy, long-running jobs in Lambda where EC2/EKS is better.
+- Not managing cold-start impact for latency-sensitive APIs.
+
+**Follow-up Questions:**
+
+- How would you monitor and troubleshoot Lambda in production?
+- How do you choose memory/time limits and concurrency settings?
+
+---
+
+### Q20. How do you integrate Lambda with other AWS services for automation?
+
+**Answer:**  
+
+Examples:
+
+- Trigger Lambda on S3 events (object created) to process files.
+- Use EventBridge/CloudWatch Events to run Lambda on schedules (cron).
+- Process messages from SQS/SNS to decouple producers and consumers.
+- Use Lambda for automation runbooks (e.g., restart RDS instance under certain conditions).
+
+**Best Practices:**
+
+- Use DLQs (dead-letter queues) for failed events.
+- Idempotent handlers to safely handle retries.
+
+**Common Mistakes:**
+
+- No DLQ, so failures are lost.
+- No proper error handling/logging; issues hidden.
+
+**Follow-up Questions:**
+
+- How would you implement an S3-to-RDS ETL using Lambda?
+- How do you handle Lambda retries and partial failures?
+
+---
+
+## 7. CloudWatch, CloudTrail, and Observability
+
+### Q21. How do you design logging and metrics in AWS using CloudWatch?
+
+**Answer:**  
+
+Patterns:
+
+- **CloudWatch Logs:** collect logs from EC2, Lambda, ECS/EKS, ALB, API Gateway; centralize and filter. Integrate with Elastic/Grafana if needed.
+- **CloudWatch Metrics:** default (CPU, network, disk) plus custom metrics from apps and Lambda.[web:93]
+- **CloudWatch Alarms:** thresholds on metrics → notifications via SNS or incident systems.
+
+**Design for this role:**
+
+- Unified logging strategy (log group naming, retention, metric filters).
+- Dashboards per environment/service (latency, errors, saturation).
+
+**Common Mistakes:**
+
+- Default retention (infinite) → cost blow-up.
+- No structured logging, making search/analysis hard.
+
+**Follow-up Questions:**
+
+- How do you set SLO-based alarms (e.g., 99th percentile latency) with CloudWatch?
+- How would you link CloudWatch with Elastic/Grafana stack in this org?
+
+---
+
+### Q22. What is CloudTrail and how is it used for security and audit?
+
+**Answer:**  
+AWS CloudTrail records API calls and console actions, providing history of “who did what, when, from where”, stored typically in S3 and viewable in CloudTrail console or CloudWatch.[web:93]
+
+**Use in a bank:**
+
+- Centralized, encrypted CloudTrail logs in a separate security account.
+- Mandatory trails across all accounts and regions.
+- Integrations with SIEM/GuardDuty for threat detection.
+
+**Common Mistakes:**
+
+- Not enabling CloudTrail in all regions or all accounts.
+- Storing logs in same account as workloads (less secure).
+
+**Follow-up Questions:**
+
+- How do you investigate an unauthorized IAM change using CloudTrail?
+- How do you protect CloudTrail buckets from tampering?
+
+---
+
+### Q23. How do you monitor EKS workloads using CloudWatch and other tools?
+
+**Answer:**  
+
+Approach:
+
+- EKS control plane logs to CloudWatch (API, audit, scheduler logs).
+- Container logs via CloudWatch agent/Fluent Bit or directly to Elastic/Kibana.
+- Metrics:
+  - Node and cluster-level metrics via CloudWatch or Prometheus.
+  - Custom app metrics exported and scraped (Prometheus, Grafana).
+
+**Combination:**
+
+- Use CloudWatch for basic infra metrics and alarms.
+- Use Prometheus/Grafana/Elastic for deep app-level observability.
+
+**Common Mistakes:**
+
+- Only monitoring node CPU/memory; ignoring app latency/error metrics.
+- Not enabling control plane logging; limited visibility into K8s issues.
+
+**Follow-up Questions:**
+
+- How would you set up alerts for pod restarts, CrashLoopBackOff, or failed deployments?
+- How do you correlate AWS-level metrics with Kubernetes-level metrics?
+
+---
+
+## 8. High Availability and Disaster Recovery
+
+### Q24. How do you design a highly available web application on AWS?
+
+**Answer:**  
+
+Typical architecture:
+
+- Multi-AZ VPC with public subnets (ALBs) and private subnets (app + DB).
+- ALB across multiple AZs, pointing to ASG of EC2 instances or EKS services.
+- Managed database (RDS) with Multi-AZ deployment.
+- Stateless app layer; use S3, DynamoDB, ElastiCache for state where needed.
+- CloudFront for global caching and DDoS mitigation with WAF.
+
+**Key HA Points:**
+
+- No single-AZ dependency.
+- Health checks and auto-healing at each layer.
+
+**Common Mistakes:**
+
+- Single-AZ RDS or ASG.
+- Hard-coding AZ-specific endpoints or dependencies.
+
+**Follow-up Questions:**
+
+- How would you handle session state across instances?
+- How do you test AZ failure scenarios?
+
+---
+
+### Q25. How would you design DR (Disaster Recovery) for a critical banking API on AWS?
+
+**Answer:**  
+
+DR patterns:
+
+- **Pilot light:** Minimal copy of environment in secondary region; full scale-up during DR.
+- **Warm standby:** Reduced-capacity active environment in second region.
+- **Active/active:** Both regions serve traffic; Route53 failover or latency routing.[web:93]
+
+Key elements:
+
+- Replicate data across regions (RDS cross-region read replicas, S3 CRR).
+- Infrastructure-as-code (Terraform) to recreate infra quickly.
+- Regular DR drills and RPO/RTO definitions.
+
+**Common Mistakes:**
+
+- Having DR design on paper only; no tested drills.
+- Inconsistent data protection between primary and DR.
+
+**Follow-up Questions:**
+
+- How would you configure Route53 for regional failover?
+- What RPO/RTO targets are realistic for your use cases?
+
+---
+
+### Q26. How do you use AWS Backup and snapshots for data protection?
+
+**Answer:**  
+
+AWS Backup orchestrates backups across services (EBS, RDS, DynamoDB, EFS, etc.).[web:102]
+
+Patterns:
+
+- Backup plans and vaults per environment and compliance class.
+- Tag-based backup policies for auto-inclusion.
+- Automate retention, lifecycle, and cross-region or cross-account backups.
+
+**Common Mistakes:**
+
+- Manual snapshots only; no centralized backup policy.
+- No regular restore tests.
+
+**Follow-up Questions:**
+
+- How would you protect RDS and EBS volumes for critical databases?
+- How do you handle encryption keys for backups (KMS)?
+
+---
+
+## 9. Cost Optimization and Governance
+
+### Q27. What AWS cost optimization levers would you use for containerized workloads (EKS) and EC2?
+
+**Answer:**  
+
+Levers:
+
+- Correct instance sizing (rightsizing).
+- Mix of on-demand, reserved instances, and spot instances in node groups.
+- Use Fargate for small workloads where management overhead is high.
+- Schedule non-prod resources to shut down outside business hours.
+- Use S3 lifecycle policies, Glacier for cold data.
+
+Tools:
+
+- AWS Cost Explorer, Compute Optimizer, Trusted Advisor.[web:99]
+
+**Common Mistakes:**
+
+- All on-demand, no reservations or spot.
+- No tagging for cost allocation; hard to optimize.
+
+**Follow-up Questions:**
+
+- How would you decide between reserved instances vs savings plans?
+- How do you monitor and control cost at team/project level?
+
+---
+
+### Q28. How do you implement guardrails and governance in AWS (especially for DevOps teams)?
+
+**Answer:**  
+
+Mechanisms:
+
+- AWS Organizations + Service Control Policies (SCPs) to restrict actions at OU level.
+- Config rules and conformance packs to enforce resource configurations (e.g., no public S3 buckets, EBS encryption required).
+- CloudTrail and CloudWatch for auditing and anomaly detection.
+- CI/CD checks (policy-as-code) before applying infra changes.[web:93]
+
+**Common Mistakes:**
+
+- Relying only on human review for governance.
+- Overly restrictive SCPs causing teams to bypass governance.
+
+**Follow-up Questions:**
+
+- Which baseline Config rules would you enforce in a bank?
+- How would you integrate Terraform/Ansible with these guardrails?
+
+---
+
+## 10. Incident Scenarios and RCAs
+
+### Q29. Incident: High 5xx error rates from a microservice behind ALB in AWS. How do you triage and resolve?
+
+**Answer (example flow):**  
+
+1. **Detection:** CloudWatch alarms for 5xx and latency; dashboards show spike on ALB target group.
+2. **Scope:** Identify specific microservice/target group and AZs impacted.
+3. **Checks:**
+   - ALB metrics: `HTTPCode_ELB_5XX` vs `HTTPCode_Target_5XX`.
+   - Target health: check if many instances marked unhealthy.
+   - EC2/EKS metrics: CPU, memory, pod restarts.
+   - Recent deploys (Jenkins logs, EKS rollouts, Terraform changes).
+4. **Mitigation:**
+   - Roll back last deployment or reduce traffic to bad version (canary).
+   - Scale up ASG/EKS to handle load if resource exhaustion.
+5. **RCA possibilities:**
+   - Bad application release (bug, memory leak).
+   - Downstream DB or cache latency.
+   - Misconfigured health checks or timeouts.
+6. **Prevention:**
+   - Better canary and health checks.
+   - SLO-based rollback policies.
+
+**Follow-up Questions:**
+
+- Which AWS metrics would you chart first in this incident?
+- How would you involve Kubernetes layer debugging if EKS is used?
+
+---
+
+### Q30. Incident: Sudden spike in AWS costs. How do you investigate and address it?
+
+**Answer:**  
+
+Steps:
+
+1. Use Cost Explorer to identify services, regions, and accounts responsible.[web:99]
+2. Drill down by tag (env, app, team) to localize spike.
+3. Identify specific changes:
+   - New ASGs, EKS node groups, or EC2 fleets.
+   - Large S3 data transfer or Glacier retrieval.
+   - Misconfigured NAT, data transfer across regions.
+
+4. Mitigation:
+   - Stop or scale down non-critical over-provisioned resources.
+   - Fix misconfigurations (looping jobs, high-frequency polling, large logs).
+
+5. Prevention:
+   - Budget alerts and anomaly detection for cost.
+   - Tagging and regular cost reviews.
+
+**Follow-up Questions:**
+
+- How would you design cost dashboards for engineering leads?
+- What policies would you implement to reduce future cost incidents?
+
