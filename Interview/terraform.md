@@ -469,3 +469,490 @@ resource "aws_security_group" "example" {
 
 - Give another practical dynamic block example (e.g., multiple listeners for ALB).
 - How do you make dynamic blocks still readable and maintainable?
+
+## 5. Lifecycle Rules, Taint, Import, and State Subcommands
+
+### Q16. What is the `lifecycle` block and how do you use `prevent_destroy`, `ignore_changes`, and `create_before_destroy`?
+
+**Answer:**  
+The `lifecycle` block configures special behaviors for a resource beyond normal create/update/destroy.[web:28] Common arguments:
+
+- `prevent_destroy`: disallows Terraform from destroying a resource; apply fails if destroy is required.
+- `ignore_changes`: tells Terraform to ignore changes to specified attributes when detecting drift.
+- `create_before_destroy`: ensures replacement creates the new resource before destroying the old one (to reduce downtime).
+
+**Example:**
+
+```hcl
+resource "aws_s3_bucket" "logs" {
+  bucket = "sg-logs-prod"
+
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = [tags]
+  }
+}
+```
+
+**Use Cases:**
+
+- `prevent_destroy`: critical resources (prod DB, central S3 log bucket).
+- `ignore_changes`: attributes managed outside Terraform (e.g., tags added by other systems) that you don’t want to constantly reconcile.
+- `create_before_destroy`: when replacing resources that serve traffic (e.g., load balancer or ASG) to avoid downtime.
+
+**Common Mistakes:**
+
+- Overusing `ignore_changes`, masking real drift or misconfigurations.
+- Setting `prevent_destroy` everywhere, making legitimate changes impossible.
+- Using `create_before_destroy` on resources that cannot have two instances at once (name uniqueness, quotas) leading to apply failures.
+
+**Follow-up Questions:**
+
+- How do you safely remove `prevent_destroy` in a controlled way?
+- Give an example where `ignore_changes` caused a hidden issue.
+
+---
+
+### Q17. What does `terraform taint` do, and why is it less used in newer versions?
+
+**Answer:**  
+`terraform taint` marks a Terraform-managed resource as “tainted” so that Terraform will **destroy and recreate** it on the next `apply`. In recent Terraform versions, taint is deprecated in favor of `terraform apply -replace=RESOURCE_ADDR`.[web:70]
+
+**Usage (old style):**
+
+```bash
+terraform taint aws_instance.web
+terraform apply
+```
+
+**Newer approach:**
+
+```bash
+terraform apply -replace=aws_instance.web
+```
+
+**Use Cases:**
+
+- Force recreation of a resource because of suspected corruption or manual changes that you want to reset.
+
+**Common Mistakes:**
+
+- Tainting resources without understanding dependencies, causing unexpected cascading replacements.
+- Forgetting to commit configuration that corresponds to desired replacement.
+
+**Follow-up Questions:**
+
+- When would you prefer to fix resource in-place vs taint/replace?
+- How does `-replace` show up in plan output?
+
+---
+
+### Q18. How and when do you use `terraform import`?
+
+**Answer:**  
+`terraform import` brings an existing resource (e.g., manually created AWS resource) into Terraform state without recreating it.[web:28]
+
+**Syntax:**
+
+```bash
+terraform import aws_s3_bucket.logs my-logs-bucket
+```
+
+**Process:**
+
+1. Write Terraform configuration for the resource with the correct arguments.
+2. Run `terraform import` with resource address and real ID.
+3. Run `terraform plan` to see if config and actual resource match; if not, adjust config.
+
+**Common Mistakes:**
+
+- Importing before writing configuration; Terraform then has state entry but no config, or mismatched config.
+- Assuming import alone is enough; you still must ensure config and reality are in sync.
+
+**Follow-up Questions:**
+
+- How would you import an entire set of resources into Terraform?
+- What happens if you run `apply` after an import but config differs significantly?
+
+---
+
+### Q19. What is `terraform refresh` and how is it used in newer Terraform versions?
+
+**Answer:**  
+Historically, `terraform refresh` updated the state to match real-world resources by querying providers. In newer versions, its functionality is mostly integrated into `terraform plan` and `apply` (they refresh by default unless `-refresh=false` is used).[web:67]
+
+**Use:**
+
+- Rarely needed explicitly; `plan`/`apply` will refresh state.
+- May be used for debugging to ensure state was fully updated from provider.
+
+**Common Mistakes:**
+
+- Assuming `refresh` will fix misconfigured resources; it only synchronizes state, not configuration.
+
+**Follow-up Questions:**
+
+- When might you disable automatic refresh (`-refresh=false`)?
+- How do you check whether state is up-to-date using `plan`?
+
+---
+
+### Q20. What does `terraform state` command family do, and when would you use it?
+
+**Answer:**  
+`terraform state` commands manipulate Terraform state directly.
+
+Key ones:
+
+- `terraform state list`: list resources in state.
+- `terraform state show <address>`: show resource details from state.
+- `terraform state mv`: move a resource from one address to another (refactors).
+- `terraform state rm`: remove a resource from state without destroying actual infra.[web:72]
+
+**Use Cases:**
+
+- Refactoring modules or resource names without recreating infra (use `state mv`).
+- Removing orphaned or no-longer-managed resources from state (`state rm`).
+- Debugging mismatch between config and state.
+
+**Common Mistakes:**
+
+- Editing state carelessly, leading to broken mapping between config and reality.
+- Using `state rm` instead of properly decommissioning resources.
+
+**Follow-up Questions:**
+
+- Describe a safe process for using `terraform state mv` during module refactor.
+- When would you intentionally remove a resource from state with `state rm`?
+
+---
+
+### Q21. Describe a scenario where you used `terraform state mv` to avoid resource recreation.
+
+**Answer (example narrative):**  
+
+**Scenario:**  
+You originally had `aws_instance.app` in root module. Later, you refactor to a `app_server` module, changing resource address to `module.app_server.aws_instance.app`.
+
+Naive change would cause Terraform to think the old resource was removed and a new one added → it wants to destroy + recreate the instance.
+
+**Safe approach:**
+
+1. Change configuration to use module (with same resource attributes).
+2. Before apply, use:
+
+```bash
+terraform state mv aws_instance.app module.app_server.aws_instance.app
+```
+
+3. Run `terraform plan` to confirm Terraform now sees it as a move, not create/destroy.
+
+**Benefits:**
+
+- No downtime, IP and instance maintained.
+- State structure matches new module structure.
+
+**Follow-up Questions:**
+
+- What precautions do you take before running `state mv`?
+- How do you test refactors in lower env before prod?
+
+---
+
+### Q22. When would you use `terraform state rm` and what are the risks?
+
+**Answer:**  
+`terraform state rm` removes a resource **from state only**, leaving real infrastructure intact.[web:72]
+
+**Use cases:**
+
+- Decommissioning a resource from Terraform management when you want to manage it manually afterwards.
+- Removing a resource that was accidentally imported or is no longer needed in configuration.
+
+**Risks:**
+
+- Terraform will no longer manage that resource; future `plan/apply` will ignore it.
+- If configuration still references it, next `plan` may want to create a “new” resource with same name or conflict.
+
+**Best Practice:**
+
+- Use only when you fully understand the consequences.
+- Consider decommissioning resource properly instead.
+
+**Follow-up Questions:**
+
+- How do you document resources removed from state but not yet destroyed?
+- How to avoid orphaned infra accumulation?
+
+---
+
+## 6. Drift Detection, State Corruption, and Debugging
+
+### Q23. What is drift in Terraform, and how do you detect it?
+
+**Answer:**  
+Drift occurs when the actual infrastructure differs from what Terraform configuration and state describe—usually due to manual changes outside Terraform or provider updates.[web:28]
+
+**Detection:**
+
+- `terraform plan` will show unexpected changes (e.g., Terraform wants to change attributes you didn’t modify in code).
+- Periodic “drift detection” job in CI that runs `plan` with `-detailed-exitcode`:
+  - Exit code 0: no changes.
+  - Exit code 2: changes present.
+
+**Common Mistakes:**
+
+- Ignoring drift; applying plan without understanding why resources are changing.
+- Allowing teams to change infra via console/CLI without going through Terraform.
+
+**Follow-up Questions:**
+
+- How do you enforce “Terraform-only” changes in a large organization?
+- When is it acceptable to ignore certain drift (`ignore_changes`)?
+
+---
+
+### Q24. Describe how Terraform state can become corrupted and how you would recover.
+
+**Answer:**  
+
+Causes:
+
+- Concurrent `apply` operations without locking.
+- Manual editing of state file.
+- Backend issues (partial writes, network failures during apply).
+- Buggy providers returning inconsistent data.
+
+**Recovery Steps:**
+
+1. Stop all Terraform operations.
+2. **Backup** current state file, even if corrupted.
+3. Check backend for previous versions (S3 versioning, Azure blob versions).
+4. Restore last known good version to a **test environment** first.
+5. Compare real infrastructure with restored state (list resources in cloud, verify).
+6. Fix mismatches via import or manual updates before resuming.
+
+**Common Mistakes:**
+
+- Immediately running more applies on top of corrupted state.
+- Restoring wrong version or mixing state from different envs/workspaces.
+
+**Follow-up Questions:**
+
+- How do you test your recovery procedure ahead of time?
+- How do you ensure future operations do not re-corrupt state?
+
+---
+
+### Q25. How do you debug an unexpected “destroy” in `terraform plan`?
+
+**Answer:**  
+
+Steps:
+
+1. Carefully read `plan` output to identify resource(s) being destroyed.
+2. Compare current configuration with previous version (Git diff).
+3. Compare state (`state show`) with desired config to see which attributes differ.
+4. Check if:
+   - A required argument changed which forces replacement.
+   - Module structure changed (address changed).
+   - `lifecycle` or `count/for_each` keys changed.
+5. If change is not intended:
+   - Adjust configuration.
+   - Use `state mv` to align addresses if it’s a refactor.
+
+**Common Causes:**
+
+- Changing `for_each` keys, causing resources to be “replaced”.
+- Switching from `count` to `for_each` without moving state.
+- Renaming resources without state operations.
+
+**Follow-up Questions:**
+
+- Can you give an example of a forced replacement attribute?
+- How would you handle a situation where replacement is required but you need zero downtime?
+
+---
+
+### Q26. How do you integrate Terraform with Jenkins pipelines in this role?
+
+**Answer:**  
+
+Typical Jenkins stages:
+
+1. **Lint/format/validate:**
+
+```bash
+terraform fmt -check
+terraform validate
+tflint
+```
+
+2. **Plan:**
+
+```bash
+terraform init -backend-config=backend.hcl
+terraform plan -out=tfplan
+```
+
+3. **Approval (manual or automated):**
+   - Human reviews plan or checks it for risk criteria.
+
+4. **Apply:**
+
+```bash
+terraform apply tfplan
+```
+
+5. **Post-apply checks:**
+   - Verify resources via cloud APIs or smoke tests.
+
+**Security and Reliability:**
+
+- Use remote backend with locking.
+- Run Terraform from dedicated, hardened agents.
+- Limit `apply` rights to infra engineers.
+
+**Follow-up Questions:**
+
+- How do you store and manage Terraform plan artifacts in Jenkins?
+- How do you include Terraform plan summary in change tickets?
+
+---
+
+### Q27. How do you design Terraform directory structure for multi-account, multi-environment AWS/Azure?
+
+**Answer:**  
+
+Patterns:
+
+- **Account per directory**:
+  - `envs/prod`, `envs/stage`, `envs/dev`.
+- Inside each, use modules:
+  - `vpc`, `eks`, `rds`, `monitoring`.
+
+Example:
+
+```text
+terraform/
+  modules/
+    vpc/
+    eks/
+    rds/
+  envs/
+    prod/
+      main.tf
+      backend.hcl
+      variables.tf
+    stage/
+    dev/
+```
+
+**Workflows:**
+
+- Each env has its own backend, state, and pipelines.
+- Shared modules versioned with tags.
+
+**Common Mistakes:**
+
+- Single state file for all envs and accounts.
+- Hardcoding env-specific values in modules.
+
+**Follow-up Questions:**
+
+- How do you handle cross-account resources (e.g., shared networking)?
+- How do you enforce consistent tagging across envs?
+
+---
+
+### Q28. How do you manage secrets (e.g., DB passwords) in Terraform?
+
+**Answer:**  
+
+Patterns:
+
+- Use secret managers (AWS Secrets Manager, Azure Key Vault) as target resources.
+- Provide secrets to Terraform via:
+  - Environment variables (careful).
+  - Encrypted variable files or CI/CD secret injection.
+- Avoid storing plaintext secrets in `.tf` files or state where possible.
+
+Reality: some providers store secret values in state; treat state as sensitive, encrypt at rest, and restrict access.
+
+**Common Mistakes:**
+
+- Committing variable files with secrets to Git.
+- Using `terraform output` to print sensitive values.
+
+**Follow-up Questions:**
+
+- What are the risks of secrets in state?
+- How do you integrate rotation of secrets with Terraform-managed resources?
+
+---
+
+### Q29. What are provisioners and why are they discouraged for most use cases?
+
+**Answer:**  
+
+Provisioners (`local-exec`, `remote-exec`) run scripts or commands during resource creation/destroy, usually on the target machine.[web:28][web:71]
+
+**Problems:**
+
+- Hard to make idempotent; Terraform doesn’t track their output state.
+- Failures may leave resources half-configured.
+- Blur responsibility between infrastructure provisioning and configuration management.
+
+**Better Alternatives:**
+
+- Use cloud-init, images baked with Packer, or a configuration management tool (Ansible) outside Terraform for OS-level setup.
+- Use user data or metadata scripts for instance bootstrapping.
+
+**When acceptable:**
+
+- Last resort, simple one-time tasks (registering something).
+- Bootstrapping to attach a resource to external system when no better mechanism exists.
+
+**Follow-up Questions:**
+
+- Give an example where you replaced provisioners with a better pattern.
+- How does `null_resource` interact with provisioners?
+
+---
+
+### Q30. What is `null_resource` and when would you use it?
+
+**Answer:**  
+`null_resource` is a resource that does not manage real infrastructure but can:
+
+- Hold `triggers` to run provisioners when something changes.
+- Enable orchestration or dependency modeling where no real resource exists.[web:71]
+
+**Example:**
+
+```hcl
+resource "null_resource" "post_config" {
+  triggers = {
+    image_hash = var.image_hash
+  }
+
+  provisioner "local-exec" {
+    command = "python post_config.py ${self.triggers.image_hash}"
+  }
+}
+```
+
+**Use Cases:**
+
+- As a bridge when migrating from script-based workflows.
+- For simple tasks that must run after set of resources change.
+
+**Common Mistakes:**
+
+- Overusing `null_resource` + provisioners to implement complex workflows inside Terraform (recreating Ansible/Jenkins inside Terraform).
+- Relying on `triggers` that don’t actually correlate with real state.
+
+**Follow-up Questions:**
+
+- When would you move logic from `null_resource` into a proper CI/CD job?
+- How do you avoid fragile dependencies when using `null_resource`?
