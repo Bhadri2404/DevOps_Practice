@@ -443,3 +443,491 @@ print(fqdns)  # ['api.bank.com', 'web.bank.com', 'db.bank.com']
 **Follow-up Question:**
 
 - How would you validate that `env` is a valid key and fail gracefully otherwise?
+
+## 6. FastAPI and Simple Automation APIs
+
+### Q16. Show a minimal FastAPI service that exposes a `/health` endpoint and a `/version` endpoint.
+
+**Answer:**
+
+```python
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+@app.get("/version")
+def version():
+    return {"version": "1.0.0"}
+```
+
+**Usage:** run with `uvicorn main:app --reload`. This pattern is useful for internal tools (e.g., deployment dashboards, config APIs).[web:110]
+
+**Follow-up Question:**
+
+- How would you add a `POST /deploy` endpoint that accepts a JSON payload to trigger a deployment job?
+
+---
+
+### Q17. How do you handle request validation in FastAPI for a deployment API?
+
+**Answer:**
+
+Use Pydantic models for request bodies:
+
+```python
+from fastapi import FastAPI
+from pydantic import BaseModel, Field
+
+app = FastAPI()
+
+class DeployRequest(BaseModel):
+    service: str = Field(..., regex=r"^[a-z0-9-]+$")
+    environment: str
+    version: str
+
+@app.post("/deploy")
+def deploy(req: DeployRequest):
+    # Trigger Jenkins, ArgoCD, or internal script here
+    return {"status": "scheduled", "service": req.service, "env": req.environment}
+```
+
+**Benefits:**
+
+- Automatic validation and clear error responses.
+- Self-documenting OpenAPI schema.
+
+**Follow-up Question:**
+
+- How would you secure this endpoint (auth token, IP allowlist, etc.)?
+
+---
+
+## 7. HTTP/REST Automation (Requests)
+
+### Q18. Program: Query a REST API (e.g., GitHub) to list open issues for a repo.
+
+**Answer:**
+
+```python
+import requests
+
+def get_open_issues(owner: str, repo: str):
+    url = f"https://api.github.com/repos/{owner}/{repo}/issues"
+    resp = requests.get(url, params={"state": "open"})
+    resp.raise_for_status()
+    return [
+        {"number": issue["number"], "title": issue["title"]}
+        for issue in resp.json()
+    ]
+
+for issue in get_open_issues("kubernetes", "kubernetes"):
+    print(f"#{issue['number']}: {issue['title']}")
+```
+
+**DevOps Use Case:** building tooling to sync GitHub issues with Jira, or to auto-label incidents.[web:106]
+
+**Follow-up Question:**
+
+- How would you handle API rate limiting (e.g., backoff when hitting 403/429)?
+
+---
+
+### Q19. Program: Send a Slack message when a health check fails.
+
+**Answer:**
+
+```python
+import requests
+
+def send_slack(webhook_url: str, text: str):
+    payload = {"text": text}
+    resp = requests.post(webhook_url, json=payload, timeout=5)
+    resp.raise_for_status()
+
+def check_and_alert(url: str, webhook_url: str):
+    try:
+        resp = requests.get(url, timeout=3)
+        if resp.status_code != 200:
+            send_slack(webhook_url, f"ALERT: Health check failed for {url} ({resp.status_code})")
+    except requests.RequestException as e:
+        send_slack(webhook_url, f"ALERT: Error checking {url}: {e}")
+
+# Example (webhook_url from secrets):
+# check_and_alert("https://service/health", WEBHOOK_URL)
+```
+
+**Follow-up Question:**
+
+- How would you batch multiple health check results into a single Slack message?
+
+---
+
+## 8. boto3 and Cloud Automation
+
+### Q20. Program: List all running EC2 instances in a region with their Name tags.
+
+**Answer:**
+
+```python
+import boto3
+
+ec2 = boto3.client("ec2", region_name="ap-south-1")
+
+resp = ec2.describe_instances(
+    Filters=[{"Name": "instance-state-name", "Values": ["running"]}]
+)
+
+instances = []
+for reservation in resp["Reservations"]:
+    for inst in reservation["Instances"]:
+        name_tag = next(
+            (t["Value"] for t in inst.get("Tags", []) if t["Key"] == "Name"),
+            None,
+        )
+        instances.append({"id": inst["InstanceId"], "name": name_tag})
+
+for i in instances:
+    print(i["id"], i["name"])
+```
+
+**DevOps Use Case:** quick inventory, targeting instances for Ansible, or cost analysis.[web:106]
+
+**Follow-up Question:**
+
+- How would you extend this to include CPU utilization using CloudWatch?
+
+---
+
+### Q21. Program: Find S3 objects older than N days and print their keys (potential cleanup candidates).
+
+**Answer:**
+
+```python
+import boto3
+from datetime import datetime, timezone, timedelta
+
+s3 = boto3.client("s3")
+bucket = "my-logs-bucket"
+days = 30
+cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+resp = s3.list_objects_v2(Bucket=bucket)
+
+old_keys = []
+for obj in resp.get("Contents", []):
+    if obj["LastModified"] < cutoff:
+        old_keys.append(obj["Key"])
+
+print(f"Objects older than {days} days:")
+for key in old_keys:
+    print(key)
+```
+
+**Follow-up Question:**
+
+- How would you safely delete them in batches with error handling and dry-run option?
+
+---
+
+## 9. Multithreading for IO-Bound DevOps Tasks
+
+### Q22. Why is multithreading useful for many DevOps scripts, and give a simple example.
+
+**Answer:**  
+Many DevOps tasks are **IO-bound** (network calls, API requests, disk reads). Python’s `threading` is effective here because while one thread waits on IO, others can run. For CPU-bound tasks, prefer `multiprocessing`.[web:109]
+
+**Example: parallel URL health checks:**
+
+```python
+import threading
+import requests
+
+urls = ["https://service1/health", "https://service2/health", "https://service3/health"]
+
+def check(url):
+    try:
+        r = requests.get(url, timeout=3)
+        print(url, r.status_code)
+    except Exception as e:
+        print(url, "ERROR", e)
+
+threads = []
+for url in urls:
+    t = threading.Thread(target=check, args=(url,))
+    t.start()
+    threads.append(t)
+
+for t in threads:
+    t.join()
+```
+
+**Follow-up Question:**
+
+- How would you limit concurrency (e.g., at most 5 threads) to avoid overloading services?
+
+---
+
+### Q23. Program: Use `concurrent.futures` to speed up multiple API calls.
+
+**Answer:**
+
+```python
+import concurrent.futures
+import requests
+
+urls = ["https://service1/health", "https://service2/health", "https://service3/health"]
+
+def fetch_status(url: str) -> tuple[str, int]:
+    r = requests.get(url, timeout=3)
+    return url, r.status_code
+
+with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+    futures = [executor.submit(fetch_status, url) for url in urls]
+    for f in concurrent.futures.as_completed(futures):
+        url, status = f.result()
+        print(url, status)
+```
+
+**Advantages:** easy API, built-in thread pooling, error propagation.
+
+**Follow-up Question:**
+
+- How would you capture exceptions per future and log them, instead of letting them crash the executor?
+
+---
+
+## 10. More Small Coding Tasks (Interview-ish, DevOps flavor)
+
+### Q24. Program: Given a list of log lines, group them by service name and count errors.
+
+**Input:**
+
+```python
+logs = [
+    "api serviceA ERROR timeout",
+    "api serviceB INFO started",
+    "api serviceA ERROR db-fail",
+    "api serviceB ERROR auth-fail",
+]
+```
+
+**Answer:**
+
+```python
+from collections import Counter
+
+error_counter = Counter()
+
+for line in logs:
+    parts = line.split()
+    if len(parts) < 3:
+        continue
+    _, service, level = parts[:3]
+    if level == "ERROR":
+        error_counter[service] += 1
+
+print(error_counter)  # e.g., Counter({'serviceA': 2, 'serviceB': 1})
+```
+
+**Follow-up Question:**
+
+- How would you modify this to also store the last error message per service?
+
+---
+
+### Q25. Program: From a list of IP addresses, print only unique IPs and sort them.
+
+**Input:**
+
+```python
+ips = ["10.0.0.1", "10.0.0.2", "10.0.0.1", "192.168.1.5"]
+```
+
+**Answer:**
+
+```python
+unique_sorted = sorted(set(ips))
+print(unique_sorted)
+```
+
+**Use case:** deduplicating IPs from logs or firewall rules.
+
+**Follow-up Question:**
+
+- How would you validate that each string is a valid IPv4 address?
+
+---
+
+### Q26. Program: Given a list of tuples `(service, status)`, find services that are down on more than one node.
+
+**Input:**
+
+```python
+statuses = [
+    ("api", "up"),
+    ("api", "down"),
+    ("db", "down"),
+    ("db", "down"),
+    ("cache", "up"),
+]
+```
+
+**Answer:**
+
+```python
+from collections import Counter
+
+c = Counter(service for service, status in statuses if status == "down")
+down_multi = [svc for svc, count in c.items() if count > 1]
+print(down_multi)  # ['db']
+```
+
+**Follow-up Question:**
+
+- How would you integrate this with actual health check results from multiple nodes?
+
+---
+
+### Q27. Program: Read a large log file and stream process it line by line to find slow requests (>1s).
+
+**Answer:**
+
+```python
+from pathlib import Path
+
+log_path = Path("access.log")
+
+slow_requests = 0
+
+with log_path.open() as f:
+    for line in f:
+        parts = line.strip().split()
+        if not parts:
+            continue
+        # assume last field is response time in seconds
+        try:
+            rt = float(parts[-1])
+        except ValueError:
+            continue
+        if rt > 1.0:
+            slow_requests += 1
+
+print("Slow requests:", slow_requests)
+```
+
+**Patterns:**
+
+- Streaming vs reading entire file (memory efficient).
+- Basic log analysis pattern.
+
+**Follow-up Question:**
+
+- How would you also compute p95 and p99 latencies from that log?
+
+---
+
+### Q28. Program: Validate a JSON configuration file against required keys and print missing keys.
+
+**Answer:**
+
+```python
+import json
+from pathlib import Path
+
+required_keys = {"host", "port", "database", "user"}
+
+data = json.loads(Path("db_config.json").read_text())
+missing = required_keys - data.keys()
+
+if missing:
+    print("Missing keys:", missing)
+else:
+    print("Config OK")
+```
+
+**DevOps use:** ensure config files are valid before deploying.
+
+**Follow-up Question:**
+
+- How would you extend this to validate nested keys (e.g., `logging.level`)?
+
+---
+
+### Q29. Program: Given a mapping env→URL, check all envs and print which ones are down.
+
+**Input:**
+
+```python
+env_urls = {
+    "dev": "https://dev.api/health",
+    "qa": "https://qa.api/health",
+    "prod": "https://prod.api/health",
+}
+```
+
+**Answer:**
+
+```python
+import requests
+
+down_envs = []
+
+for env, url in env_urls.items():
+    try:
+        r = requests.get(url, timeout=3)
+        if r.status_code != 200:
+            down_envs.append(env)
+    except requests.RequestException:
+        down_envs.append(env)
+
+print("Down envs:", down_envs)
+```
+
+**Follow-up Question:**
+
+- How would you parallelize this check and send a single summary alert?
+
+---
+
+### Q30. Program: Basic retry decorator for flaky operations (e.g., HTTP call or shell command).
+
+**Answer:**
+
+```python
+import time
+import functools
+
+def retry(times: int = 3, delay: float = 1.0):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exc = None
+            for attempt in range(1, times + 1):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exc = e
+                    if attempt < times:
+                        time.sleep(delay)
+            raise last_exc
+        return wrapper
+    return decorator
+
+@retry(times=3, delay=2)
+def flaky_operation():
+    # example: call external API, run kubectl, etc.
+    raise RuntimeError("still failing")
+
+# flaky_operation()  # will try 3 times then raise
+```
+
+**DevOps Use Case:** wrap network calls, deployment steps, or health checks to handle transient failures correctly.
+
+**Follow-up Question:**
+
+- How would you make this decorator log each retry attempt with backoff (e.g., exponential)?
+
