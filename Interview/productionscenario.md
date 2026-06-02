@@ -528,3 +528,23 @@ Ansible failures shouldn’t be hidden. They must surface clearly in CI and moni
 ### How I summarize this in an interview
 
 > “We had cases where Jenkins‑triggered Ansible runs (both CLI and Tower) were failing intermittently. I systematically checked Jenkins console logs and Tower logs, increased Ansible verbosity, and fixed environment issues like SSH credentials and missing Ansible binaries on agents. Then I improved the playbooks to be idempotent and added a shared Jenkins wrapper for Ansible calls. This made our Jenkins + Ansible integration much more stable and easier to troubleshoot.”
+
+
+### Jenkins Agent Production Issue – Story Format (1.5–2 Minutes)
+
+> "One production issue I worked on was Jenkins agents frequently going offline, which started impacting our CI/CD process.
+>
+> We first noticed the issue when developers reported that their builds were stuck in the queue for a long time, and some deployments were failing because the agent disconnected during execution. Since multiple teams were affected and releases were getting delayed, we treated it as a high-priority incident.
+>
+> I started by checking the Jenkins dashboard and node logs. I found that a few agents were repeatedly disconnecting. To identify the root cause, I worked closely with the Linux and network teams. Together, we checked server health, connectivity, and agent configurations.
+>
+> During the investigation, we found multiple issues. Some agents had unstable SSH connections, a few had Java version mismatches, and some nodes were overloaded because too many executors were configured for the available CPU and memory.
+>
+> We fixed the connectivity issues, updated Java versions, restarted and reconnected the affected agents, and recreated a few corrupted agents. We also optimized executor counts and improved node labeling so workloads were sent to the right agents.
+>
+> After resolving the immediate issue, I wanted to make sure it wouldn't happen again. I created an Ansible-based standard configuration for Jenkins agents so every new agent would have the same Java version, tools, permissions, and settings. We also added monitoring through Prometheus and Grafana with alerts for CPU, memory, disk usage, and agent availability.
+>
+> Finally, I documented the complete RCA, troubleshooting steps, recovery procedure, and standard agent setup process in Confluence and shared it with the team. Because of these improvements, Jenkins became much more stable, build failures reduced significantly, and developers were able to deploy applications without delays."
+
+This version sounds natural, practical, and shows **ownership, collaboration, troubleshooting, automation, monitoring, and documentation** within about **2 minutes**.
+
