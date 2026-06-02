@@ -548,3 +548,29 @@ Ansible failures shouldn’t be hidden. They must surface clearly in CI and moni
 
 This version sounds natural, practical, and shows **ownership, collaboration, troubleshooting, automation, monitoring, and documentation** within about **2 minutes**.
 
+
+
+### Kubernetes Production Outage – Story Format (1.5–2 Minutes)
+
+> "One production issue I worked on involved a Kubernetes microservice running on AWS that started crashing frequently after a new application release.
+>
+> The issue was first identified through Grafana alerts. We noticed an increase in pod restarts and application error rates. At the same time, users were experiencing intermittent 5xx errors and request timeouts while accessing the application.
+>
+> Since it was a production-facing service, we immediately started investigating. I checked the Grafana dashboards and then used `kubectl get pods` to verify the pod status. I found that several pods were in a CrashLoopBackOff state.
+>
+> Next, I reviewed the application logs using `kubectl logs` and collaborated with the application development team to understand what changes were introduced in the latest release. During the analysis, we found that the new version included additional features that increased memory consumption significantly.
+>
+> I also checked Kubernetes metrics and noticed that the pods were hitting their memory limits and getting terminated due to Out Of Memory (OOM) events. Initially, we verified whether HPA or Cluster Autoscaler was causing the issue, but both were working correctly. The actual problem was that the pod resource requests and limits were not updated to match the new application's resource requirements.
+>
+> To fix the issue, I worked with the developers to estimate the required CPU and memory values. We updated the resource requests and limits in the Helm values file, committed the changes to Git, and allowed Argo CD to synchronize the updated deployment to the Kubernetes cluster.
+>
+> After deployment, we closely monitored Grafana dashboards and Prometheus metrics. We observed that pod restarts stopped, memory utilization stabilized, latency returned to normal levels, and user-reported errors disappeared.
+>
+> To prevent similar issues in the future, I introduced resource validation checks in our CI pipeline and documented recommended CPU and memory baselines for each microservice. We also added a review step during deployments to ensure resource configurations are evaluated whenever major application changes are introduced.
+>
+> The main lesson from this incident was that even when autoscaling is configured correctly, proper pod resource requests and limits are critical for application stability. By using Kubernetes metrics, Prometheus, and Grafana, we quickly identified the bottleneck, fixed it through our GitOps process, and restored the service with minimal downtime."
+
+### Short Interview Version (45–60 Seconds)
+
+> "After a new release, one of our production microservices started showing 5xx errors and timeouts. Grafana alerts indicated increased pod restarts. I checked the Kubernetes cluster and found pods in CrashLoopBackOff. Using pod logs and metrics, I identified Out Of Memory errors. I collaborated with the development team and found that the new release increased memory usage, but the Kubernetes resource limits had not been updated. We modified the CPU and memory requests/limits in the Helm configuration, committed the changes to Git, and Argo CD deployed them automatically. After deployment, pod restarts stopped and application performance normalized. We then added resource validation checks and documented performance baselines to avoid similar incidents in future releases."
+
