@@ -574,3 +574,31 @@ This version sounds natural, practical, and shows **ownership, collaboration, tr
 
 > "After a new release, one of our production microservices started showing 5xx errors and timeouts. Grafana alerts indicated increased pod restarts. I checked the Kubernetes cluster and found pods in CrashLoopBackOff. Using pod logs and metrics, I identified Out Of Memory errors. I collaborated with the development team and found that the new release increased memory usage, but the Kubernetes resource limits had not been updated. We modified the CPU and memory requests/limits in the Helm configuration, committed the changes to Git, and Argo CD deployed them automatically. After deployment, pod restarts stopped and application performance normalized. We then added resource validation checks and documented performance baselines to avoid similar incidents in future releases."
 
+
+### IBM ELM / Jira Availability & Backup Issue – Story Format (1.5–2 Minutes)
+
+> "One of the production responsibilities I handled was supporting IBM ELM and Jira, which were critical tools used by development, QA, and project management teams for daily work.
+>
+> We started receiving complaints from users that Jira and IBM ELM were becoming slow during peak hours, and occasionally the applications would become temporarily unavailable. This was impacting issue tracking, requirement management, and team productivity because users were unable to access their work items on time.
+>
+> I started by checking the underlying Linux servers where these applications were hosted. I analyzed CPU, memory, disk utilization, application logs, and database performance. I also collaborated with the application support and database teams to understand if there were any backend bottlenecks.
+>
+> During the investigation, we found multiple issues. The JVM memory settings were not optimized for the current user load, database connections were reaching limits during peak usage, and old logs and indexes were consuming a significant amount of disk space, which was affecting performance.
+>
+> To resolve the issue, I tuned the JVM heap settings, optimized database connection parameters, and cleaned up unnecessary logs and old indexes. After implementing these changes, the application performance improved significantly, and users no longer experienced frequent slowdowns.
+>
+> While working on this, I also identified another risk. The backup process for Jira and IBM ELM was mostly manual and inconsistent, which could have caused problems during a disaster recovery situation.
+>
+> To address this, I created automated backup scripts using shell scripting and cron jobs. We scheduled daily application backups and database dumps, and stored them on separate storage locations. I also performed periodic restore testing to ensure the backups were actually usable when needed.
+>
+> To improve operational visibility, I implemented monitoring and alerting for CPU, memory, disk usage, service availability, and backup failures. This allowed us to proactively identify issues before users reported them.
+>
+> Finally, I documented standard operating procedures, including backup, restore, restart, and recovery steps, and shared them with the support team. Because the process was documented and tested, incident resolution became much faster and the team's confidence in recovery procedures improved significantly.
+>
+> As a result, application stability improved, backup reliability increased, and we reduced downtime and recovery time whenever issues occurred."
+
+---
+
+### Short Interview Version (45–60 Seconds)
+
+> "I supported IBM ELM and Jira administration in production. We experienced performance issues where users reported slow response times and occasional outages. I investigated the Linux servers, application logs, JVM settings, and database connections, working with the database and application support teams. We found resource bottlenecks and disk space issues caused by old logs and indexes. I optimized JVM memory, tuned database connections, and cleaned up unused data, which improved application performance. I also automated backups using shell scripts and cron jobs, stored backups on separate storage, tested restores regularly, and implemented monitoring and alerts for service health and backup failures. Finally, I documented recovery procedures and runbooks, which helped reduce incident resolution time and improved platform reliability."
