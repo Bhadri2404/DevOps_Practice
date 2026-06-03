@@ -1,193 +1,513 @@
-If you are saying you worked on monitoring Kubernetes workloads using Prometheus and Grafana, these are some commonly used PromQL queries that are realistic for day-to-day production support.
+If an interviewer asks you about PromQL, don't just memorize the query. Understand what each function and metric does.
 
-## 1. Pod CPU Usage
+---
 
-**Query:**
+# 1. Pod CPU Usage
+
+### Query
 
 ```promql
 sum(rate(container_cpu_usage_seconds_total{namespace="production"}[5m])) by (pod)
 ```
 
-### What it does
+---
 
-* Shows CPU consumption of each pod.
-* Helps identify pods consuming high CPU.
+## Breakdown
 
-### Production Use Case
+### container_cpu_usage_seconds_total
 
-"If users reported slowness, I checked pod CPU utilization in Grafana to identify any pod consuming excessive CPU resources."
+This metric is collected by Prometheus from Kubernetes containers.
+
+Example:
+
+```text
+Pod-A = 1000
+Pod-B = 500
+```
+
+This means:
+
+* Pod-A has consumed 1000 CPU seconds since it started.
+* Pod-B has consumed 500 CPU seconds since it started.
+
+This value continuously increases.
 
 ---
 
-## 2. Pod Memory Usage
+### rate()
 
-**Query:**
+```promql
+rate(container_cpu_usage_seconds_total[5m])
+```
+
+`rate()` calculates how fast the value is increasing.
+
+Example:
+
+```text
+5 minutes ago = 1000
+Now = 1030
+```
+
+Increase:
+
+```text
+30 CPU seconds
+```
+
+Prometheus calculates CPU consumption per second.
+
+Without rate():
+
+```text
+1000 → 1030 → 1050
+```
+
+You only see increasing numbers.
+
+With rate():
+
+```text
+0.1 CPU
+0.2 CPU
+0.3 CPU
+```
+
+You see actual CPU usage.
+
+---
+
+### [5m]
+
+```promql
+[5m]
+```
+
+Means:
+
+"Look at the last 5 minutes of data."
+
+Prometheus calculates CPU usage based on the previous 5 minutes.
+
+---
+
+### sum()
+
+```promql
+sum(...)
+```
+
+Adds all CPU values together.
+
+Example:
+
+```text
+Container-1 = 0.2 CPU
+Container-2 = 0.3 CPU
+```
+
+Result:
+
+```text
+0.5 CPU
+```
+
+---
+
+### by(pod)
+
+```promql
+by(pod)
+```
+
+Groups results by pod.
+
+Without:
+
+```text
+Total CPU = 5 CPUs
+```
+
+With:
+
+```text
+frontend-pod = 1 CPU
+backend-pod = 2 CPU
+api-pod = 2 CPU
+```
+
+---
+
+## Output
+
+```text
+frontend-pod = 0.4 CPU
+backend-pod = 0.8 CPU
+api-pod = 0.2 CPU
+```
+
+---
+
+## Production Usage
+
+> When users reported slowness, I checked pod CPU utilization in Grafana. If a pod was consuming excessive CPU, I verified application logs and increased CPU requests/limits if required.
+
+---
+
+# 2. Pod Memory Usage
+
+### Query
 
 ```promql
 sum(container_memory_working_set_bytes{namespace="production"}) by (pod)
 ```
 
-### What it does
+---
 
-* Shows current memory usage of each pod.
-* Helps detect memory leaks.
+## Breakdown
 
-### Production Use Case
+### container_memory_working_set_bytes
 
-"If pods were restarting with OOMKilled errors, I checked memory utilization through Grafana dashboards."
+Shows actual memory used by a container.
+
+Example:
+
+```text
+frontend = 500 MB
+backend = 1 GB
+api = 700 MB
+```
 
 ---
 
-## 3. Pod Restart Count
+### sum()
 
-**Query:**
+Adds memory usage of all containers inside a pod.
+
+Example:
+
+```text
+Container-A = 400 MB
+Container-B = 300 MB
+```
+
+Result:
+
+```text
+700 MB
+```
+
+---
+
+### by(pod)
+
+Groups memory usage per pod.
+
+Output:
+
+```text
+frontend-pod = 700 MB
+backend-pod = 1.2 GB
+```
+
+---
+
+## Production Usage
+
+> If a pod was getting OOMKilled, I checked memory consumption in Grafana. If memory utilization was consistently high, I increased memory limits after validation.
+
+---
+
+# 3. Pod Restart Count
+
+### Query
 
 ```promql
 increase(kube_pod_container_status_restarts_total[1h])
 ```
 
-### What it does
+---
 
-* Shows how many times containers restarted in the last hour.
+## Breakdown
 
-### Production Use Case
+### kube_pod_container_status_restarts_total
 
-"If applications were unstable, I checked restart counts to identify problematic pods."
+Tracks total restarts.
+
+Example:
+
+```text
+Current restart count = 10
+```
+
+Means:
+
+Container restarted 10 times since creation.
 
 ---
 
-## 4. Node CPU Utilization %
+### increase()
 
-**Query:**
+Calculates how much the value increased.
+
+Example:
+
+```text
+1 hour ago = 4
+Now = 10
+```
+
+Result:
+
+```text
+6 restarts
+```
+
+---
+
+### [1h]
+
+Means:
+
+```text
+Look at the last one hour.
+```
+
+---
+
+## Output
+
+```text
+frontend-pod = 0
+backend-pod = 3
+api-pod = 5
+```
+
+---
+
+## Production Usage
+
+> If application outages occurred, I checked pod restart metrics. Multiple restarts usually indicated application crashes, memory issues, or failed health checks.
+
+---
+
+# 4. Node CPU Utilization %
+
+### Query
 
 ```promql
 100 - (avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
 ```
 
-### What it does
+---
 
-* Shows node CPU utilization percentage.
+## Breakdown
 
-### Production Use Case
+### node_cpu_seconds_total
 
-"If nodes were under heavy load, I verified CPU usage before deciding whether cluster scaling was required."
+Tracks total CPU time of a node.
 
 ---
 
-## 5. Node Memory Utilization %
+### mode="idle"
 
-**Query:**
-
-```promql
-(
-(1 - (
-node_memory_MemAvailable_bytes
-/
-node_memory_MemTotal_bytes
-)) * 100
-)
-```
-
-### What it does
-
-* Shows percentage of memory utilized on worker nodes.
-
-### Production Use Case
-
-"I monitored worker node memory to ensure enough resources were available for Kubernetes scheduling."
-
----
-
-# Bonus Query (Very Common)
-
-## Pod Status
-
-```promql
-kube_pod_status_phase
-```
-
-### What it does
-
-Shows pod states:
-
-* Running
-* Pending
-* Failed
-* Succeeded
-
-### Production Use Case
-
-"When applications were not available, I checked pod states to quickly identify failed or pending pods."
-
----
-
-# How I Used Grafana in Production
-
-### Step 1
-
-Login to Grafana.
-
-### Step 2
-
-Go to:
-
-```text
-Dashboards → New Dashboard
-```
-
-### Step 3
-
-Click:
-
-```text
-Add Visualization
-```
-
-### Step 4
-
-Select:
-
-```text
-Prometheus
-```
-
-as datasource.
-
-### Step 5
-
-Paste the PromQL query.
+Idle means CPU is doing nothing.
 
 Example:
 
-```promql
-sum(rate(container_cpu_usage_seconds_total{namespace="production"}[5m])) by (pod)
-```
-
-### Step 6
-
-Click:
-
 ```text
-Run Query
+Idle CPU = 80%
 ```
 
-### Step 7
-
-Choose visualization type:
-
-* Time Series
-* Gauge
-* Stat
-* Table
-
-### Step 8
-
-Save dashboard.
+Node is mostly free.
 
 ---
 
-# Interview Answer (Simple)
+### rate()
 
-> In my project, I used Prometheus and Grafana for Kubernetes monitoring. I regularly monitored pod CPU usage, memory usage, pod restart counts, node CPU utilization, and node memory utilization. Whenever an application issue occurred, I checked Grafana dashboards using PromQL queries to identify resource bottlenecks, pod restarts, or node resource exhaustion. Based on the findings, I either increased resources, restarted pods, or escalated application-related issues to developers.
+Calculates idle CPU percentage over last 5 minutes.
 
-These 5 queries are very common and believable for a Kubernetes Production Support/DevOps Engineer role.
+Example:
+
+```text
+Idle = 0.8
+```
+
+Means:
+
+```text
+80% CPU idle
+```
+
+---
+
+### avg by(instance)
+
+Calculates average idle CPU for each node.
+
+Example:
+
+```text
+worker-1 = 80%
+worker-2 = 70%
+```
+
+---
+
+### *100
+
+Converts decimal to percentage.
+
+```text
+0.8 × 100 = 80%
+```
+
+---
+
+### 100 -
+
+We want CPU utilization, not idle.
+
+Example:
+
+```text
+Idle = 80%
+```
+
+CPU Utilization:
+
+```text
+100 - 80 = 20%
+```
+
+---
+
+## Output
+
+```text
+worker-1 = 20%
+worker-2 = 30%
+worker-3 = 75%
+```
+
+---
+
+## Production Usage
+
+> I monitored worker node CPU utilization. If utilization consistently exceeded 80%, I checked pod distribution and planned cluster scaling activities.
+
+---
+
+# 5. Node Memory Utilization %
+
+### Query
+
+```promql
+(
+(1 -
+(
+node_memory_MemAvailable_bytes
+/
+node_memory_MemTotal_bytes
+)
+) * 100
+)
+```
+
+---
+
+## Breakdown
+
+### node_memory_MemTotal_bytes
+
+Total memory available on node.
+
+Example:
+
+```text
+16 GB
+```
+
+---
+
+### node_memory_MemAvailable_bytes
+
+Currently available memory.
+
+Example:
+
+```text
+4 GB
+```
+
+---
+
+### Division
+
+```promql
+node_memory_MemAvailable_bytes
+/
+node_memory_MemTotal_bytes
+```
+
+Example:
+
+```text
+4 / 16
+=
+0.25
+```
+
+Means:
+
+```text
+25% memory available
+```
+
+---
+
+### 1 -
+
+```text
+1 - 0.25
+=
+0.75
+```
+
+Means:
+
+```text
+75% memory used
+```
+
+---
+
+### *100
+
+Converts to percentage.
+
+```text
+75%
+```
+
+---
+
+## Output
+
+```text
+worker-1 = 75%
+worker-2 = 40%
+worker-3 = 90%
+```
+
+---
+
+## Production Usage
+
+> I monitored node memory utilization through Grafana. If memory usage exceeded 85%, I checked which workloads were consuming memory and coordinated resource optimization or cluster scaling.
+
+---
+
+# Simple Interview Summary
+
+> In production, I used Grafana dashboards connected to Prometheus. The main PromQL queries I used were pod CPU utilization, pod memory utilization, pod restart count, node CPU utilization, and node memory utilization. Functions like `rate()` helped calculate resource consumption over time, `sum()` aggregated values from multiple containers, `increase()` tracked changes such as restart counts, and `by()` grouped metrics by pod or node. These dashboards helped me identify high resource usage, frequent pod restarts, and node capacity issues before they impacted applications.
