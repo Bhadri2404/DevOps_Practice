@@ -267,21 +267,21 @@ ansible_password=vagrant
 > Older versions used `ansible_ssh_user`, `ansible_ssh_pass`, `ansible_ssh_port`.
 
 ### 📁 Production Directory Layout
+```text
 production/
 ├── inventory
 ├── group_vars/
-│ ├── all # Variables for ALL hosts
-│ └── dbservers # Variables for dbservers group only
+│   ├── all          # Variables for ALL hosts
+│   └── dbservers    # Variables for dbservers group only
 └── host_vars/
-└── web1 # Variables for web1 host only
+    └── web1         # Variables for web1 host only
 
 staging/
 ├── inventory
 ├── group_vars/
-│ └── all
+│   └── all
 └── host_vars/
-
-text
+```
 
 ### 🏭 Production Scenario
 > Ansible manages 50 EC2 web servers and 10 RDS-connected app servers:
