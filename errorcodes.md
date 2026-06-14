@@ -1,4 +1,3 @@
-````md
 # DevOps Interview Handbook - Part 1
 # Deep Dive into HTTP Error Codes
 
@@ -1045,6 +1044,3 @@ Monitoring.
 
 504 indicates backend latency.
 I would investigate application performance, database queries, external dependencies, and infrastructure resource usage.
-````
-
-For tomorrow's interview, focus especially on **500, 502, 503, and 504**—these are the ones most frequently used in real EKS production troubleshooting discussions.
