@@ -1,0 +1,5 @@
+location         = "East US"
+vnet_cidr        = "10.0.0.0/16"
+subnet_cidr      = "10.0.1.0/24"
+admin_username   = "azureuser"
+dns_label_prefix = "myapp-demo-2026"
