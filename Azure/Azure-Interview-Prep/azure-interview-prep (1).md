@@ -1,4 +1,4 @@
-# 🎯 Azure Interview Prep — Senior DevOps Engineer (Endava)
+# 🎯 Azure Interview Prep — Senior DevOps Engineer
 
 > **Purpose:** Focused, interview-ready notes for an Azure (primary) + AWS DevOps role
 > **Assumes:** You already know cloud/DevOps fundamentals and AWS — every topic includes a 💡 "If you know AWS" anchor
