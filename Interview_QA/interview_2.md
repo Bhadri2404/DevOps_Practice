@@ -8508,7 +8508,7 @@ aws ec2 describe-instances
 aws backup list-backup-vaults
 ```
 
-## Most Important Follow-Up for the Wissen SRE Interview
+## Most Important Follow-Up for the   SRE Interview
 
 Interviewer: You told me you worked on Terraform Disaster Recovery infrastructure. What exactly did you do?
 
@@ -9542,7 +9542,7 @@ Suggested Interview Answer:
 
 End of Section 3 – Docker
 
-Covered: 20 detailed questions + 20 additional interview questions, including all three questions shared by Wissen HR and your requested multiple CMD/ENTRYPOINT and container crash scenarios.
+Covered: 20 detailed questions + 20 additional interview questions, including all three questions shared by   HR and your requested multiple CMD/ENTRYPOINT and container crash scenarios.
 
 Next Section 4: Jenkins and CI/CD – Multibranch Pipelines, Jenkinsfile, Webhooks, Microservices Deployment, Pipeline Failures, Agent Issues, Parallel Builds, Rollback, Blue-Green/Canary Deployment, Performance and Monitoring.
 
@@ -10773,7 +10773,7 @@ Covered: 20 detailed questions + 15 bonus interview questions, including self-ho
 
 Next Section 5: AWS Disaster Recovery – End-to-End Python/Bash DR Scripts, Cross-Region Backups, RTO/RPO, Automatic vs Manual Failover, Route 53, RDS Recovery, CI/CD Integration and Real Production Incident Scenarios.
 
-This section deserves particular attention because your Wissen HR notes emphasized detailed questions about personal DR implementation and recovery scripts.
+This section deserves particular attention because your   HR notes emphasized detailed questions about personal DR implementation and recovery scripts.
 
 # X Company – SRE Interview Preparation
 
@@ -10783,7 +10783,7 @@ This section deserves particular attention because your Wissen HR notes emphasiz
 
 Level: Second Round – SRE / DevOps (5 Years Experience)
 
-Focus: Questions shared by Wissen HR + additional practical SRE questions + real-world commands + disaster recovery automation.
+Focus: Questions shared by   HR + additional practical SRE questions + real-world commands + disaster recovery automation.
 
 ### Example Production Environment
 
@@ -11781,7 +11781,7 @@ aws cloudwatch describe-alarms \
 python dr_restore.py
 ```
 
-## Most Important Wissen Interview Questions – Final Revision
+## Most Important   Interview Questions – Final Revision
 
 These are the answers you should especially practise speaking.
 
@@ -11831,7 +11831,7 @@ Sample Answer:
 
 End of Section 5 – AWS Disaster Recovery
 
-Covered: 20 detailed interview questions + 18 bonus questions, including your Wissen HR questions about end-to-end scripts, real disaster execution, cross-region restores, manual and automated recovery, CI/CD integration, rollback, and failback.
+Covered: 20 detailed interview questions + 18 bonus questions, including your   HR questions about end-to-end scripts, real disaster execution, cross-region restores, manual and automated recovery, CI/CD integration, rollback, and failback.
 
 Next Section 6: Prometheus and Grafana – Production Monitoring, PromQL, Alertmanager, SRE SLIs/SLOs, CPU/Memory Troubleshooting, Kubernetes Monitoring, AWS Managed Grafana, and Real-Time Incident Scenarios.
 
@@ -12835,7 +12835,7 @@ histogram_quantile(
 
 Queries assume these metrics and labels are available. Adjust metric names to your application and exporters.
 
-## Most Important Wissen Interview Answers
+## Most Important   Interview Answers
 
 ### Interviewer: How did you configure monitoring for your Kubernetes application?
 
@@ -13771,7 +13771,7 @@ Answer: Toil is repetitive, manual operational work that can often be automated 
 | Check disk I/O           | `iostat -xz 1 5`                  |
 | Check network traffic    | `sudo tcpdump -i <interface> -nn` |
 
-## Most Important Wissen SRE Interview Scenarios
+## Most Important   SRE Interview Scenarios
 
 ### Scenario 1: Application is down. What will you do?
 
