@@ -1,6 +1,6 @@
 # Table of Contents
 
-- [Wissen Technology – SRE Interview Preparation](#wissen-technology--sre-interview-preparation)
+- [X Company – SRE Interview Preparation](#X -technology--sre-interview-preparation)
   - [Section 1: Kubernetes](#section-1-kubernetes)
     - [Subtopic 1.1: Argo CD – Real-Time Production Interview Questions](#subtopic-11-argo-cd--real-time-production-interview-questions)
       - [Example Production Environment](#example-production-environment)
@@ -25,7 +25,7 @@
       - [Q19. What happens to Argo CD during an EKS or AKS cluster upgrade?](#q19-what-happens-to-argo-cd-during-an-eks-or-aks-cluster-upgrade)
   - [Bonus: Rapid-Fire SRE Follow-Up Questions](#bonus-rapid-fire-sre-follow-up-questions)
   - [Argo CD – Last-Minute Command Revision](#argo-cd--last-minute-command-revision)
-- [Wissen Technology – SRE Interview Preparation](#wissen-technology--sre-interview-preparation-1)
+- [X Company – SRE Interview Preparation](#X -technology--sre-interview-preparation-1)
   - [Section 1: Kubernetes](#section-1-kubernetes-1)
     - [Subtopic 1.2: Deployments, StatefulSets, Nginx and Production Troubleshooting](#subtopic-12-deployments-statefulsets-nginx-and-production-troubleshooting)
       - [Example Production Environment](#example-production-environment-1)
@@ -50,7 +50,7 @@
       - [Q19. How do you migrate an application from Deployment to StatefulSet?](#q19-how-do-you-migrate-an-application-from-deployment-to-statefulset)
   - [Bonus: Additional Second-Round SRE Questions](#bonus-additional-second-round-sre-questions)
   - [Last-Minute Kubernetes Command Revision](#last-minute-kubernetes-command-revision)
-- [Wissen Technology – SRE Interview Preparation](#wissen-technology--sre-interview-preparation-2)
+- [X Company – SRE Interview Preparation](#X -technology--sre-interview-preparation-2)
   - [Section 1: Kubernetes](#section-1-kubernetes-2)
     - [Subtopic 1.3: Kubernetes Services, Networking, Ingress and Load Balancers](#subtopic-13-kubernetes-services-networking-ingress-and-load-balancers)
       - [Example Production Environment](#example-production-environment-2)
@@ -75,7 +75,7 @@
       - [Q19. How do you perform an application traffic migration without downtime?](#q19-how-do-you-perform-an-application-traffic-migration-without-downtime)
   - [Bonus: Additional Second-Round SRE Questions](#bonus-additional-second-round-sre-questions-1)
   - [Last-Minute Kubernetes Networking Commands](#last-minute-kubernetes-networking-commands)
-- [Wissen Technology – SRE Interview Preparation](#wissen-technology--sre-interview-preparation-3)
+- [X Company – SRE Interview Preparation](#X -technology--sre-interview-preparation-3)
   - [Section 1: Kubernetes](#section-1-kubernetes-3)
     - [Subtopic 1.4: Kubernetes Pod Troubleshooting and Real-Time Production Incidents](#subtopic-14-kubernetes-pod-troubleshooting-and-real-time-production-incidents)
       - [Example Production Environment](#example-production-environment-3)
@@ -101,7 +101,7 @@
       - [Q20. A production application is completely down. As an SRE, what steps will you take?](#q20-a-production-application-is-completely-down-as-an-sre-what-steps-will-you-take)
   - [Bonus: Additional SRE Interview Questions](#bonus-additional-sre-interview-questions)
   - [Last-Minute Kubernetes Pod Troubleshooting Commands](#last-minute-kubernetes-pod-troubleshooting-commands)
-- [Wissen Technology – SRE Interview Preparation](#wissen-technology--sre-interview-preparation-4)
+- [X Company – SRE Interview Preparation](#X -technology--sre-interview-preparation-4)
   - [Section 1: Kubernetes](#section-1-kubernetes-4)
     - [Subtopic 1.5: Kubernetes Security, RBAC, IAM, Secrets and EKS Security](#subtopic-15-kubernetes-security-rbac-iam-secrets-and-eks-security)
       - [Example Production Environment](#example-production-environment-4)
@@ -127,7 +127,7 @@
       - [Q20. A production Kubernetes Secret is accidentally exposed. What will you do?](#q20-a-production-kubernetes-secret-is-accidentally-exposed-what-will-you-do)
   - [Bonus: Additional Second-Round SRE Interview Questions](#bonus-additional-second-round-sre-interview-questions)
   - [Last-Minute Kubernetes Security Command Revision](#last-minute-kubernetes-security-command-revision)
-- [Wissen Technology – SRE Interview Preparation](#wissen-technology--sre-interview-preparation-5)
+- [X Company – SRE Interview Preparation](#X -technology--sre-interview-preparation-5)
   - [Section 1: Kubernetes](#section-1-kubernetes-5)
     - [Subtopic 1.6: Kubernetes Cluster Upgrade – AWS EKS, Azure AKS and Production Migration](#subtopic-16-kubernetes-cluster-upgrade--aws-eks-azure-aks-and-production-migration)
       - [Example Production Environment](#example-production-environment-5)
@@ -155,7 +155,7 @@
   - [Last-Minute EKS Upgrade Commands](#last-minute-eks-upgrade-commands)
   - [Last-Minute AKS Upgrade Commands](#last-minute-aks-upgrade-commands)
   - [How to Explain the Complete Upgrade Process in an Interview](#how-to-explain-the-complete-upgrade-process-in-an-interview)
-- [Wissen Technology – SRE Interview Preparation](#wissen-technology--sre-interview-preparation-6)
+- [X Company – SRE Interview Preparation](#X -technology--sre-interview-preparation-6)
   - [Section 1: Kubernetes](#section-1-kubernetes-6)
     - [Subtopic 1.7: Kubernetes Migration Strategies – EKS, AKS, Blue-Green and Production Cutover](#subtopic-17-kubernetes-migration-strategies--eks-aks-blue-green-and-production-cutover)
       - [Example Production Environment](#example-production-environment-6)
@@ -181,7 +181,7 @@
       - [Q20. Explain an end-to-end Kubernetes migration project you handled.](#q20-explain-an-end-to-end-kubernetes-migration-project-you-handled)
   - [Bonus: Additional Second-Round SRE Questions](#bonus-additional-second-round-sre-questions-3)
   - [Last-Minute Kubernetes Migration Commands](#last-minute-kubernetes-migration-commands)
-- [Wissen Technology – SRE Interview Preparation](#wissen-technology--sre-interview-preparation-7)
+- [X Company – SRE Interview Preparation](#X -technology--sre-interview-preparation-7)
   - [Section 1: Kubernetes](#section-1-kubernetes-7)
     - [Subtopic 1.8: Kubernetes Autoscaling – HPA, VPA, Cluster Autoscaler, Karpenter and Production Troubleshooting](#subtopic-18-kubernetes-autoscaling--hpa-vpa-cluster-autoscaler-karpenter-and-production-troubleshooting)
       - [Example Production Environment](#example-production-environment-7)
@@ -207,7 +207,7 @@
       - [Q20. Explain how you handled a production traffic spike using Kubernetes autoscaling.](#q20-explain-how-you-handled-a-production-traffic-spike-using-kubernetes-autoscaling)
   - [Bonus: Additional Second-Round SRE Questions](#bonus-additional-second-round-sre-questions-4)
   - [Last-Minute Autoscaling Commands](#last-minute-autoscaling-commands)
-- [Wissen Technology – SRE Interview Preparation](#wissen-technology--sre-interview-preparation-8)
+- [X Company – SRE Interview Preparation](#X -technology--sre-interview-preparation-8)
   - [Section 2: Terraform](#section-2-terraform)
     - [Subtopic 2.2: Advanced Terraform – State Locking, Force Unlock, State Migration, CI/CD Failures and Production Scenarios](#subtopic-22-advanced-terraform--state-locking-force-unlock-state-migration-cicd-failures-and-production-scenarios)
       - [Example Production Environment](#example-production-environment-8)
@@ -235,7 +235,7 @@
   - [Bonus: Additional Terraform Interview Questions](#bonus-additional-terraform-interview-questions)
   - [Important Terraform State Locking Commands – Quick Revision](#important-terraform-state-locking-commands--quick-revision)
   - [Most Important Scenario to Remember for Your Interview](#most-important-scenario-to-remember-for-your-interview)
-- [Wissen Technology – SRE Interview Preparation](#wissen-technology--sre-interview-preparation-9)
+- [X Company – SRE Interview Preparation](#X -technology--sre-interview-preparation-9)
   - [Section 2: Terraform](#section-2-terraform-1)
     - [Subtopic 2.3: Real-Time Production Scenarios – AWS Infrastructure, EKS, Disaster Recovery and CI/CD](#subtopic-23-real-time-production-scenarios--aws-infrastructure-eks-disaster-recovery-and-cicd)
       - [Example Production Environment](#example-production-environment-9)
@@ -261,8 +261,8 @@
       - [Q20. Explain a real-time Terraform infrastructure project from end to end.](#q20-explain-a-real-time-terraform-infrastructure-project-from-end-to-end)
   - [Bonus: Additional Second-Round Terraform Questions](#bonus-additional-second-round-terraform-questions)
   - [Last-Minute Production Troubleshooting Commands](#last-minute-production-troubleshooting-commands)
-  - [Most Important Follow-Up for the Wissen SRE Interview](#most-important-follow-up-for-the-wissen-sre-interview)
-- [Wissen Technology – SRE Interview Preparation](#wissen-technology--sre-interview-preparation-10)
+  - [Most Important Follow-Up for the X  SRE Interview](#most-important-follow-up-for-the-X -sre-interview)
+- [X Company – SRE Interview Preparation](#X -technology--sre-interview-preparation-10)
   - [Section 3: Docker](#section-3-docker)
     - [Subtopic 3.1: Dockerfile, CMD, ENTRYPOINT, Docker Compose, Container Troubleshooting and Production Scenarios](#subtopic-31-dockerfile-cmd-entrypoint-docker-compose-container-troubleshooting-and-production-scenarios)
       - [Example Production Environment](#example-production-environment-10)
@@ -289,7 +289,7 @@
   - [Bonus: Additional Second-Round Docker Interview Questions](#bonus-additional-second-round-docker-interview-questions)
   - [Last-Minute Docker Commands](#last-minute-docker-commands)
   - [Most Important Docker Production Scenario for Your Interview](#most-important-docker-production-scenario-for-your-interview)
-- [Wissen Technology – SRE Interview Preparation](#wissen-technology--sre-interview-preparation-11)
+- [X Company – SRE Interview Preparation](#X -technology--sre-interview-preparation-11)
   - [Section 4: Azure DevOps](#section-4-azure-devops)
     - [Subtopic 4.1: Azure DevOps CI/CD, Self-Hosted Agents, EKS/AKS Integration and Production Troubleshooting](#subtopic-41-azure-devops-cicd-self-hosted-agents-eksaks-integration-and-production-troubleshooting)
       - [Example Production Environment](#example-production-environment-11)
@@ -322,7 +322,7 @@
   - [Two Most Important Interview Answers](#two-most-important-interview-answers)
     - [Interviewer: How did you configure a self-hosted agent in Azure DevOps?](#interviewer-how-did-you-configure-a-self-hosted-agent-in-azure-devops)
     - [Interviewer: How does Azure DevOps connect to AWS EKS and Azure AKS?](#interviewer-how-does-azure-devops-connect-to-aws-eks-and-azure-aks)
-- [Wissen Technology – SRE Interview Preparation](#wissen-technology--sre-interview-preparation-12)
+- [X Company – SRE Interview Preparation](#X -technology--sre-interview-preparation-12)
   - [Section 5: AWS Disaster Recovery (DR)](#section-5-aws-disaster-recovery-dr)
     - [Subtopic 5.1: End-to-End Disaster Recovery, Python/Bash Scripts, Cross-Region Backups, Failover and Production Scenarios](#subtopic-51-end-to-end-disaster-recovery-pythonbash-scripts-cross-region-backups-failover-and-production-scenarios)
       - [Example Production Environment](#example-production-environment-12)
@@ -348,11 +348,11 @@
       - [Q20. How do you switch traffic back to the primary region after Disaster Recovery?](#q20-how-do-you-switch-traffic-back-to-the-primary-region-after-disaster-recovery)
   - [Bonus: Additional AWS DR Interview Questions](#bonus-additional-aws-dr-interview-questions)
   - [Last-Minute AWS Disaster Recovery Commands](#last-minute-aws-disaster-recovery-commands)
-  - [Most Important Wissen Interview Questions – Final Revision](#most-important-wissen-interview-questions--final-revision)
+  - [Most Important X  Interview Questions – Final Revision](#most-important-X -interview-questions--final-revision)
     - [Interviewer: Were you involved in the end-to-end DR setup? Explain your contribution.](#interviewer-were-you-involved-in-the-end-to-end-dr-setup-explain-your-contribution)
     - [Interviewer: Explain how your DR automation script works, line by line.](#interviewer-explain-how-your-dr-automation-script-works-line-by-line)
     - [Interviewer: A disaster happens at 2 AM. How will you handle it?](#interviewer-a-disaster-happens-at-2-am-how-will-you-handle-it)
-- [Wissen Technology – SRE Interview Preparation](#wissen-technology--sre-interview-preparation-13)
+- [X Company – SRE Interview Preparation](#X -technology--sre-interview-preparation-13)
   - [Section 6: Prometheus, Grafana and SRE Monitoring](#section-6-prometheus-grafana-and-sre-monitoring)
     - [Subtopic 6.1: Production Monitoring, PromQL, Alertmanager, AWS Managed Grafana and Incident Troubleshooting](#subtopic-61-production-monitoring-promql-alertmanager-aws-managed-grafana-and-incident-troubleshooting)
       - [Example Production Environment](#example-production-environment-13)
@@ -378,10 +378,10 @@
       - [Q20. A production application goes down at 2 AM. How do you use Prometheus and Grafana to troubleshoot?](#q20-a-production-application-goes-down-at-2-am-how-do-you-use-prometheus-and-grafana-to-troubleshoot)
   - [Bonus: Additional Prometheus, Grafana and SRE Interview Questions](#bonus-additional-prometheus-grafana-and-sre-interview-questions)
   - [Last-Minute PromQL Revision](#last-minute-promql-revision)
-  - [Most Important Wissen Interview Answers](#most-important-wissen-interview-answers)
+  - [Most Important X  Interview Answers](#most-important-X -interview-answers)
     - [Interviewer: How did you configure monitoring for your Kubernetes application?](#interviewer-how-did-you-configure-monitoring-for-your-kubernetes-application)
     - [Interviewer: Your application is down, but Grafana shows no data. What will you do?](#interviewer-your-application-is-down-but-grafana-shows-no-data-what-will-you-do)
-- [Wissen Technology – SRE Interview Preparation](#wissen-technology--sre-interview-preparation-14)
+- [X Company – SRE Interview Preparation](#X -technology--sre-interview-preparation-14)
   - [Section 7: Advanced SRE Production Scenarios](#section-7-advanced-sre-production-scenarios)
     - [Subtopic 7.1: Incident Management, Linux, AWS Networking, SLA/SLO and Real-Time Troubleshooting](#subtopic-71-incident-management-linux-aws-networking-slaslo-and-real-time-troubleshooting)
       - [Example Production Environment](#example-production-environment-14)
@@ -407,12 +407,12 @@
       - [Q20. How do you reduce manual operational work as an SRE?](#q20-how-do-you-reduce-manual-operational-work-as-an-sre)
   - [Bonus: Additional Second-Round SRE Interview Questions](#bonus-additional-second-round-sre-interview-questions-1)
   - [Last-Minute Linux and SRE Command Revision](#last-minute-linux-and-sre-command-revision)
-  - [Most Important Wissen SRE Interview Scenarios](#most-important-wissen-sre-interview-scenarios)
+  - [Most Important X  SRE Interview Scenarios](#most-important-X -sre-interview-scenarios)
     - [Scenario 1: Application is down. What will you do?](#scenario-1-application-is-down-what-will-you-do)
     - [Scenario 2: EC2 CPU usage is 100%. What will you do?](#scenario-2-ec2-cpu-usage-is-100-what-will-you-do)
     - [Scenario 3: Application is slow, but CPU and memory are normal. What will you check?](#scenario-3-application-is-slow-but-cpu-and-memory-are-normal-what-will-you-check)
     - [Scenario 4: Production fails immediately after a deployment. What is your rollback strategy?](#scenario-4-production-fails-immediately-after-a-deployment-what-is-your-rollback-strategy)
-- [Wissen Technology – SRE Interview Preparation](#wissen-technology--sre-interview-preparation-15)
+- [X Company – SRE Interview Preparation](#X -technology--sre-interview-preparation-15)
   - [Section 8: Azure and AWS Private Networking](#section-8-azure-and-aws-private-networking)
     - [Subtopic 8.1: Private Endpoints, Private Link, VNet Integration, VPC Endpoints and Internal Resource Communication](#subtopic-81-private-endpoints-private-link-vnet-integration-vpc-endpoints-and-internal-resource-communication)
       - [Example Production Environment](#example-production-environment-15)
@@ -447,7 +447,7 @@
   - [Most Important Interview Question 1](#most-important-interview-question-1)
   - [Most Important Interview Question 2](#most-important-interview-question-2)
   - [Most Important Interview Question 3](#most-important-interview-question-3)
-- [Wissen Technology – SRE Interview Preparation](#wissen-technology--sre-interview-preparation-16)
+- [X Company – SRE Interview Preparation](#X -technology--sre-interview-preparation-16)
   - [Section 8: Azure and AWS Private Networking](#section-8-azure-and-aws-private-networking-1)
     - [Subtopic 8.2: Advanced Azure Integration – Event Hubs, Event Grid, Service Bus, Storage Queues, Key Vault and Internal Networking](#subtopic-82-advanced-azure-integration--event-hubs-event-grid-service-bus-storage-queues-key-vault-and-internal-networking)
       - [Example Production Environment](#example-production-environment-16)
@@ -484,7 +484,7 @@
     - [Interviewer: How does AKS communicate with Event Hubs, Key Vault, and Storage Queue without internet?](#interviewer-how-does-aks-communicate-with-event-hubs-key-vault-and-storage-queue-without-internet)
     - [Interviewer: An AKS application cannot consume messages from Service Bus. What will you check?](#interviewer-an-aks-application-cannot-consume-messages-from-service-bus-what-will-you-check)
     - [Interviewer: How would you design a completely private Azure application architecture?](#interviewer-how-would-you-design-a-completely-private-azure-application-architecture)
-- [Wissen Technology – SRE Interview Preparation](#wissen-technology--sre-interview-preparation-17)
+- [X Company – SRE Interview Preparation](#X -technology--sre-interview-preparation-17)
   - [Section 8: AWS and EKS Private Networking](#section-8-aws-and-eks-private-networking)
     - [Subtopic 8.3: Advanced AWS Integration – SQS, SNS, EventBridge, Kinesis, S3, Secrets Manager, Pod Identity and Internal Load Balancers](#subtopic-83-advanced-aws-integration--sqs-sns-eventbridge-kinesis-s3-secrets-manager-pod-identity-and-internal-load-balancers)
       - [Example Production Environment](#example-production-environment-17)
@@ -522,7 +522,7 @@
   - [Most Important Interview Question 2](#most-important-interview-question-2-1)
   - [Most Important Interview Question 3](#most-important-interview-question-3-1)
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 1: Kubernetes
 
@@ -1249,7 +1249,7 @@ End of Subtopic 1.1 – Argo CD
 
 Please review this format. If you confirm, I'll continue from scratch using this same question-and-answer depth, practical commands, and production examples for the next Kubernetes subtopic, without unnecessarily increasing the content length.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 1: Kubernetes
 
@@ -2099,7 +2099,7 @@ End of Subtopic 1.2 – Kubernetes Deployments, StatefulSets and Nginx
 
 Next in the preparation sequence: Subtopic 1.3 – Kubernetes Services, Networking, Ingress, Load Balancers, and Real-Time Networking Troubleshooting.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 1: Kubernetes
 
@@ -2935,7 +2935,7 @@ End of Subtopic 1.3 – Kubernetes Services, Networking, Ingress and Load Balanc
 
 Next: Subtopic 1.4 – Kubernetes Pod Troubleshooting: CrashLoopBackOff, ImagePullBackOff, Pending Pods, OOMKilled, CPU/Memory Issues, and Real-Time Production Incidents.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 1: Kubernetes
 
@@ -3784,7 +3784,7 @@ Covered: 20 detailed interview questions + 15 bonus questions, including your HR
 
 Next Subtopic 1.5: Kubernetes Security – RBAC, ServiceAccounts, NetworkPolicies, Secrets, Pod Security, IAM Roles for Service Accounts (IRSA), EKS Security, and Production Security Troubleshooting.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 1: Kubernetes
 
@@ -4597,7 +4597,7 @@ Covered: 20 detailed questions + 16 additional interview questions, including yo
 
 Next Subtopic 1.6: Kubernetes Cluster Upgrade Process – AWS EKS and Azure AKS, control-plane and worker-node upgrades, Kubernetes version compatibility, zero-downtime planning, node draining, rollback limitations, and real-time migration strategies.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 1: Kubernetes
 
@@ -5547,7 +5547,7 @@ Covered: 20 detailed interview questions + 17 bonus questions, including EKS and
 
 Next Subtopic 1.7: Kubernetes Migration Strategies – In-Place vs Blue-Green Migration, EKS-to-EKS, AKS-to-AKS, Helm Migration, Application Migration, Storage/Data Migration, and Production Cutover Scenarios.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 1: Kubernetes
 
@@ -6375,7 +6375,7 @@ Covered: 20 detailed questions + 15 bonus questions, including EKS-to-EKS, AKS-t
 
 Next Subtopic 1.8: Kubernetes Autoscaling – HPA, VPA, Cluster Autoscaler, Karpenter, Node Scaling, Resource Optimization, and Real-Time Production Scenarios.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 1: Kubernetes
 
@@ -7270,7 +7270,7 @@ Covered: 20 detailed interview questions + 15 additional questions, including HP
 
 Next Subtopic 1.9: Kubernetes Helm, ConfigMaps, Secrets, Scheduling, Taints and Tolerations, Node Affinity, and Production Deployment Scenarios.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 2: Terraform
 
@@ -8124,7 +8124,7 @@ Covered: 20 detailed interview questions + 17 bonus questions, including your re
 
 Next Subtopic 2.3: Terraform Real-Time Production Scenarios – EKS Creation, VPC Infrastructure, Multi-Region Deployment, AWS Disaster Recovery Infrastructure, Terraform Modules, and Complex CI/CD Troubleshooting.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 2: Terraform
 
@@ -9032,7 +9032,7 @@ aws ec2 describe-instances
 aws backup list-backup-vaults
 ```
 
-## Most Important Follow-Up for the Wissen SRE Interview
+## Most Important Follow-Up for the X  SRE Interview
 
 Interviewer: You told me you worked on Terraform Disaster Recovery infrastructure. What exactly did you do?
 
@@ -9056,7 +9056,7 @@ Covered: 20 detailed questions + 10 additional SRE interview questions.
 
 Next Section 3: Docker – Dockerfile, CMD vs ENTRYPOINT, Docker Compose, Multistage Builds, Image Optimization, Container Troubleshooting, Networking, Security, and Real-Time Production Scenarios.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 3: Docker
 
@@ -10066,11 +10066,11 @@ Suggested Interview Answer:
 
 End of Section 3 – Docker
 
-Covered: 20 detailed questions + 20 additional interview questions, including all three questions shared by Wissen HR and your requested multiple CMD/ENTRYPOINT and container crash scenarios.
+Covered: 20 detailed questions + 20 additional interview questions, including all three questions shared by X  HR and your requested multiple CMD/ENTRYPOINT and container crash scenarios.
 
 Next Section 4: Jenkins and CI/CD – Multibranch Pipelines, Jenkinsfile, Webhooks, Microservices Deployment, Pipeline Failures, Agent Issues, Parallel Builds, Rollback, Blue-Green/Canary Deployment, Performance and Monitoring.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 4: Azure DevOps
 
@@ -11297,9 +11297,9 @@ Covered: 20 detailed questions + 15 bonus interview questions, including self-ho
 
 Next Section 5: AWS Disaster Recovery – End-to-End Python/Bash DR Scripts, Cross-Region Backups, RTO/RPO, Automatic vs Manual Failover, Route 53, RDS Recovery, CI/CD Integration and Real Production Incident Scenarios.
 
-This section deserves particular attention because your Wissen HR notes emphasized detailed questions about personal DR implementation and recovery scripts.
+This section deserves particular attention because your X  HR notes emphasized detailed questions about personal DR implementation and recovery scripts.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 5: AWS Disaster Recovery (DR)
 
@@ -11307,7 +11307,7 @@ This section deserves particular attention because your Wissen HR notes emphasiz
 
 Level: Second Round – SRE / DevOps (5 Years Experience)
 
-Focus: Questions shared by Wissen HR + additional practical SRE questions + real-world commands + disaster recovery automation.
+Focus: Questions shared by X  HR + additional practical SRE questions + real-world commands + disaster recovery automation.
 
 ### Example Production Environment
 
@@ -12305,7 +12305,7 @@ aws cloudwatch describe-alarms \
 python dr_restore.py
 ```
 
-## Most Important Wissen Interview Questions – Final Revision
+## Most Important X  Interview Questions – Final Revision
 
 These are the answers you should especially practise speaking.
 
@@ -12355,11 +12355,11 @@ Sample Answer:
 
 End of Section 5 – AWS Disaster Recovery
 
-Covered: 20 detailed interview questions + 18 bonus questions, including your Wissen HR questions about end-to-end scripts, real disaster execution, cross-region restores, manual and automated recovery, CI/CD integration, rollback, and failback.
+Covered: 20 detailed interview questions + 18 bonus questions, including your X  HR questions about end-to-end scripts, real disaster execution, cross-region restores, manual and automated recovery, CI/CD integration, rollback, and failback.
 
 Next Section 6: Prometheus and Grafana – Production Monitoring, PromQL, Alertmanager, SRE SLIs/SLOs, CPU/Memory Troubleshooting, Kubernetes Monitoring, AWS Managed Grafana, and Real-Time Incident Scenarios.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 6: Prometheus, Grafana and SRE Monitoring
 
@@ -13359,7 +13359,7 @@ histogram_quantile(
 
 Queries assume these metrics and labels are available. Adjust metric names to your application and exporters.
 
-## Most Important Wissen Interview Answers
+## Most Important X  Interview Answers
 
 ### Interviewer: How did you configure monitoring for your Kubernetes application?
 
@@ -13389,7 +13389,7 @@ Covered: 20 detailed interview questions + 20 bonus questions, including all fiv
 
 Next Section 7: Advanced SRE Production Scenarios – SLA, SLO, Error Budgets, Incident Management, On-Call, RCA, Linux Troubleshooting, AWS Networking, Performance Issues, and Behavioral Questions.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 7: Advanced SRE Production Scenarios
 
@@ -14295,7 +14295,7 @@ Answer: Toil is repetitive, manual operational work that can often be automated 
 | Check disk I/O           | `iostat -xz 1 5`                  |
 | Check network traffic    | `sudo tcpdump -i <interface> -nn` |
 
-## Most Important Wissen SRE Interview Scenarios
+## Most Important X  SRE Interview Scenarios
 
 ### Scenario 1: Application is down. What will you do?
 
@@ -14337,7 +14337,7 @@ Covered: 20 detailed interview questions + 25 bonus questions on reliability, Li
 
 Next Section 8: SRE Managerial and Project Experience Questions – Explaining Your Previous Company Work, End-to-End Production Ownership, Handling Failures, Why You Changed Jobs, Team Collaboration, and HR Follow-Up Questions.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 8: Azure and AWS Private Networking
 
@@ -15522,7 +15522,7 @@ Covered: 20 detailed questions + 18 bonus questions, including private Azure SQL
 
 Next recommended topic: Advanced Azure Networking and Integration – Azure Event Hubs, Event Grid, Storage Queues, Service Bus, Key Vault, Managed Identity, Application Gateway, Internal Load Balancer and private AKS application integration.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 8: Azure and AWS Private Networking
 
@@ -16702,7 +16702,7 @@ Covered: 20 detailed interview questions + 20 bonus questions covering Event Hub
 
 Next Section 9: Azure DevOps and Azure Infrastructure Real-Time Failures – Private AKS Deployment Failures, Terraform State Issues, Azure RBAC, Managed Identity Errors, Event Hub Connectivity, VNet Routing, NSG, Azure Firewall, and End-to-End Production Incidents.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 8: AWS and EKS Private Networking
 
