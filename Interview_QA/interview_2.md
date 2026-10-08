@@ -1,4 +1,4 @@
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 1: Kubernetes
 
@@ -725,7 +725,7 @@ End of Subtopic 1.1 – Argo CD
 
 Please review this format. If you confirm, I'll continue from scratch using this same question-and-answer depth, practical commands, and production examples for the next Kubernetes subtopic, without unnecessarily increasing the content length.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 1: Kubernetes
 
@@ -1575,7 +1575,7 @@ End of Subtopic 1.2 – Kubernetes Deployments, StatefulSets and Nginx
 
 Next in the preparation sequence: Subtopic 1.3 – Kubernetes Services, Networking, Ingress, Load Balancers, and Real-Time Networking Troubleshooting.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 1: Kubernetes
 
@@ -2411,7 +2411,7 @@ End of Subtopic 1.3 – Kubernetes Services, Networking, Ingress and Load Balanc
 
 Next: Subtopic 1.4 – Kubernetes Pod Troubleshooting: CrashLoopBackOff, ImagePullBackOff, Pending Pods, OOMKilled, CPU/Memory Issues, and Real-Time Production Incidents.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 1: Kubernetes
 
@@ -3260,7 +3260,7 @@ Covered: 20 detailed interview questions + 15 bonus questions, including your HR
 
 Next Subtopic 1.5: Kubernetes Security – RBAC, ServiceAccounts, NetworkPolicies, Secrets, Pod Security, IAM Roles for Service Accounts (IRSA), EKS Security, and Production Security Troubleshooting.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 1: Kubernetes
 
@@ -4073,7 +4073,7 @@ Covered: 20 detailed questions + 16 additional interview questions, including yo
 
 Next Subtopic 1.6: Kubernetes Cluster Upgrade Process – AWS EKS and Azure AKS, control-plane and worker-node upgrades, Kubernetes version compatibility, zero-downtime planning, node draining, rollback limitations, and real-time migration strategies.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 1: Kubernetes
 
@@ -5023,7 +5023,7 @@ Covered: 20 detailed interview questions + 17 bonus questions, including EKS and
 
 Next Subtopic 1.7: Kubernetes Migration Strategies – In-Place vs Blue-Green Migration, EKS-to-EKS, AKS-to-AKS, Helm Migration, Application Migration, Storage/Data Migration, and Production Cutover Scenarios.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 1: Kubernetes
 
@@ -5851,7 +5851,7 @@ Covered: 20 detailed questions + 15 bonus questions, including EKS-to-EKS, AKS-t
 
 Next Subtopic 1.8: Kubernetes Autoscaling – HPA, VPA, Cluster Autoscaler, Karpenter, Node Scaling, Resource Optimization, and Real-Time Production Scenarios.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 1: Kubernetes
 
@@ -6746,7 +6746,7 @@ Covered: 20 detailed interview questions + 15 additional questions, including HP
 
 Next Subtopic 1.9: Kubernetes Helm, ConfigMaps, Secrets, Scheduling, Taints and Tolerations, Node Affinity, and Production Deployment Scenarios.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 2: Terraform
 
@@ -7600,7 +7600,7 @@ Covered: 20 detailed interview questions + 17 bonus questions, including your re
 
 Next Subtopic 2.3: Terraform Real-Time Production Scenarios – EKS Creation, VPC Infrastructure, Multi-Region Deployment, AWS Disaster Recovery Infrastructure, Terraform Modules, and Complex CI/CD Troubleshooting.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 2: Terraform
 
@@ -8532,7 +8532,7 @@ Covered: 20 detailed questions + 10 additional SRE interview questions.
 
 Next Section 3: Docker – Dockerfile, CMD vs ENTRYPOINT, Docker Compose, Multistage Builds, Image Optimization, Container Troubleshooting, Networking, Security, and Real-Time Production Scenarios.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 3: Docker
 
@@ -9546,7 +9546,7 @@ Covered: 20 detailed questions + 20 additional interview questions, including al
 
 Next Section 4: Jenkins and CI/CD – Multibranch Pipelines, Jenkinsfile, Webhooks, Microservices Deployment, Pipeline Failures, Agent Issues, Parallel Builds, Rollback, Blue-Green/Canary Deployment, Performance and Monitoring.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 4: Azure DevOps
 
@@ -10775,7 +10775,7 @@ Next Section 5: AWS Disaster Recovery – End-to-End Python/Bash DR Scripts, Cro
 
 This section deserves particular attention because your Wissen HR notes emphasized detailed questions about personal DR implementation and recovery scripts.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 5: AWS Disaster Recovery (DR)
 
@@ -11835,7 +11835,7 @@ Covered: 20 detailed interview questions + 18 bonus questions, including your Wi
 
 Next Section 6: Prometheus and Grafana – Production Monitoring, PromQL, Alertmanager, SRE SLIs/SLOs, CPU/Memory Troubleshooting, Kubernetes Monitoring, AWS Managed Grafana, and Real-Time Incident Scenarios.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 6: Prometheus, Grafana and SRE Monitoring
 
@@ -12865,7 +12865,7 @@ Covered: 20 detailed interview questions + 20 bonus questions, including all fiv
 
 Next Section 7: Advanced SRE Production Scenarios – SLA, SLO, Error Budgets, Incident Management, On-Call, RCA, Linux Troubleshooting, AWS Networking, Performance Issues, and Behavioral Questions.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 7: Advanced SRE Production Scenarios
 
@@ -13813,7 +13813,7 @@ Covered: 20 detailed interview questions + 25 bonus questions on reliability, Li
 
 Next Section 8: SRE Managerial and Project Experience Questions – Explaining Your Previous Company Work, End-to-End Production Ownership, Handling Failures, Why You Changed Jobs, Team Collaboration, and HR Follow-Up Questions.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 8: Azure and AWS Private Networking
 
@@ -14998,7 +14998,7 @@ Covered: 20 detailed questions + 18 bonus questions, including private Azure SQL
 
 Next recommended topic: Advanced Azure Networking and Integration – Azure Event Hubs, Event Grid, Storage Queues, Service Bus, Key Vault, Managed Identity, Application Gateway, Internal Load Balancer and private AKS application integration.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 8: Azure and AWS Private Networking
 
@@ -16178,7 +16178,7 @@ Covered: 20 detailed interview questions + 20 bonus questions covering Event Hub
 
 Next Section 9: Azure DevOps and Azure Infrastructure Real-Time Failures – Private AKS Deployment Failures, Terraform State Issues, Azure RBAC, Managed Identity Errors, Event Hub Connectivity, VNet Routing, NSG, Azure Firewall, and End-to-End Production Incidents.
 
-# Wissen Technology – SRE Interview Preparation
+# X Company – SRE Interview Preparation
 
 ## Section 8: AWS and EKS Private Networking
 
